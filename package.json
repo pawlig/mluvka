@@ -9,6 +9,18 @@
     "typecheck": "tsc --noEmit",
     "e2e": "node e2e/run.mjs"
   },
-  "dependencies": { "react": "19.3.1", "react-dom": "19.3.1", "@fontsource/manrope": "5.2.8" },
-  "devDependencies": { "vite": "8.3.5", "typescript": "7.0.2", "@types/react": "19.2.14", "@types/react-dom": "19.2.3", "@playwright/test": "1.64.1", "@types/node": "25.5.0" }
+  "dependencies": {
+    "@fontsource/manrope": "5.2.8",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "25.5.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
+  }
 }

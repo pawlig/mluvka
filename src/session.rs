@@ -65,6 +65,9 @@ pub fn normalize_server(input: &str) -> Result<String, String> {
         return Err("Zadejte adresu serveru jako host nebo host:port.".into());
     }
     if let Ok(addr) = input.parse::<SocketAddr>() {
+        if addr.port() == 0 {
+            return Err("Neplatný port serveru.".into());
+        }
         return Ok(addr.to_string());
     }
     let (host, port) = match input.rsplit_once(':') {
@@ -293,8 +296,8 @@ async fn connected(ws: &mut WebSocket, con: &mut Connection) -> Result<(), Strin
                             Control::Move { channel, password } => { audio.reset(); Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
                             Control::Chat { target, client, text } => {
                                 if text.trim().is_empty() || text.len() > 4000 { json_send(ws,json!({"type":"error","message":"Zpráva musí mít 1–4000 bajtů."})).await?; continue; }
-                                let mode = match target.as_str() { "server" => 3, "channel" => 2, "private" if client.is_some() => 1, _ => return Err("Neplatný cíl zprávy.".into()) };
-                                Some(command("sendtextmessage", &[("targetmode", mode.to_string()),("target",client.unwrap_or(0).to_string()),("msg",text.clone())]))
+                                let target = match target.as_str() { "server" => MessageTarget::Server, "channel" => MessageTarget::Channel, "private" if client.is_some() => MessageTarget::Client(ClientId(client.unwrap())), _ => return Err("Neplatný cíl zprávy.".into()) };
+                                Some(con.get_state().map_err(|e| ts_error(&e))?.send_message(target, &text))
                             },
                             Control::Mute { microphone: mic, deafen: deaf } => {
                                 microphone = mic; deafen = deaf;
@@ -303,7 +306,7 @@ async fn connected(ws: &mut WebSocket, con: &mut Connection) -> Result<(), Strin
                             },
                             Control::Peer { uid, volume, muted } => {
                                 if !volume.is_finite() || !(0.0..=2.0).contains(&volume) || uid.len() > 128 || peers.len() >= 2048 && !peers.contains_key(&uid) { return Err("Neplatná hlasitost nebo identita klienta.".into()); }
-                                if muted { if let Ok(book) = con.get_state() { for c in book.clients.values().filter(|c| c.uid.as_ref().map(|u| u.as_ref().to_string()).as_deref() == Some(&uid)) { audio.get_mut_queues().remove(&c.id); } } }
+                                if muted && let Ok(book) = con.get_state() { for c in book.clients.values().filter(|c| c.uid.as_ref().map(|u| u.as_ref().to_string()).as_deref() == Some(&uid)) { audio.get_mut_queues().remove(&c.id); } }
                                 peers.insert(uid,(volume,muted)); None
                             },
                             Control::Disconnect => return Ok(()),
@@ -315,7 +318,7 @@ async fn connected(ws: &mut WebSocket, con: &mut Connection) -> Result<(), Strin
                         audio_count += 1;
                         if audio_count > 100 || data.len() != 1921 || data[0] != 1 { return Err("Neplatný nebo příliš rychlý audio proud.".into()); }
                         if !microphone && !deafen && con.can_send_audio() {
-                            let samples: Vec<i16> = data[1..].chunks_exact(2).map(|b| i16::from_le_bytes([b[0],b[1]])).collect();
+                            let samples: Vec<i16> = data[1..].as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes([b[0],b[1]])).collect();
                             let mut encoded = [0u8; 4000];
                             let len = encoder.encode(&samples, &mut encoded).map_err(|_| "Chyba kódování hlasu.")?;
                             con.send_audio(OutAudio::new(&AudioData::C2S { id:0,codec:CodecType::OpusVoice,data:&encoded[..len] })).map_err(|e| ts_error(&e))?;
@@ -365,7 +368,7 @@ async fn connected(ws: &mut WebSocket, con: &mut Connection) -> Result<(), Strin
                 let mut stereo = [0.0f32;1920];
                 if !deafen && con.can_receive_audio() { audio.fill_buffer(&mut stereo); }
                 let mut frame = Vec::with_capacity(1921); frame.push(2);
-                for lr in stereo.chunks_exact(2) { let sample = (((lr[0]+lr[1])*0.5).clamp(-1.0,1.0)*32767.0) as i16; frame.extend_from_slice(&sample.to_le_bytes()); }
+                for lr in stereo.as_chunks::<2>().0 { let sample = (((lr[0]+lr[1])*0.5).clamp(-1.0,1.0)*32767.0) as i16; frame.extend_from_slice(&sample.to_le_bytes()); }
                 send(ws,Message::Binary(frame.into())).await?;
                 if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,json!({"type":"error","message":"Server včas nepotvrdil požadavek."})).await?; }
             },
