@@ -1,0 +1,37 @@
+- generic [ref=e1] clickable [onclick]
+  - banner
+    - link "mluvka ." [ref=e2]
+      - StaticText "mluvka"
+      - StaticText "."
+    - StaticText "MÍSTO PRO VÁŠ HLAS"
+    - StaticText "Připraveno k hovoru"
+  - main
+    - generic
+      - StaticText "DOBRÁ PARTA. JEDEN KANÁL."
+      - heading "Tak se slyšíme?" [level=1, ref=e3]
+        - StaticText "Tak se"
+        - LineBreak "\n"
+        - StaticText "slyšíme?"
+      - paragraph
+        - StaticText "Váš TeamSpeak, přímo v prohlížeči."
+        - LineBreak "\n"
+        - StaticText "Připojte se k ostatním a buďte u toho."
+      - StaticText "01 / PŘIPOJIT"
+      - StaticText "BEZ INSTALACE. S VLASTNÍ IDENTITOU."
+    - generic
+      - StaticText "VÍTEJTE NA MLUVCE"
+      - heading "Pojďte za ostatními." [level=2, ref=e4]
+      - paragraph
+        - StaticText "Stačí adresa serveru a vaše přezdívka."
+      - form
+        - LabelText
+          - textbox "Přezdívka" [required, ref=e10]
+        - LabelText
+          - textbox "Adresa serveru" [required, ref=e11]
+        - LabelText
+          - textbox "Heslo serveru volitelné" [ref=e12]
+        - checkbox "Zapamatovat připojení" [checked=true, ref=e7]
+        - checkbox "Zapamatovat i hesla na tomto zařízení" [checked=false, ref=e8]
+        - button "Připojit se" [ref=e9]
+      - button "Nastavení zvuku" [ref=e5]
+      - button "Identita" [ref=e6]

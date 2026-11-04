@@ -1,0 +1,129 @@
+{
+  "date": "2026-11-04T19:26:11.815Z",
+  "results": [
+    {
+      "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
+      "result": "OK"
+    },
+    {
+      "test": "HTTP frontend a /healthz → 200 ok",
+      "result": "OK"
+    },
+    {
+      "test": "ALLOWED_SERVERS odmítá nepovolený cíl před UDP připojením",
+      "result": "OK"
+    },
+    {
+      "test": "Neplatný řídicí protokol → česká chyba a uzavření WS",
+      "result": "OK"
+    },
+    {
+      "test": "Limit WS zprávy 16 KiB ukončí spojení",
+      "result": "OK"
+    },
+    {
+      "test": "Cizí Origin při WS upgradu → HTTP 403",
+      "result": "OK"
+    },
+    {
+      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "result": "OK"
+    },
+    {
+      "test": "Špatné heslo → česká chyba",
+      "result": "OK"
+    },
+    {
+      "test": "Dvě relace se vidí ve stromu TS",
+      "result": "OK"
+    },
+    {
+      "test": "Identita z prohlížeče odpovídá UID na TS serveru",
+      "result": "OK"
+    },
+    {
+      "test": "Obsazená přezdívka se automaticky doplní o 1",
+      "result": "OK"
+    },
+    {
+      "test": "Živý vznik, přejmenování a smazání kanálu v obou relacích",
+      "result": "OK"
+    },
+    {
+      "test": "Přesun obou relací do kanálu s heslem",
+      "result": "OK"
+    },
+    {
+      "test": "Chat kanálu A → B",
+      "result": "OK"
+    },
+    {
+      "test": "Chat serveru A → B",
+      "result": "OK"
+    },
+    {
+      "test": "Soukromá zpráva A → B",
+      "result": "OK"
+    },
+    {
+      "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
+      "result": "OK",
+      "receivedFrames": 67,
+      "sentFrames": 0,
+      "rms": 0.12441106273220753,
+      "micRms": 0.052061111636591016,
+      "underruns": 0,
+      "droppedFrames": 0,
+      "sampleRate": 48000
+    },
+    {
+      "test": "Lokální mute A u B → RMS < 0,001, A dál vysílá",
+      "result": "OK"
+    },
+    {
+      "test": "Mute mikrofonu se propíše do TS a zastaví hlas",
+      "result": "OK"
+    },
+    {
+      "test": "Deafen zastaví poslech a po vypnutí obnoví audio",
+      "result": "OK"
+    },
+    {
+      "test": "Test mikrofonu nic nevysílá na server",
+      "result": "OK"
+    },
+    {
+      "test": "PTT reaguje na mezerník mimo textová pole",
+      "result": "OK"
+    },
+    {
+      "test": "Hlasová aktivace vysílá nad prahem",
+      "result": "OK"
+    },
+    {
+      "test": "Obnovení: stejné UID na TS, údaje uloženy bez hesel",
+      "result": "OK"
+    },
+    {
+      "test": "Desktop 1440×900: žádný přesah ani ovládání mimo okno",
+      "result": "OK"
+    },
+    {
+      "test": "Mobil 390×844: strom bez přesahu",
+      "result": "OK"
+    },
+    {
+      "test": "Mobil 390×844: chat bez přesahu",
+      "result": "OK"
+    },
+    {
+      "test": "Zavření prohlížeče odpojí jeho TS klienta",
+      "result": "OK"
+    },
+    {
+      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "result": "OK"
+    }
+  ],
+  "errors": []
+}
