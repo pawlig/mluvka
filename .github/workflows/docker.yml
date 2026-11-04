@@ -6,12 +6,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  packages: write
 env:
   IMAGE: ghcr.io/pawlig/mluvka
 jobs:
   docker:
-    name: Build, kontrola a publikace
+    name: Build a kontrola
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -39,15 +38,35 @@ jobs:
           curl --fail --silent http://localhost:3000/ | grep -q 'Mluvka'
           test "$(docker exec mluvka id -u)" = 10001
           docker stop mluvka
+  publish:
+    name: Publikace do GHCR a nasazení
+    needs: docker
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build z cache (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.build
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: mluvka:test
+          cache-from: type=gha
       - name: Přihlášení do GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publikace image
-        if: github.event_name != 'pull_request'
         run: |
           short=$(git rev-parse --short HEAD)
           docker tag mluvka:test "$IMAGE:latest"
@@ -55,12 +74,10 @@ jobs:
           docker push "$IMAGE:latest"
           docker push "$IMAGE:sha-$short"
       - name: Kontrola Dockerfile pro Easypanel (jen stáhne image)
-        if: github.event_name != 'pull_request'
         run: |
           docker build --pull -t mluvka:easypanel .
           test "$(docker run --rm --entrypoint id mluvka:easypanel -u)" = 10001
       - name: Nasazení na Easypanel (jen když je nastaven secret)
-        if: github.event_name != 'pull_request'
         env:
           HOOK: ${{ secrets.EASYPANEL_DEPLOY_WEBHOOK }}
         run: |
