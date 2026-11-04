@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
+import { Vlna } from "./Vlna";
 import { Install, useServiceWorker } from "./pwa";
 import {
   defaultSettings,
@@ -952,7 +953,6 @@ export function App() {
           </span>
           mluvka<span className="brand-dot">.</span>
         </a>
-        <span className="topbar-caption">MÍSTO PRO VÁŠ HLAS</span>
         <div className={`connection-status ${connected ? "online" : ""}`}>
           <i />
           {connected
@@ -995,42 +995,8 @@ export function App() {
       )}
       {!connected ? (
         <main className="login-layout">
-          <section className="login-story">
-            <div className="eyebrow">
-              <i /> DOBRÁ PARTA. JEDEN KANÁL.
-            </div>
-            <h1>
-              Tak se
-              <br /> slyšíme<span>?</span>
-            </h1>
-            <p>
-              Váš TeamSpeak, přímo v prohlížeči.
-              <br />
-              Připojte se k ostatním a buďte u toho.
-            </p>
-            <div className="sound-art" aria-hidden="true">
-              {[
-                22, 40, 65, 36, 88, 120, 72, 156, 100, 60, 128, 82, 46, 68, 32,
-                18,
-              ].map((h, i) => (
-                <span
-                  key={i}
-                  style={{ height: h, animationDelay: `${i * 65}ms` }}
-                />
-              ))}
-            </div>
-            <div className="story-foot">
-              <span>01 / PŘIPOJIT</span>
-              <span>BEZ INSTALACE. S VLASTNÍ IDENTITOU.</span>
-            </div>
-          </section>
-          <section className="login-card">
-            <div className="card-kicker">
-              <Icon name="headphones" />
-              <span>VÍTEJTE NA MLUVCE</span>
-            </div>
-            <h2>Pojďte za ostatními.</h2>
-            <p className="muted">Stačí adresa serveru a vaše přezdívka.</p>
+          <Vlna />
+          <section className="login-card" aria-label="Připojení k serveru">
             {status === "connecting" && (
               <div className="connecting-card" role="status">
                 <p>
@@ -1055,7 +1021,7 @@ export function App() {
                   autoComplete="nickname"
                   required
                   maxLength={30}
-                  placeholder="Jak vám máme říkat?"
+                  placeholder="Přezdívka"
                   value={login.nickname}
                   onChange={(e) =>
                     setLogin({ ...login, nickname: e.target.value })
@@ -1215,10 +1181,6 @@ export function App() {
                 Identita
               </button>
             </div>
-            <p className="privacy-note">
-              <Icon name="lock" size={12} />
-              Identita zůstává ve vašem prohlížeči.
-            </p>
           </section>
         </main>
       ) : (
@@ -1912,12 +1874,6 @@ export function App() {
             )}
           </section>
         </div>
-      )}
-      {!connected && (
-        <footer className="login-footer">
-          <span>MLUVKA / WEBOVÝ KLIENT PRO TEAMSPEAK</span>
-          <span>Malá aplikace. Velké rozhovory.</span>
-        </footer>
       )}
     </div>
   );

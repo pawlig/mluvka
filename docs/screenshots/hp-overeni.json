@@ -1,0 +1,414 @@
+{
+  "url": "http://localhost:4180",
+  "checks": [
+    {
+      "name": "desktop",
+      "stats": {
+        "fps": 60,
+        "frameMs": 16.68,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 0,
+        "pointers": 0,
+        "frames": 105,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 6144,
+        "particleLimit": 14336,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.356504854368932,
+          "width": 0.55,
+          "height": 0.26699029126213597
+        }
+      },
+      "layout": {
+        "horizontalOverflow": false,
+        "cardRight": 1353.609375,
+        "viewportWidth": 1440,
+        "canvasBottom": 900,
+        "cardTop": 195.75,
+        "cardLeft": 943.609375,
+        "nameRight": 813.6000000000001,
+        "touchAction": "none",
+        "formTouchAction": "auto",
+        "backdropFilter": "blur(22px)"
+      }
+    },
+    {
+      "name": "name-formation-timing",
+      "nameStartedMs": 2881.2999997138977
+    },
+    {
+      "name": "mouse-click-hold-decay",
+      "changedPixels": 4296,
+      "particleBaseline": 6144,
+      "held": {
+        "fps": 60,
+        "frameMs": 16.66,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 1.4913,
+        "pointers": 1,
+        "frames": 218,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 13305,
+        "particleLimit": 14336,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.356504854368932,
+          "width": 0.55,
+          "height": 0.26699029126213597
+        }
+      },
+      "settled": {
+        "fps": 60,
+        "frameMs": 16.66,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 0.0065,
+        "pointers": 0,
+        "frames": 546,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 6144,
+        "particleLimit": 14336,
+        "glitch": 0,
+        "name": 1,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.356504854368932,
+          "width": 0.55,
+          "height": 0.26699029126213597
+        }
+      }
+    },
+    {
+      "name": "desktop-word-mask",
+      "word": {
+        "precision": 0.8682282282282282,
+        "recall": 0.9872968173746756,
+        "f1": 0.9239422216540969
+      },
+      "control": {
+        "precision": 0.6260660660660661,
+        "recall": 0.6661554192229039,
+        "f1": 0.6454888847606663
+      },
+      "formation": 1
+    },
+    {
+      "name": "reactive-glitch-name-break-doubleclick",
+      "active": {
+        "fps": 60,
+        "frameMs": 16.67,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 1.7665,
+        "pointers": 1,
+        "frames": 631,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 8764,
+        "particleLimit": 14336,
+        "glitch": 0.2181,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.356504854368932,
+          "width": 0.55,
+          "height": 0.26699029126213597
+        }
+      },
+      "glitchAfter300ms": 0,
+      "detune": 1
+    },
+    {
+      "name": "narrow-desktop",
+      "layout": {
+        "horizontalOverflow": false,
+        "cardRight": 846,
+        "viewportWidth": 900,
+        "canvasBottom": 700,
+        "cardTop": 124,
+        "cardLeft": 436,
+        "nameRight": 418,
+        "touchAction": "none",
+        "formTouchAction": "auto",
+        "backdropFilter": "blur(22px)"
+      },
+      "mask": {
+        "word": {
+          "precision": 0.784236563975714,
+          "recall": 0.9527386968993307,
+          "f1": 0.8603145235892692
+        },
+        "control": {
+          "precision": 0.6322239712165505,
+          "recall": 0.7186860940695297,
+          "f1": 0.6726881205885872
+        },
+        "formation": 0.9999
+      }
+    },
+    {
+      "name": "mobile",
+      "stats": {
+        "fps": 60,
+        "frameMs": 16.67,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 0,
+        "pointers": 0,
+        "frames": 105,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 3072,
+        "particleLimit": 7168,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.02,
+          "y": 0.3087857337326436,
+          "width": 0.96,
+          "height": 0.3624285325347128
+        }
+      },
+      "layout": {
+        "horizontalOverflow": false,
+        "cardRight": 372,
+        "viewportWidth": 390,
+        "canvasBottom": 362.953125,
+        "cardTop": 362.953125,
+        "cardLeft": 18,
+        "nameRight": 382.2,
+        "touchAction": "none",
+        "formTouchAction": "auto",
+        "backdropFilter": "blur(22px)"
+      },
+      "hasTouch": true
+    },
+    {
+      "name": "touch-multitouch-swipe-decay",
+      "pointers": 2,
+      "changedPixels": 5288,
+      "swipe": {
+        "fps": 60,
+        "frameMs": 16.67,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 1.1768,
+        "pointers": 2,
+        "frames": 173,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 7047,
+        "particleLimit": 7168,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.02,
+          "y": 0.3087857337326436,
+          "width": 0.96,
+          "height": 0.3624285325347128
+        }
+      },
+      "settled": {
+        "fps": 60,
+        "frameMs": 16.67,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 0.0073,
+        "pointers": 0,
+        "frames": 495,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 3072,
+        "particleLimit": 7168,
+        "glitch": 0,
+        "name": 1,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.02,
+          "y": 0.3087857337326436,
+          "width": 0.96,
+          "height": 0.3624285325347128
+        }
+      }
+    },
+    {
+      "name": "mobile-word-mask",
+      "word": {
+        "precision": 0.8162548175017003,
+        "recall": 0.9836087966124847,
+        "f1": 0.8921513968902929
+      },
+      "control": {
+        "precision": 0.6141464520516889,
+        "recall": 0.6924846625766872,
+        "f1": 0.6509671993271657
+      },
+      "formation": 1
+    },
+    {
+      "name": "mobile-input-and-native-scroll",
+      "nickname": "Pavel",
+      "scrollBefore": 0,
+      "scrollAfter": 220
+    },
+    {
+      "name": "landscape",
+      "layout": {
+        "horizontalOverflow": false,
+        "cardRight": 826,
+        "viewportWidth": 844,
+        "canvasBottom": 390,
+        "cardTop": 84,
+        "cardLeft": 462.40625,
+        "nameRight": 434.66,
+        "touchAction": "none",
+        "formTouchAction": "auto",
+        "backdropFilter": "blur(22px)"
+      }
+    },
+    {
+      "name": "landscape-word-mask",
+      "word": {
+        "precision": 0.8353324793292186,
+        "recall": 0.979784182488731,
+        "f1": 0.9018104098566759
+      },
+      "control": {
+        "precision": 0.612437405380226,
+        "recall": 0.6721625766871165,
+        "f1": 0.6409115836938638
+      },
+      "formation": 1
+    },
+    {
+      "name": "reduced-motion",
+      "stats": {
+        "fps": 60,
+        "frameMs": 16.67,
+        "renderScale": 1,
+        "mode": "webgl2",
+        "energy": 0,
+        "pointers": 0,
+        "frames": 123,
+        "running": true,
+        "reducedMotion": true,
+        "particles": 6144,
+        "particleLimit": 14336,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.356504854368932,
+          "width": 0.55,
+          "height": 0.26699029126213597
+        }
+      }
+    },
+    {
+      "name": "canvas-fallback",
+      "stats": {
+        "fps": 60,
+        "frameMs": 16.66,
+        "renderScale": 1,
+        "mode": "canvas",
+        "energy": 1.0503,
+        "pointers": 0,
+        "frames": 147,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 924,
+        "particleLimit": 960,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.02,
+          "y": 0.3087857337326436,
+          "width": 0.96,
+          "height": 0.3624285325347128
+        }
+      },
+      "changedPixels": 5530
+    },
+    {
+      "name": "adaptive-resolution-and-dpr-cap",
+      "initialLimit": 7168,
+      "stats": {
+        "fps": 20,
+        "frameMs": 45.17,
+        "renderScale": 0.85,
+        "mode": "webgl2",
+        "energy": 0,
+        "pointers": 0,
+        "frames": 70,
+        "running": true,
+        "reducedMotion": false,
+        "particles": 2611,
+        "particleLimit": 6093,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.3788888888888889,
+          "width": 0.5,
+          "height": 0.22222222222222224
+        }
+      },
+      "maxDpr": 2
+    },
+    {
+      "name": "intersection-visibility-context-loss-unmount",
+      "offscreenFrames": 78,
+      "hiddenFrames": 109,
+      "unmounted": {
+        "fps": 0,
+        "frameMs": 17.04,
+        "renderScale": 0.7,
+        "mode": "canvas",
+        "energy": 0,
+        "pointers": 0,
+        "frames": 141,
+        "running": false,
+        "reducedMotion": false,
+        "particles": 0,
+        "particleLimit": 0,
+        "glitch": 0,
+        "name": 0,
+        "detune": 0,
+        "nameBounds": {
+          "x": 0.015,
+          "y": 0.3788888888888889,
+          "width": 0.5,
+          "height": 0.22222222222222224
+        }
+      },
+      "pendingRaf": 0
+    },
+    {
+      "name": "webgl-unmount",
+      "pendingRaf": 0,
+      "gpuObjects": 0,
+      "frames": 31
+    }
+  ],
+  "errors": [],
+  "result": "PASS"
+}

@@ -1,0 +1,23 @@
+- generic [ref=e1] clickable [onclick]
+  - banner
+    - link "mluvka ." [ref=e2]
+      - StaticText "mluvka"
+      - StaticText "."
+    - StaticText "Připraveno k hovoru"
+  - main
+    - region "Připojení k serveru" [ref=e3]
+      - form
+        - LabelText
+          - textbox "Přezdívka" [required, ref=e11]
+        - LabelText
+          - textbox "Adresa serveru" [required, ref=e12]
+        - LabelText
+          - textbox "Heslo serveru volitelné" [ref=e13]
+        - checkbox "Zapamatovat připojení" [checked=true, ref=e6]
+        - checkbox "Zapamatovat i hesla na tomto zařízení" [checked=true, ref=e7]
+        - checkbox "Připojit automaticky po spuštění" [checked=true, ref=e8]
+        - button "Připojit se" [ref=e9]
+      - complementary "Instalace Mluvky"
+        - button "Přidat na plochu" [ref=e10]
+      - button "Nastavení zvuku" [ref=e4]
+      - button "Identita" [ref=e5]
