@@ -1,0 +1,18 @@
+{
+  "results": [
+    {
+      "code": "flood",
+      "minimumDelayMs": 120000,
+      "before": 1,
+      "after": 2,
+      "result": "OK"
+    },
+    {
+      "code": "server_restart",
+      "minimumDelayMs": 3000,
+      "before": 1,
+      "after": 2,
+      "result": "OK"
+    }
+  ]
+}

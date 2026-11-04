@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-04",
+  "scope": "Dílčí dřívější E2E před snížením horního adaptivního cíle ze 100 na 90 ms; tato data nepotvrzují úplný průchod aktuální verze.",
+  "tone30s": [
+    {
+      "codec": "opus",
+      "underruns": 0,
+      "maxJump": 0.011424798518419266,
+      "bufferMinMs": 95.81231217258028,
+      "bufferMaxMs": 118.24358756112149,
+      "frequencyHz": 439.453125,
+      "rmsDifferenceDb": 0.00628993174853148,
+      "maxDownKbps": 91.2644816232264
+    },
+    {
+      "codec": "pcm",
+      "underruns": 1,
+      "maxJump": 0.018009628169238567,
+      "bufferMinMs": 60.035617658936346,
+      "bufferMaxMs": 130.49228676912026,
+      "frequencyHz": 439.453125,
+      "rmsDifferenceDb": -0.002982159445937107,
+      "maxDownKbps": 776.546120927262
+    }
+  ],
+  "network30s": [
+    {
+      "codec": "opus",
+      "underruns": 0,
+      "downKbps": 90.304
+    },
+    {
+      "codec": "pcm",
+      "underruns": 0,
+      "downKbps": 776.6230679232353
+    }
+  ],
+  "vadOpus": {
+    "first200msDifferenceDb": -0.14979350562991936,
+    "precursorMs": 80,
+    "lostOnsetMs": 0
+  },
+  "earlierChecks": [
+    "Úplný Opus průchod včetně PWA/mobilů prošel před poslední úpravou rezervy.",
+    "SIGTERM: clientlist bez hlasových klientů do testovacího limitu 5 s; původní kanál, UID a přezdívka se obnovily.",
+    "Debugger.pause 20 s: Opus A zůstal připojený a B obnovil zvuk."
+  ],
+  "pending": [
+    "Celý aktuální průchod Opus i PCM s cílem nejvýše 90 ms.",
+    "Rozšířené potvrzení důvodu clientdisconnect přes ServerQuery u SIGTERM a pomalého PCM příjemce."
+  ]
+}

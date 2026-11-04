@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-04T22:12:28.096Z",
+  "results": [
+    {
+      "test": "Uplink: dávka nejvýše 8 rámců a dále 50 rámců/s i po zdržení prohlížeče",
+      "result": "OK"
+    },
+    {
+      "test": "Opus Worker: 30 PLC rámců nezablokuje pozdější zvuk; skutečná mezera se počítá samostatně",
+      "result": "OK"
+    },
+    {
+      "test": "Jitter buffer 30 s, takt 1: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.028814637567847967,
+      "minBufferMs": 41.89575610583097,
+      "maxBufferMs": 68.36914514340242,
+      "driftPercent": 0.0016007147073475937
+    },
+    {
+      "test": "Jitter buffer 60 s, takt 1.01: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.029110440984368324,
+      "minBufferMs": 46.38743751762862,
+      "maxBufferMs": 93.51948747589874,
+      "driftPercent": 1.0283399274832088
+    },
+    {
+      "test": "Jitter buffer 60 s, takt 0.99: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.028673477470874786,
+      "minBufferMs": 24.206585917267756,
+      "maxBufferMs": 68.62027426928398,
+      "driftPercent": -0.9921940054301805
+    },
+    {
+      "test": "Podtečení a obnovení používají plynulé prolnutí",
+      "result": "OK",
+      "fadeMaxJump": 0.0020833611488342285
+    }
+  ]
+}
