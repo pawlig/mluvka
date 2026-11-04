@@ -165,7 +165,9 @@ fn password_hash(password: &str) -> String {
     }
 }
 fn identity_text(id: &Identity) -> String {
-    format!("{}V{}", id.counter(), id.key().to_ts())
+    // ASN.1 import knihovny zkrátí skalár začínající nulou a odmítne ho.
+    // Pevný 32B formát importuje přímo; klíč, counter i veřejné UID zůstávají stejné.
+    format!("{}V{}", id.counter(), STANDARD.encode(id.key().to_short()))
 }
 
 // Vnější text serveru se nevrací ani neloguje: může obsahovat osobní údaje.
@@ -858,6 +860,35 @@ fn soft_limit(x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn identity_roundtrip_preserves_leading_zero_key_and_uid() {
+        for first in [0, 1] {
+            let mut bytes = [0u8; 32];
+            bytes[0] = first;
+            bytes[31] = 1;
+            let id = Identity::new(
+                tsproto_types::crypto::EccKeyPrivP256::from_short(&bytes).unwrap(),
+                42,
+            );
+            let restored = Identity::new_from_str(&identity_text(&id)).unwrap();
+            assert_eq!(restored.counter(), id.counter());
+            assert_eq!(
+                restored.key().to_pub().get_uid(),
+                id.key().to_pub().get_uid()
+            );
+            if first != 0 {
+                let legacy = format!("{}V{}", id.counter(), id.key().to_ts());
+                assert_eq!(
+                    Identity::new_from_str(&legacy)
+                        .unwrap()
+                        .key()
+                        .to_pub()
+                        .get_uid(),
+                    id.key().to_pub().get_uid()
+                );
+            }
+        }
+    }
     #[test]
     fn backend_budget_and_flood_are_shared_and_bounded() {
         let now = Instant::now();
