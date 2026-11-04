@@ -3,6 +3,8 @@ import { chromium, expect } from "@playwright/test";
 import { mobileChecks, pwaChecks } from "./mobil.mjs";
 import { resamplingChecks } from "./resampling.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
+import { notificationChecks } from "./upozorneni.mjs";
+import { invitationChecks } from "./pozvanky.mjs";
 import { spawn } from "node:child_process";
 import { connect as tcpConnect } from "node:net";
 import { randomBytes } from "node:crypto";
@@ -23,6 +25,7 @@ const admin = randomBytes(18).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
 const tsDir = process.env.TS3_DIR || resolve(temp, "teamspeak3-server_mac");
 let ts, backend, browser, query;
+let backendOutput = "";
 let pages = [];
 const results = [],
   errors = [];
@@ -103,9 +106,7 @@ async function socketOpen(port) {
 }
 async function fillLogin(page, nickname, pass = password) {
   await page.getByLabel("Přezdívka", { exact: true }).fill(nickname);
-  await page
-    .getByLabel("Adresa serveru", { exact: true })
-    .fill(tsAddress);
+  await page.getByLabel("Adresa serveru", { exact: true }).fill(tsAddress);
   await page.getByLabel("Heslo serveru", { exact: false }).fill(pass);
   await page.getByRole("button", { name: /Připojit se/ }).click();
 }
@@ -345,11 +346,15 @@ function startBackend() {
     env: {
       ...process.env,
       PORT: appPort,
-      ALLOWED_SERVERS: "127.0.0.1",
+      ALLOWED_SERVERS: tsAddress,
       MAX_SESSIONS: "6",
     },
-    stdio: process.env.E2E_DEBUG ? ["ignore", "inherit", "inherit"] : "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  for (const output of [backend.stdout, backend.stderr])
+    output.on("data", (data) => {
+      backendOutput = (backendOutput + data.toString()).slice(-200000);
+    });
   backend.on("error", () => {});
 }
 async function restartBackend() {
@@ -565,6 +570,25 @@ try {
   await moveToProtected(a);
   await moveToProtected(b);
   ok("Přesun obou relací do kanálu s heslem");
+  await notificationChecks({
+    a,
+    b,
+    bContext,
+    root,
+    query,
+    moveToProtected,
+    ok,
+  });
+  await invitationChecks({
+    a,
+    browser,
+    base,
+    root,
+    password,
+    channelPassword,
+    backendLogs: () => backendOutput,
+    ok,
+  });
   await a.getByLabel("Zpráva", { exact: true }).fill("Čau Báro, slyšíme se.");
   await a.getByRole("button", { name: "Odeslat zprávu" }).click();
   await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
@@ -581,7 +605,7 @@ try {
   await a.getByRole("button", { name: "Odeslat zprávu" }).click();
   await b
     .locator(".chat-tabs")
-    .getByRole("button", { name: "Adam", exact: true })
+    .getByRole("button", { name: /^Adam(?: |$)/ })
     .click();
   await expect(b.getByRole("log")).toContainText("Soukromě jen pro Báru.");
   ok("Soukromá zpráva A → B");

@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-04T20:46:36.136Z",
+  "date": "2026-11-04T22:15:47.559Z",
   "results": [
     {
       "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
@@ -94,6 +94,42 @@
       "result": "OK"
     },
     {
+      "test": "3 zprávy → odznak Kanál, mobilní Chat, titulek a app badge = 3; jediný zvuk; přečtení vynuluje",
+      "result": "OK"
+    },
+    {
+      "test": "Otevřená viditelná konverzace → žádný zvuk ani odznak",
+      "result": "OK"
+    },
+    {
+      "test": "Viditelné okno bez fokusu upozorní; návrat fokusu přečte konverzaci",
+      "result": "OK"
+    },
+    {
+      "test": "Soukromá zpráva vytvoří odznak a zvuk; otevření ji přečte",
+      "result": "OK"
+    },
+    {
+      "test": "Serverový odznak a zvuk; vypnutý zvuk se uloží a ponechá počty; změna kanálu vynuluje Kanál",
+      "result": "OK"
+    },
+    {
+      "test": "Skrytá aplikace → SW showNotification (titulek, text, tag, renotify); notificationclick otevře konverzaci",
+      "result": "OK"
+    },
+    {
+      "test": "Poke používá vlastní dekódovaný zvuk; deafen umlčí zprávy i poke, systémová upozornění běží dál",
+      "result": "OK"
+    },
+    {
+      "test": "Pozvánka A → C: jediná přezdívka, připojení do kanálu s heslem, údaje uložené; fragment prázdný, HTTP i backend log bez hesel",
+      "result": "OK"
+    },
+    {
+      "test": "Pozvánka za připojení vyžádá odpojení; neplatná → česká chyba a formulář; Vložit pozvánku opět připojí",
+      "result": "OK"
+    },
+    {
       "test": "Chat kanálu A → B",
       "result": "OK"
     },
@@ -112,13 +148,15 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 66,
+      "receivedFrames": 910,
       "sentFrames": 0,
-      "rms": 0.15085084777330984,
-      "micRms": 0.07354000006225898,
+      "rms": 0.1505601958933903,
+      "micRms": 0.01991714319406429,
       "underruns": 0,
-      "droppedFrames": 4,
-      "sampleRate": 48000
+      "droppedFrames": 0,
+      "sampleRate": 48000,
+      "notifySounds": 7,
+      "notifyPokes": 1
     },
     {
       "test": "Lokální mute A u B → RMS < 0,001, A dál vysílá",
@@ -183,7 +221,7 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 33
+      "elapsed_ms": 38
     },
     {
       "test": "Restart backendu za hovoru: automatický návrat, původní UID a přezdívka",

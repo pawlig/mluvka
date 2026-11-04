@@ -146,7 +146,7 @@ E2E používá Playwright s vlastním headless Chrome, dvěma prázdnými kontex
 Na Macu použije `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, jinde Playwright
 Chromium (`npx playwright install chromium`). Cestu lze přepsat přes `CHROME_PATH`.
 Spojitý testovací tón putuje skutečným workletem přes PCM, Opus a TS. Hesla testů vznikají
-náhodně v paměti a nejsou v repu.
+náhodně v paměti; snímky pozvánek obsahují jen tyto dočasné testovací údaje.
 
 Lokální TS3 stáhněte před testem:
 
@@ -159,9 +159,17 @@ unzip -q tmp-ts3/server.zip -d tmp-ts3
 TS3 je x86_64 a na Apple Silicon vyžaduje Rosettu. Skript spustí TS3 s přijatou licencí,
 backend i prohlížeč a na konci je ukončí. Potřebuje volné porty 9987/UDP, 10011/TCP,
 30033/TCP a 3000/TCP. `TS3_DIR` může ukazovat i na rozbalený Linux TS3 server.
-Porty jdou přepsat proměnnými `E2E_PORT`, `TS3_VOICE_PORT`, `TS3_QUERY_PORT` a `TS3_FT_PORT` — pro souběžné běhy
-stačí každému dát vlastní porty a vlastní kopii TS3 (`TS3_DIR`, bez `ts3server.sqlitedb*`, ať se virtuální server
-založí na nových portech).
+Porty jdou přepsat proměnnými `E2E_PORT`, `TS3_VOICE_PORT`, `TS3_QUERY_PORT` a `TS3_FT_PORT`. Každý pracovní
+strom potřebuje vlastní porty a kopii TS3 (`TS3_DIR`, bez `ts3server.sqlitedb*`, aby se virtuální server
+založil na nových portech):
+
+```sh
+E2E_PORT=3101 TS3_VOICE_PORT=9101 TS3_QUERY_PORT=10101 TS3_FT_PORT=30101 npm run e2e
+```
+
+Allowlist testovacího backendu používá stejnou adresu i port TS3. Pokud TS3 hlásí
+`local accounting reports an already running instance`, spouštějte celé E2E běhy
+postupně: samostatné porty tento limit počtu instancí neodstraní.
 `E2E_URL` dovoluje připojit již běžící backend; úplná sada včetně restartu vyžaduje lokální backend bez této volby.
 
 **Používejte jen vyhrazený testovací TS server:** skript přenastaví jeho jméno a heslo,
@@ -204,3 +212,54 @@ Záložní C# varianta nebyla potřeba. [Úplný WS protokol](docs/protokol.md).
 - Bez administrace serveru, souborů, avatarů a whisperu.
 
 Mluvka není oficiální produkt TeamSpeak. TS3 server a jeho licence nejsou součástí repozitáře.
+
+## Upozornění a nepřečtené zprávy
+
+V Nastavení jsou samostatné zvuky pro kanál, server, soukromé zprávy a šťouchnutí
+(výchozí zapnuté) a **Hlasitost upozornění** 0–100 % (výchozí 70 %). Zpráva cinkne,
+pokud její konverzaci právě nečtete, aplikace je na pozadí nebo okno nemá fokus.
+Vlastní zprávy necinkají. Dávka zpráv zahraje nejvýš jednou za 1,5 sekundy.
+Šťouchnutí má vlastní zvuk a výrazné upozornění. **Ztlumit zvuk** umlčí i tyto zvuky;
+vibrace a systémová upozornění zůstávají. Zvuky se dekódují jednou v Web Audio,
+vedou do stejného výstupu jako hlas a respektují hlavní hlasitost i výběr zařízení.
+Jsou součástí offline cache. Po automatickém připojení může být potřeba klepnout
+na **Klepni pro zapnutí zvuku**, aby prohlížeč přehrávání povolil.
+
+Počty nepřečtených jsou u Kanálu, Serveru a jednotlivých soukromých konverzací
+(nejvýše `99+`), na mobilu také u Chat, když prohlížíte strom. Viditelné otevření
+konverzace je vynuluje, změna kanálu vymaže počet Kanálu. Součet je v titulku
+stránky a na ikoně nainstalované aplikace, pokud prohlížeč podporuje App Badging.
+Počty ani obsah chatu se neukládají mezi připojeními.
+
+**Upozornění systému** zapnete v Nastavení; teprve tímto kliknutím aplikace požádá
+o oprávnění. Skrytá aplikace zobrazuje zprávy a poke přes service worker, seskupené
+podle konverzace; klepnutí vrátí aplikaci do příslušného chatu. Soukromá zpráva a
+poke krátce zavibrují tam, kde to systém dovolí. Na iOS 16.4+ jsou oznámení dostupná
+jen pro aplikaci **přidanou na plochu**. Fungují pouze dokud iOS aplikaci na pozadí
+neuspí; zavřená či uspaná Mluvka zprávy nepřijímá. **Serverový Web Push zde není.**
+Podporu iOS a požadavek gesta popisuje [WebKit](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+
+## Pozvánka na server
+
+Po připojení zvolte **Pozvat** pod názvem serveru. Odkaz může obsahovat heslo
+serveru, cestu aktuálního kanálu a na výslovné zaškrtnutí také jeho známé heslo.
+Lze ho zkopírovat, sdílet systémovým dialogem nebo naskenovat jako QR kód;
+QR se vytváří přímo v aplikaci bez externí služby. Odkaz s heslem posílejte jen
+lidem, kterým důvěřujete; base64url není šifrování.
+
+Formát je `https://<host>/#pozvanka=<base64url(JSON)>`, verze JSON `v: 1`.
+Údaje jsou ve fragmentu, který prohlížeč neposílá v HTTP požadavcích ani proxy logům.
+Aplikace ho ihned po načtení odstraní z adresy. Příjemce vidí název serveru a kanál,
+pole Přezdívka a Připojit; ostatní údaje jsou pod **Upravit podrobnosti**.
+Připojení uloží server a hesla a povolí automatické připojování stejně jako běžný
+výchozí formulář. Neplatný odkaz zobrazí českou chybu a běžný formulář.
+Otevření pozvánky v právě připojené aplikaci nejprve vyžádá odpojení.
+
+**iPhone a odkazy z Messengeru/WhatsAppu:** odkaz se obvykle otevře v Safari.
+Nejdřív se připojte, pak zvolte Sdílet → Přidat na plochu. Safari a aplikace na
+ploše mají oddělené lokální úložiště; jeho kopírování Apple negarantuje
+([Apple WWDC23](https://developer.apple.com/videos/play/wwdc2023/10120/?time=884)).
+Proto se přenos hesel instalací nespoléhá na `start_url` ani zanechaný fragment.
+Zkopírujte původní pozvánku, otevřete Mluvku z plochy a zvolte **Vložit pozvánku**.
+Odkaz vložte do pole (nebo použijte Načíst ze schránky, pokud ho prohlížeč dovolí).
+Takto funguje i pozvánka do již nainstalované aplikace.

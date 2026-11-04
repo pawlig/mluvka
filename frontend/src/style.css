@@ -1698,3 +1698,87 @@ textarea {
     margin: 8px 0 max(8px, env(safe-area-inset-bottom));
   }
 }
+
+/* Upozornění i pozvánky navazují na zelenou paletu hovoru. */
+.chat-tabs .unread-badge,
+.mobile-tabs .unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #202817;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.invite-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px 16px;
+}
+.invite-actions .text-button {
+  font-size: 11px;
+}
+.invitation-heading h1 {
+  font-size: 25px;
+  line-height: 1.25;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.invitation-heading p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.invitation-form > details {
+  margin: 20px 0;
+}
+.invite-warning {
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.invite-modal textarea {
+  font-size: 11px;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+.invite-qr {
+  text-align: center;
+  margin: 18px 0 0;
+}
+.invite-qr img {
+  display: block;
+  width: min(100%, 220px);
+  height: auto;
+  margin: auto;
+  border-radius: 8px;
+}
+.invite-qr figcaption {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.invite-modal [role="status"] {
+  font-size: 12px;
+  color: var(--accent);
+}
+.private-tab > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.invite-modal > header {
+  margin-bottom: 16px;
+}
+.invite-modal .check {
+  margin: 4px 0;
+}
+.invite-modal > footer {
+  margin-top: 16px;
+}

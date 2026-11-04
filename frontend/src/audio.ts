@@ -13,6 +13,11 @@ export class AudioEngine {
   };
   node?: AudioWorkletNode;
   output?: GainNode;
+  private notifyGain?: GainNode;
+  private notifyBuffers?: Promise<
+    Record<"zprava" | "poke", AudioBuffer> | undefined
+  >;
+  private lastNotify = -Infinity;
   source?: MediaStreamAudioSourceNode;
   stream?: MediaStream;
   settings: Settings;
@@ -42,6 +47,8 @@ export class AudioEngine {
       droppedFrames: 0,
       uid: "",
       sampleRate: 0,
+      notifySounds: 0,
+      notifyPokes: 0,
     };
   }
   start(): Promise<void> {
@@ -74,6 +81,14 @@ export class AudioEngine {
       });
       this.output = this.context.createGain();
       this.node.connect(this.output);
+      this.notifyGain = this.context.createGain();
+      this.notifyGain.gain.value = this.settings.deafen
+        ? 0
+        : this.settings.notifyVolume;
+      this.notifyGain.connect(this.output);
+      this.notifyBuffers = this.loadNotifications(this.context).catch(
+        () => undefined,
+      );
       // Mobilní přehrávač dává Androidu aktivní mediální relaci i při zhasnutí.
       // Desktop zůstává na přímé cestě s nejmenší latencí.
       if (matchMedia("(pointer: coarse)").matches) {
@@ -315,6 +330,8 @@ export class AudioEngine {
       flush: settings.deafen,
     });
     if (this.output) this.output.gain.value = settings.volume;
+    if (this.notifyGain)
+      this.notifyGain.gain.value = settings.deafen ? 0 : settings.notifyVolume;
     if (old.output !== settings.output)
       await this.setOutput(settings.output || "");
     if (
@@ -359,6 +376,53 @@ export class AudioEngine {
     osc.start(t);
     osc.stop(t + 0.15);
   }
+  private async loadNotifications(context: AudioContext) {
+    const buffers = await Promise.all(
+      (["zprava", "poke"] as const).map(async (kind) => {
+        const response = await fetch(`/sounds/${kind}.mp3`);
+        if (!response.ok) throw Error("Zvuk upozornění není dostupný");
+        return [
+          kind,
+          await context.decodeAudioData(await response.arrayBuffer()),
+        ] as const;
+      }),
+    );
+    return Object.fromEntries(buffers) as Record<
+      "zprava" | "poke",
+      AudioBuffer
+    >;
+  }
+  async notify(kind: "zprava" | "poke") {
+    const context = this.context;
+    if (
+      !context ||
+      this.settings.deafen ||
+      this.settings.notifyVolume <= 0 ||
+      performance.now() - this.lastNotify < 1500
+    )
+      return;
+    this.lastNotify = performance.now();
+    try {
+      const buffers = await this.notifyBuffers;
+      if (
+        !buffers ||
+        this.context !== context ||
+        context.state !== "running" ||
+        this.settings.deafen ||
+        !this.notifyGain
+      )
+        return;
+      const source = context.createBufferSource();
+      source.buffer = buffers[kind];
+      source.connect(this.notifyGain);
+      source.onended = () => source.disconnect();
+      source.start();
+      window.__mluvkaStats.notifySounds++;
+      if (kind === "poke") window.__mluvkaStats.notifyPokes++;
+    } catch {
+      // Chyba načtení upozornění nesmí přerušit hovor.
+    }
+  }
   async close() {
     this.startPromise = undefined;
     this.ready = false;
@@ -376,6 +440,10 @@ export class AudioEngine {
     }
     this.player = undefined;
     this.mediaOutput = undefined;
+    this.notifyGain?.disconnect();
+    this.notifyGain = undefined;
+    this.notifyBuffers = undefined;
+    this.lastNotify = -Infinity;
     this.onBlocked(false);
     this.stream?.getTracks().forEach((t) => t.stop());
     this.source?.disconnect();

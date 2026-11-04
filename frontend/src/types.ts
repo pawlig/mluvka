@@ -14,6 +14,12 @@ export interface Settings {
   output: string;
   beep: boolean;
   wakeLock: boolean;
+  notifyVolume: number;
+  notifyChannel: boolean;
+  notifyServer: boolean;
+  notifyPrivate: boolean;
+  notifyPoke: boolean;
+  systemNotifications: boolean;
 }
 export const defaultSettings: Settings = {
   mode: "ptt",
@@ -30,6 +36,12 @@ export const defaultSettings: Settings = {
   output: "",
   beep: true,
   wakeLock: false,
+  notifyVolume: 0.7,
+  notifyChannel: true,
+  notifyServer: true,
+  notifyPrivate: true,
+  notifyPoke: true,
+  systemNotifications: false,
 };
 export interface Channel {
   id: number;
@@ -104,6 +116,8 @@ declare global {
       droppedFrames: number;
       uid: string;
       sampleRate: number;
+      notifySounds: number;
+      notifyPokes: number;
     };
   }
 }
