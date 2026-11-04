@@ -15,7 +15,7 @@ const root = resolve(import.meta.dirname, ".."),
   temp = resolve(root, "tmp-ts3"),
   appPort = process.env.E2E_PORT || "3000",
   base = process.env.E2E_URL || `http://localhost:${appPort}`;
-// Porty TS3 lze přepsat, aby šlo pustit víc E2E souběžně (každý se svou kopií TS3_DIR).
+// Porty TS3 lze přepsat (vlastní kopie TS3_DIR); dvě instance TS3 na jednom počítači ale nepoběží.
 const tsVoicePort = process.env.TS3_VOICE_PORT || "9987",
   tsQueryPort = Number(process.env.TS3_QUERY_PORT || 10011),
   tsFilePort = process.env.TS3_FT_PORT || "30033",
@@ -354,6 +354,7 @@ function startBackend() {
   for (const output of [backend.stdout, backend.stderr])
     output.on("data", (data) => {
       backendOutput = (backendOutput + data.toString()).slice(-200000);
+      if (process.env.E2E_DEBUG) process.stderr.write(data);
     });
   backend.on("error", () => {});
 }

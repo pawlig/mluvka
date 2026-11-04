@@ -398,10 +398,11 @@ export class AudioEngine {
       !context ||
       this.settings.deafen ||
       this.settings.notifyVolume <= 0 ||
-      performance.now() - this.lastNotify < 1500
+      // Šťouchnutí má vždy svůj zvuk; omezení 1,5 s platí jen pro dávky zpráv.
+      (kind === "zprava" && performance.now() - this.lastNotify < 1500)
     )
       return;
-    this.lastNotify = performance.now();
+    if (kind === "zprava") this.lastNotify = performance.now();
     try {
       const buffers = await this.notifyBuffers;
       if (

@@ -219,7 +219,7 @@ export async function notificationChecks({
   ok(
     "Skrytá aplikace → SW showNotification (titulek, text, tag, renotify); notificationclick otevře konverzaci",
   );
-  await pause(1550);
+  // Bez pauzy: poke hned po zprávě musí zaznít i přes omezení 1,5 s.
   const pokeBefore = await b.evaluate(() => window.__mluvkaStats.notifyPokes);
   const bId = await b
     .locator(".client-row")
