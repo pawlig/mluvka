@@ -13,6 +13,8 @@ import {
 } from "./audio.mjs";
 import { resamplingChecks } from "./resampling.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
+import { notificationChecks } from "./upozorneni.mjs";
+import { invitationChecks } from "./pozvanky.mjs";
 import { spawn } from "node:child_process";
 import { connect as tcpConnect } from "node:net";
 import { randomBytes } from "node:crypto";
@@ -21,12 +23,18 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, ".."),
   temp = resolve(root, "tmp-ts3"),
-  base = process.env.E2E_URL || "http://localhost:3000";
+  appPort = process.env.E2E_PORT || "3000",
+  base = process.env.E2E_URL || `http://localhost:${appPort}`;
+const tsVoicePort = process.env.TS3_VOICE_PORT || "9987",
+  tsQueryPort = Number(process.env.TS3_QUERY_PORT || 10011),
+  tsFilePort = process.env.TS3_FT_PORT || "30033",
+  tsAddress = `127.0.0.1:${tsVoicePort}`;
 const admin = process.env.E2E_TS_ADMIN || randomBytes(18).toString("hex"),
   password = randomBytes(12).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
 const tsDir = process.env.TS3_DIR || resolve(temp, "teamspeak3-server_mac");
 let ts, backend, browser, query;
+let backendOutput = "";
 let pages = [];
 const results = [],
   errors = [];
@@ -120,7 +128,7 @@ async function fillLogin(page, nickname, pass = password) {
   await page.getByLabel("Přezdívka", { exact: true }).fill(nickname);
   await page
     .getByLabel("Adresa serveru", { exact: true })
-    .fill("127.0.0.1:9987");
+    .fill(tsAddress);
   await page.getByLabel("Heslo serveru", { exact: false }).fill(pass);
   await page.getByRole("button", { name: /Připojit se/ }).click();
 }
@@ -176,7 +184,7 @@ async function earlyBackendMessages() {
           JSON.stringify({
             type: "connect",
             nickname: "Časné zprávy",
-            server: "127.0.0.1:9987",
+            server: tsAddress,
             password,
           }),
         );
@@ -359,12 +367,17 @@ function startBackend() {
     cwd: root,
     env: {
       ...process.env,
-      PORT: "3000",
-      ALLOWED_SERVERS: "127.0.0.1",
+      PORT: appPort,
+      ALLOWED_SERVERS: tsAddress,
       MAX_SESSIONS: "6",
     },
-    stdio: process.env.E2E_DEBUG ? ["ignore", "inherit", "inherit"] : "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  for (const output of [backend.stdout, backend.stderr])
+    output.on("data", (data) => {
+      backendOutput = (backendOutput + data.toString()).slice(-200000);
+      if (process.env.E2E_DEBUG) process.stderr.write(data);
+    });
   backend.on("error", () => {});
 }
 async function restartBackend() {
@@ -423,12 +436,15 @@ try {
         "voice_ip=127.0.0.1",
         "query_protocols=raw",
         "filetransfer_ip=127.0.0.1",
+        `default_voice_port=${tsVoicePort}`,
+        `query_port=${tsQueryPort}`,
+        `filetransfer_port=${tsFilePort}`,
       ],
       { cwd: tsDir, stdio: "ignore" },
     );
     ts.on("error", () => {});
   }
-  const socket = await eventually(() => socketOpen(10011));
+  const socket = await eventually(() => socketOpen(tsQueryPort));
   query = new Query(socket);
   await wait(250);
   await query.cmd(`login serveradmin ${admin}`);
@@ -635,6 +651,8 @@ try {
     await moveToProtected(a);
     await moveToProtected(b);
     ok("Přesun obou relací do kanálu s heslem");
+    await notificationChecks({ a, b, bContext, root, query, moveToProtected, ok });
+    await invitationChecks({ a, browser, base, root, password, channelPassword, backendLogs: () => backendOutput, ok });
     await a.getByLabel("Zpráva", { exact: true }).fill("Čau Báro, slyšíme se.");
     await a.getByRole("button", { name: "Odeslat zprávu" }).click();
     await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
@@ -655,7 +673,7 @@ try {
     await a.getByRole("button", { name: "Odeslat zprávu" }).click();
     await b
       .locator(".chat-tabs")
-      .getByRole("button", { name: "Adam", exact: true })
+      .getByRole("button", { name: /^Adam(?: |$)/ })
       .click();
     await expect(b.getByRole("log")).toContainText("Soukromě jen pro Báru.");
     ok("Soukromá zpráva A → B");

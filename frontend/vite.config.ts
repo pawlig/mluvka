@@ -15,6 +15,8 @@ export default defineConfig({
         for (const file of [
           "/index.html",
           "/audio-worklet.js",
+          "/sounds/zprava.mp3",
+          "/sounds/poke.mp3",
           "/sw.js",
           "/manifest.webmanifest",
           "/favicon.svg",

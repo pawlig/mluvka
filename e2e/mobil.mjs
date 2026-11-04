@@ -33,7 +33,7 @@ async function login(page, password, nickname = "Mobil") {
   await page.getByLabel("Přezdívka", { exact: true }).fill(nickname);
   await page
     .getByLabel("Adresa serveru", { exact: true })
-    .fill("127.0.0.1:9987");
+    .fill(`127.0.0.1:${process.env.TS3_VOICE_PORT || "9987"}`);
   await page.getByLabel("Heslo serveru", { exact: false }).fill(password);
   await page.getByRole("button", { name: /Připojit se/ }).click();
   await connected(page);

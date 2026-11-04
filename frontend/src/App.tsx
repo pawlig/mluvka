@@ -1,6 +1,22 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
+import { Vlna } from "./Vlna";
+import {
+  InviteDialog,
+  InvitationDetails,
+  PasteInvitation,
+  decodeInvitation,
+  invitationLogin,
+  readInvitation,
+} from "./invitations";
+import {
+  UnreadBadge,
+  useNotifications,
+  readNotificationTarget,
+  type NotificationTarget,
+} from "./notifications";
+
 import { Install, useServiceWorker } from "./pwa";
 import {
   loadSettings,
@@ -14,6 +30,9 @@ import {
   type RoomState,
   type Settings,
 } from "./types";
+
+const incomingInvitation = readInvitation();
+const incomingNotification = readNotificationTarget();
 
 const blankLogin: Login = {
   nickname: "",
@@ -89,11 +108,22 @@ function Range({
 }
 
 export function App() {
-  const [login, setLogin] = useState<Login>(() => ({
-    ...blankLogin,
-    ...load("login", {}),
-  }));
+  const [invitation, setInvitation] = useState(incomingInvitation.invitation);
+  const [showInvite, setShowInvite] = useState(false);
+  const [showPasteInvite, setShowPasteInvite] = useState(false);
+  const [notificationTarget, setNotificationTarget] = useState<
+    NotificationTarget | undefined
+  >(incomingNotification);
+  const [login, setLogin] = useState<Login>(() =>
+    incomingInvitation.invitation
+      ? invitationLogin(
+          incomingInvitation.invitation,
+          load<Login>("login", blankLogin).nickname,
+        )
+      : { ...blankLogin, ...load("login", {}) },
+  );
   const [settings, setSettings] = useState<Settings>(loadSettings);
+
   const [peers, setPeers] = useState<Record<string, Peer>>(() =>
     load("peers", {}),
   );
@@ -102,7 +132,7 @@ export function App() {
   );
   const [room, setRoom] = useState<RoomState>();
   const roomRef = useRef<RoomState | undefined>(undefined);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(incomingInvitation.error || "");
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [autoStarting, setAutoStarting] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
@@ -193,6 +223,82 @@ export function App() {
   const currentThread =
     thread === "channel" ? `channel:${me?.channel}` : thread;
   const visibleMessages = messages.filter((m) => m.thread === currentThread);
+
+  const notifications = useNotifications(audio, settings, {
+    thread: currentThread,
+    channel: me?.channel,
+    mobile,
+    connected,
+    server: login.server,
+    title: connected
+      ? `${room?.name} · ${currentChannel?.name || ""}`
+      : undefined,
+  });
+  // Socket žije déle než render; příjem musí používat aktuální přepínače a konverzaci.
+  const receiveNotification = useRef(notifications.receive);
+  receiveNotification.current = notifications.receive;
+  useEffect(() => {
+    const message = (event: MessageEvent) => {
+      if (event.data?.type === "OPEN_CONVERSATION")
+        setNotificationTarget(event.data.target);
+    };
+    navigator.serviceWorker?.addEventListener("message", message);
+    return () =>
+      navigator.serviceWorker?.removeEventListener("message", message);
+  }, []);
+  useEffect(() => {
+    if (!notificationTarget || !connected) return;
+    const target = notificationTarget;
+    setNotificationTarget(undefined);
+    if (target.server !== lastLogin.current.server) {
+      setNotice("Upozornění patří jinému serveru. Připojte se na něj ručně.");
+      return;
+    }
+    if (!/^(server|channel:\d+|private:\d+)$/.test(target.thread)) return;
+    if (target.thread.startsWith("private:"))
+      setPrivateTabs((old) => ({
+        ...old,
+        [Number(target.thread.split(":")[1])]: target.name,
+      }));
+    if (target.thread.startsWith("channel:")) {
+      const channel = room?.channels.find(
+        (c) => c.id === Number(target.thread.split(":")[1]),
+      );
+      if (channel && channel.id !== me?.channel) join(channel);
+    }
+    setThread(target.thread.startsWith("channel:") ? "channel" : target.thread);
+    setMobile("chat");
+  }, [notificationTarget, connected]);
+  function acceptInvitation(url: string) {
+    try {
+      const next = decodeInvitation(url);
+      if (
+        phase.current !== "idle" &&
+        !window.confirm(`Odpojit se a připojit na ${next.name || next.server}?`)
+      )
+        return;
+      if (phase.current !== "idle") disconnect();
+      setInvitation(next);
+      setLogin(invitationLogin(next, login.nickname));
+      setShowPasteInvite(false);
+      setError("");
+      setNotice("");
+    } catch {
+      setInvitation(undefined);
+      setShowPasteInvite(false);
+      setError("Pozvánka je neplatná nebo poškozená. Vyplňte připojení ručně.");
+    }
+  }
+  useEffect(() => {
+    const changed = () => {
+      if (!location.hash.startsWith("#pozvanka")) return;
+      const url = location.href;
+      history.replaceState(null, "", location.pathname + location.search);
+      acceptInvitation(url);
+    };
+    window.addEventListener("hashchange", changed);
+    return () => window.removeEventListener("hashchange", changed);
+  }, [login.nickname]);
 
   async function refreshDevices() {
     try {
@@ -316,8 +422,8 @@ export function App() {
     else localStorage.removeItem("mluvka.login");
   }
   useEffect(() => {
-    persistLogin(login);
-  }, [login]);
+    if (!invitation) persistLogin(login);
+  }, [login, invitation]);
   function scheduleRetry() {
     if (!wanted.current) return;
     clearTimeout(retryTimer.current);
@@ -381,6 +487,8 @@ export function App() {
     setNotice("");
     updateStatus("connecting");
     setMessages([]);
+    setPrivateTabs({});
+    setThread("channel");
     setTalking(new Set());
     setTesting(false);
     audio.test(false);
@@ -559,6 +667,7 @@ export function App() {
         roomRef.current = next;
         setRoom(next);
         updateStatus("connected");
+        setInvitation(undefined);
         retryCount.current = 0;
         setRetryAttempt(0);
         setError("");
@@ -573,7 +682,16 @@ export function App() {
         });
       if (msg.type === "poke") {
         setNotice(`Šťouchnutí od ${msg.name}: ${msg.text}`);
-        audio.beep(true);
+        if (msg.from !== roomRef.current?.self)
+          receiveNotification.current(
+            "poke",
+            {
+              thread: `private:${msg.from}`,
+              name: msg.name,
+              server: credentials.server,
+            },
+            msg.text,
+          );
       }
       if (msg.type === "chat") {
         const self = roomRef.current?.self;
@@ -584,6 +702,26 @@ export function App() {
             : msg.target === "channel"
               ? `channel:${roomRef.current?.clients.find((c) => c.id === self)?.channel}`
               : "server";
+        if (msg.from !== self)
+          receiveNotification.current(
+            msg.target,
+            {
+              thread: key,
+              name: msg.name,
+              server: credentials.server,
+            },
+            msg.text,
+            msg.target === "channel"
+              ? roomRef.current?.channels.find(
+                  (c) =>
+                    c.id ===
+                    roomRef.current?.clients.find((c) => c.id === self)
+                      ?.channel,
+                )?.name
+              : msg.target === "server"
+                ? roomRef.current?.name
+                : undefined,
+          );
         if (msg.target === "private")
           setPrivateTabs((old) => ({
             ...old,
@@ -632,8 +770,11 @@ export function App() {
             const field = form.current?.querySelector<HTMLInputElement>(
               `[name="${focusField.current}"]`,
             );
-            const details = field?.closest("details");
-            if (details) details.open = true;
+            let parent = field?.parentElement;
+            while (parent && parent !== form.current) {
+              if (parent instanceof HTMLDetailsElement) parent.open = true;
+              parent = parent.parentElement;
+            }
             field?.focus();
           }, 0);
       }
@@ -677,6 +818,8 @@ export function App() {
         /* Bez úložiště. */
       }
       if (
+        !incomingInvitation.invitation &&
+        !incomingInvitation.error &&
         login.remember &&
         login.auto &&
         login.server &&
@@ -978,7 +1121,6 @@ export function App() {
           </span>
           mluvka<span className="brand-dot">.</span>
         </a>
-        <span className="topbar-caption">MÍSTO PRO VÁŠ HLAS</span>
         <div className={`connection-status ${connected ? "online" : ""}`}>
           <i />
           {connected
@@ -1023,42 +1165,8 @@ export function App() {
       )}
       {!connected ? (
         <main className="login-layout">
-          <section className="login-story">
-            <div className="eyebrow">
-              <i /> DOBRÁ PARTA. JEDEN KANÁL.
-            </div>
-            <h1>
-              Tak se
-              <br /> slyšíme<span>?</span>
-            </h1>
-            <p>
-              Váš TeamSpeak, přímo v prohlížeči.
-              <br />
-              Připojte se k ostatním a buďte u toho.
-            </p>
-            <div className="sound-art" aria-hidden="true">
-              {[
-                22, 40, 65, 36, 88, 120, 72, 156, 100, 60, 128, 82, 46, 68, 32,
-                18,
-              ].map((h, i) => (
-                <span
-                  key={i}
-                  style={{ height: h, animationDelay: `${i * 65}ms` }}
-                />
-              ))}
-            </div>
-            <div className="story-foot">
-              <span>01 / PŘIPOJIT</span>
-              <span>BEZ INSTALACE. S VLASTNÍ IDENTITOU.</span>
-            </div>
-          </section>
-          <section className="login-card">
-            <div className="card-kicker">
-              <Icon name="headphones" />
-              <span>VÍTEJTE NA MLUVCE</span>
-            </div>
-            <h2>Pojďte za ostatními.</h2>
-            <p className="muted">Stačí adresa serveru a vaše přezdívka.</p>
+          <Vlna />
+          <section className="login-card" aria-label="Připojení k serveru">
             {status === "connecting" && (
               <div className="connecting-card" role="status">
                 <p>
@@ -1070,7 +1178,15 @@ export function App() {
                 </button>
               </div>
             )}
+            {invitation && (
+              <div className="invitation-heading">
+                <div className="eyebrow">MÁŠ MÍSTO U NÁS</div>
+                <h1>Pozvánka na {invitation.name || invitation.server}</h1>
+                {invitation.channel && <p>Kanál: {invitation.channel}</p>}
+              </div>
+            )}
             <form
+              className={invitation ? "invitation-form" : undefined}
               ref={form}
               hidden={autoStarting && status === "connecting"}
               onSubmit={connect}
@@ -1083,109 +1199,114 @@ export function App() {
                   autoComplete="nickname"
                   required
                   maxLength={30}
-                  placeholder="Jak vám máme říkat?"
+                  placeholder="Přezdívka"
                   value={login.nickname}
                   onChange={(e) =>
                     setLogin({ ...login, nickname: e.target.value })
                   }
                 />
               </label>
-              <label>
-                Adresa serveru
-                <input
-                  name="server"
-                  required
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  placeholder="ts.example.cz:9987"
-                  value={login.server}
-                  onChange={(e) =>
-                    setLogin({ ...login, server: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Heslo serveru <span className="optional">volitelné</span>
-                <input
-                  name="password"
-                  type="password"
-                  autoComplete="off"
-                  value={login.password}
-                  onChange={(e) =>
-                    setLogin({ ...login, password: e.target.value })
-                  }
-                  placeholder="Pokud server heslo vyžaduje"
-                />
-              </label>
-              <details>
-                <summary>
-                  Výchozí kanál <span>volitelné</span>
-                </summary>
-                <div className="advanced-fields">
-                  <label>
-                    Název nebo cesta kanálu
-                    <input
-                      value={login.channel}
-                      onChange={(e) =>
-                        setLogin({ ...login, channel: e.target.value })
-                      }
-                      placeholder="Parta / Večer"
-                    />
-                  </label>
-                  <label>
-                    Heslo kanálu
-                    <input
-                      name="channel_password"
-                      type="password"
-                      autoComplete="off"
-                      value={login.channel_password}
-                      onChange={(e) =>
-                        setLogin({ ...login, channel_password: e.target.value })
-                      }
-                    />
-                  </label>
-                </div>
-              </details>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={login.remember}
-                  onChange={(e) =>
-                    setLogin({
-                      ...login,
-                      remember: e.target.checked,
-                      auto: e.target.checked && login.auto,
-                      passwords: e.target.checked && login.passwords,
-                    })
-                  }
-                />
-                Zapamatovat připojení
-              </label>
-              {login.remember && (
-                <label className="check subtle">
+              <InvitationDetails active={!!invitation}>
+                <label>
+                  Adresa serveru
                   <input
-                    type="checkbox"
-                    checked={login.passwords}
+                    name="server"
+                    required
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder="ts.example.cz:9987"
+                    value={login.server}
                     onChange={(e) =>
-                      setLogin({ ...login, passwords: e.target.checked })
+                      setLogin({ ...login, server: e.target.value })
                     }
                   />
-                  Zapamatovat i hesla na tomto zařízení
                 </label>
-              )}
-              {login.remember && (
-                <label className="check subtle">
+                <label>
+                  Heslo serveru <span className="optional">volitelné</span>
+                  <input
+                    name="password"
+                    type="password"
+                    autoComplete="off"
+                    value={login.password}
+                    onChange={(e) =>
+                      setLogin({ ...login, password: e.target.value })
+                    }
+                    placeholder="Pokud server heslo vyžaduje"
+                  />
+                </label>
+                <details>
+                  <summary>
+                    Výchozí kanál <span>volitelné</span>
+                  </summary>
+                  <div className="advanced-fields">
+                    <label>
+                      Název nebo cesta kanálu
+                      <input
+                        value={login.channel}
+                        onChange={(e) =>
+                          setLogin({ ...login, channel: e.target.value })
+                        }
+                        placeholder="Parta / Večer"
+                      />
+                    </label>
+                    <label>
+                      Heslo kanálu
+                      <input
+                        name="channel_password"
+                        type="password"
+                        autoComplete="off"
+                        value={login.channel_password}
+                        onChange={(e) =>
+                          setLogin({
+                            ...login,
+                            channel_password: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                </details>
+                <label className="check">
                   <input
                     type="checkbox"
-                    checked={login.auto}
+                    checked={login.remember}
                     onChange={(e) =>
-                      setLogin({ ...login, auto: e.target.checked })
+                      setLogin({
+                        ...login,
+                        remember: e.target.checked,
+                        auto: e.target.checked && login.auto,
+                        passwords: e.target.checked && login.passwords,
+                      })
                     }
                   />
-                  Připojit automaticky po spuštění
+                  Zapamatovat připojení
                 </label>
-              )}
+                {login.remember && (
+                  <label className="check subtle">
+                    <input
+                      type="checkbox"
+                      checked={login.passwords}
+                      onChange={(e) =>
+                        setLogin({ ...login, passwords: e.target.checked })
+                      }
+                    />
+                    Zapamatovat i hesla na tomto zařízení
+                  </label>
+                )}
+                {login.remember && (
+                  <label className="check subtle">
+                    <input
+                      type="checkbox"
+                      checked={login.auto}
+                      onChange={(e) =>
+                        setLogin({ ...login, auto: e.target.checked })
+                      }
+                    />
+                    Připojit automaticky po spuštění
+                  </label>
+                )}
+              </InvitationDetails>
               <button
                 className="primary connect-button"
                 disabled={status === "connecting"}
@@ -1193,9 +1314,11 @@ export function App() {
               >
                 {status === "connecting"
                   ? "Navazuji spojení…"
-                  : load<Login | null>("login", null)?.server
-                    ? "Připojit se znovu"
-                    : "Připojit se"}
+                  : invitation
+                    ? "Připojit"
+                    : load<Login | null>("login", null)?.server
+                      ? "Připojit se znovu"
+                      : "Připojit se"}
                 <Icon name="chevron" size={19} />
               </button>
               {status === "connecting" && (
@@ -1227,26 +1350,40 @@ export function App() {
                 </div>
               )}
             </form>
+            {invitation &&
+              (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === "MacIntel" &&
+                  navigator.maxTouchPoints > 1)) &&
+              !matchMedia("(display-mode: standalone)").matches &&
+              !(navigator as Navigator & { standalone?: boolean })
+                .standalone && (
+                <p className="help">
+                  Chceš Mluvku jako aplikaci? Nejdřív se připoj, pak Sdílet →
+                  Přidat na plochu. V aplikaci zvol „Vložit pozvánku“ a vlož
+                  stejný odkaz.
+                </p>
+              )}
             <Install />
-            <div className="login-tools">
-              <button onClick={() => setShowSettings(true)}>
-                <Icon name="settings" size={15} />
-                Nastavení zvuku
-              </button>
-              <button
-                onClick={() => {
-                  setIdentityText(load("identity", ""));
-                  setShowIdentity(true);
-                }}
-              >
-                <Icon name="user" size={15} />
-                Identita
-              </button>
-            </div>
-            <p className="privacy-note">
-              <Icon name="lock" size={12} />
-              Identita zůstává ve vašem prohlížeči.
-            </p>
+            {!invitation && (
+              <div className="login-tools">
+                <button onClick={() => setShowPasteInvite(true)}>
+                  Vložit pozvánku
+                </button>
+                <button onClick={() => setShowSettings(true)}>
+                  <Icon name="settings" size={15} />
+                  Nastavení zvuku
+                </button>
+                <button
+                  onClick={() => {
+                    setIdentityText(load("identity", ""));
+                    setShowIdentity(true);
+                  }}
+                >
+                  <Icon name="user" size={15} />
+                  Identita
+                </button>
+              </div>
+            )}
           </section>
         </main>
       ) : (
@@ -1264,7 +1401,10 @@ export function App() {
               onClick={() => setMobile("chat")}
             >
               <Icon name="chat" />
-              Chat
+              Chat{" "}
+              <UnreadBadge
+                count={mobile === "channels" ? notifications.total : 0}
+              />
             </button>
           </nav>
           <main className={`workspace mobile-${mobile}`}>
@@ -1280,6 +1420,20 @@ export function App() {
                     {room?.clients.length} online
                   </p>
                 </div>
+              </div>
+              <div className="invite-actions">
+                <button
+                  className="secondary"
+                  onClick={() => setShowInvite(true)}
+                >
+                  Pozvat
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => setShowPasteInvite(true)}
+                >
+                  Vložit pozvánku
+                </button>
               </div>
               <div className="panel-label">
                 KANÁLY<span>{room?.channels.length}</span>
@@ -1322,13 +1476,22 @@ export function App() {
                   onClick={() => setThread("channel")}
                 >
                   <Icon name="chat" size={16} />
-                  Kanál
+                  Kanál{" "}
+                  <UnreadBadge
+                    count={
+                      notifications.unread[
+                        currentThread.startsWith("channel:")
+                          ? currentThread
+                          : `channel:${me?.channel}`
+                      ]
+                    }
+                  />
                 </button>
                 <button
                   className={thread === "server" ? "active" : ""}
                   onClick={() => setThread("server")}
                 >
-                  Server
+                  Server <UnreadBadge count={notifications.unread.server} />
                 </button>
                 {Object.entries(privateTabs).map(([id, name]) => (
                   <div
@@ -1337,7 +1500,10 @@ export function App() {
                     data-active={thread === `private:${id}`}
                   >
                     <button onClick={() => setThread(`private:${id}`)}>
-                      {name}
+                      {name}{" "}
+                      <UnreadBadge
+                        count={notifications.unread[`private:${id}`]}
+                      />
                     </button>
                     <button
                       aria-label={`Zavřít chat ${name}`}
@@ -1348,6 +1514,7 @@ export function App() {
                           delete next[Number(id)];
                           return next;
                         });
+                        notifications.forget(`private:${id}`);
                         setThread("channel");
                       }}
                     >
@@ -1648,6 +1815,67 @@ export function App() {
                 value={settings.gain}
                 onChange={(v) => change("gain", v)}
               />
+              <h3>Upozornění</h3>
+              <Range
+                label="Hlasitost upozornění"
+                value={settings.notifyVolume}
+                max={1}
+                onChange={(v) => change("notifyVolume", v)}
+              />
+              {(
+                [
+                  ["notifyChannel", "Zvuk u zpráv v kanálu"],
+                  ["notifyServer", "Zvuk u zpráv na serveru"],
+                  ["notifyPrivate", "Zvuk u soukromých zpráv"],
+                  ["notifyPoke", "Zvuk u šťouchnutí"],
+                ] as const
+              ).map(([key, label]) => (
+                <label className="check" key={key}>
+                  <input
+                    type="checkbox"
+                    checked={settings[key]}
+                    onChange={(e) => change(key, e.target.checked)}
+                  />
+                  {label}
+                </label>
+              ))}
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.systemNotifications}
+                  onChange={(e) => {
+                    if (!e.target.checked) {
+                      change("systemNotifications", false);
+                      return;
+                    }
+                    if (
+                      !("Notification" in window) ||
+                      !("serviceWorker" in navigator)
+                    ) {
+                      setError(
+                        "Systémová upozornění tento prohlížeč nepodporuje. Na iOS přidejte Mluvku na plochu.",
+                      );
+                      return;
+                    }
+                    void Notification.requestPermission()
+                      .then((permission) => {
+                        change("systemNotifications", permission === "granted");
+                        if (permission !== "granted")
+                          setError(
+                            "Upozornění nejsou povolená. Změňte oprávnění v nastavení prohlížeče.",
+                          );
+                      })
+                      .catch(() =>
+                        setError("Upozornění se nepodařilo povolit."),
+                      );
+                  }}
+                />
+                Upozornění systému
+              </label>
+              <p className="help">
+                Na pozadí, dokud aplikace běží. Na iOS je potřeba přidat Mluvku
+                na plochu.
+              </p>
               <h3>Zařízení</h3>
               <label>
                 Mikrofon
@@ -1767,6 +1995,19 @@ export function App() {
             </footer>
           </section>
         </div>
+      )}
+      {showInvite && connected && (
+        <InviteDialog
+          login={lastLogin.current}
+          name={room?.name || login.server}
+          close={() => setShowInvite(false)}
+        />
+      )}
+      {showPasteInvite && (
+        <PasteInvitation
+          accept={acceptInvitation}
+          close={() => setShowPasteInvite(false)}
+        />
       )}
       {showIdentity && (
         <div className="modal-backdrop">
@@ -1965,12 +2206,6 @@ export function App() {
             )}
           </section>
         </div>
-      )}
-      {!connected && (
-        <footer className="login-footer">
-          <span>MLUVKA / WEBOVÝ KLIENT PRO TEAMSPEAK</span>
-          <span>Malá aplikace. Velké rozhovory.</span>
-        </footer>
       )}
     </div>
   );
