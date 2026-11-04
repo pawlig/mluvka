@@ -50,7 +50,7 @@ Vite vypíše adresu a přesměruje `/ws` i `/healthz` na backend na portu 3000.
 | Proměnná | Výchozí | Význam |
 | --- | --- | --- |
 | `PORT` | `3000` | Jediný HTTP/WS port. |
-| `ALLOWED_SERVERS` | prázdné | Čárkami oddělené `host[:port]`. Prázdné povolí libovolný cíl; na veřejném nasazení nastavte vlastní povolené servery. |
+| `ALLOWED_SERVERS` | prázdné | Čárkami oddělené `host[:port]`. Prázdné (výchozí) povolí libovolný server — tak se Mluvka zatím nasazuje. Omezení lze kdykoliv zapnout. |
 | `MAX_SESSIONS` | `20` | Současná spojení včetně WS čekajících na přihlášení. |
 | `RUST_LOG` | `mluvka=info` | Úroveň logů aplikace. TS paketové logy jsou kvůli přihlašovacím údajům vždy vypnuté. |
 | `STATIC_DIR` | `dist` | Cesta k frontendu. |
@@ -69,7 +69,7 @@ TS správce může sdílenou IP omezit. Používejte povolené servery, kterým 
 1. Přidejte **App**, zdroj GitHub **`pawlig/mluvka`**, větev **`main`**.
 2. Zvolte build přes **Dockerfile** v kořeni repozitáře.
 3. Nastavte port **3000**. Kontejner běží jako UID 10001, nepotřebuje volume ani databázi.
-4. Nastavte `ALLOWED_SERVERS`, případně `MAX_SESSIONS` a `RUST_LOG`.
+4. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), případně `MAX_SESSIONS` a `RUST_LOG`.
 5. Přidejte doménu s **HTTPS** a nasaďte. WSS jede na stejné doméně přes `/ws`; Traefik předává upgrade.
 6. Ověřte `/healthz`, připojení a hlas dvou relací. Host musí dosáhnout na **odchozí UDP port TS**
    (obvykle 9987). Příchozí UDP pro aplikaci se nepublikuje.
