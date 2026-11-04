@@ -26,6 +26,7 @@ function processor(rate = 48000) {
 export function jitterChecks(ok) {
   for (const speed of [1, 1.01, 0.99]) {
     const { node, events } = processor();
+    node.opus = true;
     let next = 0,
       phase = 0,
       min = Infinity,
@@ -58,6 +59,7 @@ export function jitterChecks(ok) {
     }
     const underruns = events.filter((e) => e.underrun).length,
       dropped = events.filter((e) => e.dropped).length;
+    assert.equal(events.filter((event) => event.plc).length, 0);
     assert.equal(underruns, 0);
     assert.equal(dropped, 0);
     assert.ok(jump < 0.3);
@@ -161,6 +163,8 @@ export async function toneCheck(a, b, ok, codec) {
     window.testAnalyser = analyser;
     window.__mluvkaStats.underruns = 0;
     window.__mluvkaStats.droppedFrames = 0;
+    window.__mluvkaStats.plcFrames = 0;
+    window.__mluvkaStats.lostFrames = 0;
     node.port.postMessage({ resetMetrics: true });
   });
   let min = Infinity,
@@ -227,7 +231,8 @@ export async function toneCheck(a, b, ok, codec) {
       maxDown,
     });
   expect(measurement.stats.codec).toBe(codec);
-  if (codec === "opus") {
+  {
+    expect(measurement.stats.plcFrames, JSON.stringify(measurement.stats)).toBe(0);
     expect(measurement.stats.underruns).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
@@ -240,9 +245,11 @@ export async function toneCheck(a, b, ok, codec) {
     expect(maxDown).toBeLessThanOrEqual(130);
   }
   ok(
-    `TS3 tón 440 Hz / ${codec}, 30 s${codec === "opus" ? " bez podtečení" : " – srovnání záložního PCM"}`,
+    `TS3 tón 440 Hz / ${codec}, 30 s bez podtečení`,
     {
       underruns: measurement.stats.underruns,
+      plcFrames: measurement.stats.plcFrames,
+      lostFrames: measurement.stats.lostFrames,
       maxJump: measurement.stats.maxJump,
       minBufferMs: min,
       maxBufferMs: max,
@@ -414,16 +421,28 @@ export async function vadCheck({ browser, base, login, ok, codec }) {
 }
 export async function networkCheck(browser, a, b, ok, codec, profile, query) {
   const cdp = profile.cdp;
+  profile.latency = 80;
+  profile.bitsPerSecond = 1500000;
+  profile.next = 0;
+  await cdp.send("Network.emulateNetworkConditions", {
+    offline: false, latency: 80,
+    downloadThroughput: 1500000 / 8, uploadThroughput: 1500000 / 8,
+  });
+  await b.waitForTimeout(5000);
   await b.evaluate(() => {
     window.__mluvkaStats.underruns = 0;
     window.__mluvkaStats.droppedFrames = 0;
+    window.__mluvkaStats.plcFrames = 0;
+    window.__mluvkaStats.lostFrames = 0;
   });
+  profile.inputGapMs = profile.outputGapMs = 0;
+  profile.inputAt = profile.outputAt = Date.now();
   await b.waitForTimeout(30000);
   const stats = await b.evaluate(() => ({
     ...window.__mluvkaStats,
     uid: undefined,
   }));
-  if (codec === "opus") expect(stats.underruns).toBe(0);
+  expect(stats.underruns, JSON.stringify({ stats, inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs })).toBe(0);
   ok(`CDP síť 1,5 Mb/s / 80 ms, ${codec}, 30 s`, {
     underruns: stats.underruns,
     downKbps: stats.downKbps,
@@ -436,6 +455,9 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
     downloadThroughput: -1,
     uploadThroughput: -1,
   });
+  profile.latency = 0;
+  profile.bitsPerSecond = Infinity;
+  // Již naplánované rámce mají přednost i při snížení latence.
   await cdp.send("Debugger.enable");
   const sent = await a.evaluate(() => window.__mluvkaStats.sentFrames);
   const bid = Number(
@@ -473,7 +495,7 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
   const leaves = query.leaves
     .slice(leftBefore)
     .filter((client) => client.client === bid);
-  expect(leaves.every((client) => client.reason === 8)).toBe(true);
+  expect(leaves.map((client) => client.reason)).toEqual(leaves.map(() => 8));
   ok(
     `Pomalý příjemce ${codec}: Debugger.pause 20 s, A drží spojení a B obnoví zvuk`,
     { cleanReconnect: leaves.length > 0, disconnectReason: leaves[0]?.reason },
@@ -489,11 +511,11 @@ export async function shapeSocket(page) {
   if (process.env.E2E_NATIVE) return { cdp };
   await cdp.send("Network.emulateNetworkConditions", {
     offline: false,
-    latency: 80,
-    downloadThroughput: 1500000 / 8,
-    uploadThroughput: 1500000 / 8,
+    latency: 0,
+    downloadThroughput: -1,
+    uploadThroughput: -1,
   });
-  const profile = { latency: 80, bitsPerSecond: 1500000, next: 0, cdp };
+  const profile = { latency: 0, bitsPerSecond: Infinity, next: 0, cdp };
   await page.routeWebSocket("**/ws", (route) => {
     const server = route.connectToServer();
     route.onMessage((data) => server.send(data));
@@ -503,17 +525,21 @@ export async function shapeSocket(page) {
         return;
       }
       const now = Date.now();
+      profile.inputGapMs = Math.max(profile.inputGapMs || 0, now - (profile.inputAt || now));
+      profile.inputAt = now;
       const delivery = Math.max(now + profile.latency, profile.next);
       profile.next = delivery + (data.length * 8000) / profile.bitsPerSecond;
-      const timer = setTimeout(
-        () => {
-          try {
-            route.send(data);
-          } catch {}
-        },
-        Math.max(0, delivery - now),
-      );
-      timer.unref();
+      const deliver = () => {
+        try {
+          const at = Date.now();
+          profile.outputGapMs = Math.max(profile.outputGapMs || 0, at - (profile.outputAt || at));
+          profile.outputAt = at;
+          route.send(data);
+        } catch {}
+      };
+      const delay = delivery - now;
+      if (delay <= 0) deliver();
+      else setTimeout(deliver, delay).unref();
     });
     server.onClose(() => route.close());
     route.onClose(() => server.close());

@@ -517,8 +517,14 @@ export function App() {
     lastMessage.current = Date.now();
     const opened = Date.now();
     let lastPing = 0;
+    let lastHeartbeat = Date.now();
     const heartbeat = setInterval(() => {
       if (ws.current !== socket) return;
+      const now = Date.now();
+      // Pozastavené JS nemohlo převzít čekající WS události. Po probuzení jim
+      // necháme celý heartbeat interval, místo okamžitého zrušení živého hovoru.
+      if (now - lastHeartbeat > 5000) lastMessage.current = now;
+      lastHeartbeat = now;
       if (
         socket.readyState === WebSocket.OPEN &&
         phase.current === "connected" &&

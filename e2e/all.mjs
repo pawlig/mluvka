@@ -22,6 +22,9 @@ const server = spawn(
     "voice_ip=127.0.0.1",
     "query_protocols=raw",
     "filetransfer_ip=127.0.0.1",
+    `default_voice_port=${process.env.TS3_VOICE_PORT || "9987"}`,
+    `query_port=${process.env.TS3_QUERY_PORT || "10011"}`,
+    `filetransfer_port=${process.env.TS3_FT_PORT || "30033"}`,
   ],
   { cwd: directory, stdio: "ignore" },
 );

@@ -81,13 +81,13 @@ dávka má nejvýše 8 rámců a doplňuje se rychlostí 50 rámců/s, v Opus i 
 
 TS `AudioHandler` řadí pakety podle jejich ID a při chybějícím paketu volá Opus PLC
 (`decode_float(None, …)`), případně FEC; po třech ztrátách ukončí daný hlas. Mix se
-průměruje ze sterea a měkce omezuje až nad 0,8. Každý 20ms tick se odbaví (`Burst`).
-Pořadí `0x04` umožňuje Workeru doplnit zahozené WS rámce pomocí PLC. Při poklesu rezervy pod 60 ms
-si worklet vyžádá PLC předem přímo od Workeru přes MessagePort; PCM se vrací tímto portem,
+průměruje ze sterea a měkce omezuje až nad 0,8. Každý 20ms tick se odbaví (`Burst`); mezi doháněnými rámci dostane writer prostor vyprázdnit frontu.
+Pořadí `0x04` umožňuje Workeru doplnit zahozené WS rámce pomocí PLC. Worklet žádá o dočasné PLC
+až po skutečném podtečení, nikoli při poklesu rezervy. PCM se vrací přes přímý MessagePort,
 nezávisle na hlavním vlákně; opožděný skutečný rámec obnoví stav dekodéru. Doplnění pro deadline neposouvá
 pořadí na drátu: falešně pozdní pakety se nesmějí trvale odmítat. Po delším výpadku se doplňuje nejvýše 10 rámců.
 
-Přehrávání začíná po 60 ms; při měřeném jitteru roste cíl nejvýše na 90 ms. PI regulátor mění lineární interpolaci nejvýše ±1,05 %,
+Přehrávání začíná po 60 ms; při měřeném jitteru roste cíl nejvýše na 100 ms. PI regulátor mění lineární interpolaci nejvýše ±1,05 %,
 aby zvládl i testovaný drift ±1 %; žádné celé rámce se běžně nezahazují. Při >300 ms
 se buffer nouzově srovná na 60 ms s prolnutím. Podtečení i obnovení mají 5 ms rampu.
 
@@ -95,7 +95,7 @@ Diagnostika v Nastavení a `window.__mluvkaStats`: `receivedFrames`, `sentFrames
 `rms` (dekódovaný příjem před hlasitostí), `micRms` (před kompresorem), `underruns`,
 `droppedFrames` (nouzové srovnání), `droppedCaptureFrames` (starý vstup / překročená odchozí dávka), `bufferMs`, `targetBufferMs`, `driftCorrection` (procenta), `maxJump`
 (maximum rozdílu sousedních výstupních vzorků), `upKbps`, `downKbps` (binární WS
-payload včetně typů/pořadí, bez TCP/TLS), `plcFrames` (včetně předběžného dočasného doplnění), `lostFrames` (skutečné mezery
+payload včetně typů/pořadí, bez TCP/TLS), `plcFrames` (včetně dočasného doplnění po podtečení), `lostFrames` (skutečné mezery
 pořadí na WS), `codec`, `uid`, `sampleRate`. TS ztráty se řeší uvnitř `AudioHandler`;
 tyto dva PLC čítače je nezahrnují.
 
@@ -105,11 +105,10 @@ tyto dva PLC čítače je nezahrnují.
 - Nejvýše 40 řídicích a 100 audio zpráv/s/relaci; překročení ukončí spojení.
 - `MAX_SESSIONS` (20) zahrnuje čekající WS; vyčerpání → HTTP 503.
 - Neshodný `Origin` a `Host` → HTTP 403. Vite proxy origin přepisuje.
-- WS ping a JSON pong po 10 s; bez WS pong / JSON ping alespoň 20 s konec při následujícím heartbeat ticku
-  (záložní limit 25 s kontroluje audio tick, UDP disconnect nejvýše další 2 s).
-  Browser WS pong posílá sám. Frontend navíc po 20 s bez jakékoli serverové zprávy
-  zneplatní WS a obnovuje připojení.
-- DNS 5 s, připojení TS 25 s, potvrzení příkazu 10 s, WS zápis 2 s v samostatném úkolu. Řídicí fronta 256 zpráv, audio 8 rámců; plná audio fronta rámce zahazuje (příjemce doplní PLC). Plné řízení nebo chyba writeru relaci čistě odpojí.
+- WS ping a JSON pong po 10 s; společný limit bez WS pong / JSON ping je 45 s,
+  UDP disconnect trvá nejvýše další 2 s. Browser WS pong posílá sám i při pozastaveném JS.
+  Frontend rozpozná síťové ticho po 20 s; po zjištěné pauze hlavního vlákna nejdřív nechá doručit čekající zprávy.
+- DNS 5 s, připojení TS 25 s, potvrzení příkazu 10 s, WS zápis 2 s v samostatném úkolu. Řídicí fronta 256 zpráv, audio 16 rámců; plná audio fronta rámce zahazuje (příjemce doplní PLC). Plné řízení nebo chyba writeru relaci čistě odpojí.
 - `ALLOWED_SERVERS` se porovnává po normalizaci hostu/portu. Poté se předá pevná IP;
   TS nickname a SRV přesměrování se nepoužívá.
 - Identity a hesla se neukládají na backendu; TS paketové logování je vypnuté i při `RUST_LOG=trace`.
@@ -128,6 +127,7 @@ tyto dva PLC čítače je nezahrnují.
 | `not_allowed`   | Nepovolený server / oprávnění         | ne                              |
 | `invalid`       | Neplatné údaje či protokol            | ne                              |
 | `nickname`      | Obsazená či odmítnutá přezdívka       | ano                             |
+| `request_failed` | Odmítnutý požadavek / jiná chyba | běžící relaci nepřerušuje |
 | `unreachable`   | Nedostupný server / transport         | ano                             |
 | `timeout`       | Vypršel čas                           | ano                             |
 | `kicked`        | Vyhození ze serveru                   | ano                             |

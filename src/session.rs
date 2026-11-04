@@ -133,7 +133,11 @@ impl Socket {
 async fn send(ws: &mut Socket, msg: Message) -> Result<(), String> {
     if matches!(msg, Message::Binary(_)) {
         match ws.audio.try_send(msg) {
-            Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::debug!(ws_audio_drop = true, "Plná fronta zvuku");
+                Ok(())
+            }
             Err(_) => Err("Webové spojení bylo uzavřeno.".into()),
         }
     } else {
@@ -195,6 +199,7 @@ fn ts_variant(err: &tsclientlib::Error) -> (&'static str, Option<tsproto_types::
             ("ConnectionTimeout", None)
         }
         E::ConnectionFailed(_) => ("ConnectionFailed", None),
+        E::ConnectionGone => ("ConnectionGone", None),
         E::InitserverWait(tsproto::client::Error::TsProto(tsproto::Error::Timeout(_))) => {
             ("InitserverTimeout", None)
         }
@@ -220,9 +225,20 @@ fn ts_error(err: &tsclientlib::Error) -> String {
         Some(T::ServerMaxclientsReached | T::ChannelMaxclientsReached) => "Server je plný.",
         Some(T::PermissionsClientInsufficient | T::Permissions | T::PermissionsInsufficientGroupPower | T::PermissionsInsufficientPermissionPower) => "Server tuto akci nepovolil. Chybí oprávnění.",
         _ if matches!(variant, "InitserverTimeout" | "ConnectTimeout" | "ConnectionTimeout") => "Vypršel čas připojení. Ověřte adresu a odchozí UDP.",
-        _ => "Adresu serveru nelze přeložit nebo není dostupná.",
+        _ if matches!(variant, "ResolveAddress" | "Io" | "Connect" | "ConnectFailed") => "Adresu serveru nelze přeložit nebo není dostupná.",
+        _ if matches!(variant, "ConnectionFailed" | "ConnectionGone") => "TS server ukončil spojení.",
+        _ => "Server odmítl požadavek. Zkuste akci znovu.",
     }.into()
 }
+fn ts_departure(reason: Option<tsclientlib::Reason>) -> &'static str {
+    use tsclientlib::Reason;
+    match reason {
+        Some(Reason::KickServer) => "Byli jste vyhozeni ze serveru.",
+        Some(Reason::KickServerBan) => "Server vás odmítl: zákaz přístupu (ban).",
+        _ => "TS server ukončil spojení.",
+    }
+}
+const BROWSER_TIMEOUT: Duration = Duration::from_secs(45);
 fn is_nickname_error(err: &tsclientlib::Error) -> bool {
     ts_variant(err).1 == Some(tsproto_types::errors::Error::ClientNicknameInuse)
 }
@@ -344,8 +360,13 @@ fn error_code(message: &str) -> &'static str {
         || text.contains("identita není")
     {
         "invalid"
-    } else {
+    } else if text.contains("adresu serveru nelze")
+        || text.contains("nedostupný")
+        || text.contains("přerušilo")
+    {
         "unreachable"
+    } else {
+        "request_failed"
     }
 }
 fn error_message(message: &str, fatal: bool) -> Value {
@@ -391,7 +412,7 @@ pub async fn run(
 ) {
     let (mut sink, input) = ws.split();
     let (control, mut controls) = mpsc::channel(256);
-    let (audio, mut frames) = mpsc::channel(8);
+    let (audio, mut frames) = mpsc::channel(16);
     let mut writer = tokio::spawn(async move {
         loop {
             let msg = tokio::select! { biased;
@@ -416,6 +437,7 @@ pub async fn run(
     if !*shutdown.borrow()
         && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads).await
     {
+        tracing::warn!(session_end = error_code(&message), "Relace končí chybou");
         let _ = json_send(&mut ws, error_message(&message, true)).await;
     }
     drop(ws);
@@ -674,6 +696,7 @@ async fn connected(
     tick.set_missed_tick_behavior(MissedTickBehavior::Burst);
     let mut heartbeat = interval(Duration::from_secs(10));
     let mut last_pong = Instant::now();
+    let own_client = con.get_state().map_err(|e| ts_error(&e))?.own_client;
     let mut restore_nickname = restore_nickname;
     let mut pending = HashMap::new();
     let mut rate_start = Instant::now();
@@ -738,6 +761,10 @@ async fn connected(
                 match event {
                     Some(Ok(StreamItem::BookEvents(events))) => {
                         for e in events {
+                            if let Event::PropertyRemoved { id: tsclientlib::events::PropertyId::Client(id), ref extra, .. } = e
+                                && id == own_client {
+                                return Err(ts_departure(extra.reason).into());
+                            }
                             if let Event::Message { target, invoker, message } = e {
                                 let (kind, client) = match target { MessageTarget::Server => ("server",None), MessageTarget::Channel => ("channel",None), MessageTarget::Client(id) => ("private",Some(id.0)), MessageTarget::Poke(id) => ("poke",Some(id.0)) };
                                 json_send(ws,json!({"type":if kind == "poke" {"poke"} else {"chat"},"target":kind,"client":client,"from":invoker.id.0,"name":invoker.name,"text":message})).await?;
@@ -753,15 +780,22 @@ async fn connected(
                         if !deafen && !pref.1 { let _ = audio.handle_packet(from,packet); if let Some(q) = audio.get_mut_queues().get_mut(&from) { q.volume = pref.0; } }
                     },
                     Some(Ok(StreamItem::MessageResult(handle, result))) => { pending.remove(&handle); if let Err(e) = result { json_send(ws,error_message(&ts_error(&tsclientlib::Error::CommandError(e)), false)).await?; } },
-                    Some(Ok(StreamItem::DisconnectedTemporarily(_))) => return Err("Spojení s TS serverem se přerušilo. Připojte se znovu.".into()),
+                    Some(Ok(StreamItem::DisconnectedTemporarily(reason))) => {
+                        tracing::warn!(ts_event = match reason { tsclientlib::TemporaryDisconnectReason::Timeout(_) => "Timeout", tsclientlib::TemporaryDisconnectReason::Serverstop => "Serverstop" }, "TS spojení přerušeno");
+                        return Err(match reason { tsclientlib::TemporaryDisconnectReason::Serverstop => "TS server ukončil spojení.", _ => "Spojení s TS serverem se přerušilo. Připojte se znovu." }.into());
+                    },
                     Some(Err(e)) => return Err(ts_error(&e)),
                     None => return Err("TS server ukončil spojení.".into()),
                     _ => {}
                 }
             },
-            _ = tick.tick() => {
-                // Nezávislý limit i při nepřesném načasování 10s heartbeat ticku.
-                if last_pong.elapsed() >= Duration::from_secs(25) { return Err("Prohlížeč přestal odpovídat.".into()); }
+            scheduled = tick.tick() => {
+                let lateness = scheduled.elapsed();
+                if lateness > Duration::from_millis(80) {
+                    tracing::debug!(tick_delay_ms = lateness.as_millis(), "Zpožděný takt zvuku");
+                }
+                // Native WS pong běží i bez JS stránky; delší síťové ticho tolerujeme 45 s.
+                if last_pong.elapsed() >= BROWSER_TIMEOUT { return Err("Prohlížeč přestal odpovídat.".into()); }
                 if was_sending && (last_up.elapsed() > Duration::from_millis(100) || microphone || deafen) {
                     let _ = con.send_audio(OutAudio::new(&AudioData::C2S { id:0,codec:CodecType::OpusVoice,data:&[] })); was_sending = false;
                 }
@@ -787,10 +821,13 @@ async fn connected(
                     for sample in mono { frame.extend_from_slice(&((sample*32767.0) as i16).to_le_bytes()); }
                 }
                 send(ws,Message::Binary(frame.into())).await?;
+                // Burst musí pustit writer mezi doháněnými rámci. Jinak plní
+                // vlastní lokální frontu rychleji, než může proběhnout její čtenář.
+                if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
                 if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {
-                if last_pong.elapsed() >= Duration::from_secs(20) { return Err("Prohlížeč přestal odpovídat.".into()); }
+                if last_pong.elapsed() >= BROWSER_TIMEOUT { return Err("Prohlížeč přestal odpovídat.".into()); }
                 send(ws,Message::Ping(Vec::new().into())).await?;
                 json_send(ws,json!({"type":"pong"})).await?;
                 if let Some(name) = restore_nickname {
@@ -858,6 +895,28 @@ mod tests {
             errors: vec![E::ConnectTs(T::BanFlooding)],
         };
         assert_eq!(error_code(&ts_error(&nested)), "flood");
+    }
+    #[test]
+    fn runtime_errors_and_kicks_have_specific_messages() {
+        let command = tsclientlib::Error::CommandError(tsclientlib::CommandError {
+            error: tsproto_types::errors::Error::ChannelInvalidId,
+            missing_permission: None,
+        });
+        assert_eq!(error_code(&ts_error(&command)), "request_failed");
+        assert!(ts_error(&command).starts_with("Server odmítl požadavek"));
+        assert_eq!(
+            error_code(ts_departure(Some(tsclientlib::Reason::KickServer))),
+            "kicked"
+        );
+        assert_eq!(
+            error_code(ts_departure(Some(tsclientlib::Reason::Serverstop))),
+            "server_closed"
+        );
+        assert_eq!(
+            error_code(&ts_error(&tsclientlib::Error::ConnectionGone)),
+            "server_closed"
+        );
+        assert!(BROWSER_TIMEOUT >= Duration::from_secs(30));
     }
     #[test]
     fn limiter_is_continuous_and_preserves_quiet_audio() {

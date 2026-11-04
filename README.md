@@ -263,7 +263,7 @@ hold 400 ms a rampy omezují lupnutí na hranicích vysílání.
 
 Nastavení → Diagnostika zvuku ukazuje podtečení, buffer, korekci driftu, nouzové zahození,
 maximální skok, kb/s a WS PLC rámce. Totéž je v `window.__mluvkaStats`.
-Přehrávání má cíl 60 ms (při měřeném jitteru až 90 ms) a plynule opravuje rozdíl hodin.
+Přehrávání má cíl 60 ms (při měřeném jitteru až 100 ms) a plynule opravuje rozdíl hodin.
 Dekodér posílá PCM přímo do workletu přes MessagePort; o PLC worklet žádá přímo Worker,
 aby zdržení hlavního vlákna nepřerušilo přehrávání. SIGTERM/SIGINT čistě odpojí TS
 relace a prohlížeče po aktualizaci obnoví hovor. Globální limit připojování omezuje flood

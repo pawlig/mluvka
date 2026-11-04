@@ -66,7 +66,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
           const gap = this.clock - this.arrival;
           this.target = Math.max(
             this.target,
-            Math.min(sampleRate * 0.09, gap + sampleRate * 0.02),
+            Math.min(sampleRate * 0.1, gap + sampleRate * 0.02),
           );
         }
         this.arrival = this.clock;
@@ -200,14 +200,14 @@ class MluvkaAudio extends AudioWorkletProcessor {
     if (
       this.opus &&
       this.started &&
-      this.write - this.read <
-        (this.playing ? sampleRate * 0.06 : this.target) &&
+      !this.playing &&
+      this.write - this.read < this.target &&
       this.clock - this.plcAt >= sampleRate * 0.02
     ) {
       const next = this.plcAt + sampleRate * 0.02;
       this.plcAt = this.clock - next < sampleRate * 0.02 ? next : this.clock;
       this.target = Math.min(
-        sampleRate * 0.09,
+        sampleRate * 0.1,
         this.target + sampleRate * 0.02,
       );
       (this.codecPort || this.port).postMessage({ plc: true });

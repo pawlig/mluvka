@@ -655,13 +655,19 @@ try {
     await moveToProtected(a);
     await moveToProtected(b);
     ok("Přesun obou relací do kanálu s heslem");
-    await notificationChecks({ a, b, bContext, root, query, moveToProtected, ok });
-    await invitationChecks({ a, browser, base, root, password, channelPassword, backendLogs: () => backendOutput, ok });
+    if (!process.env.E2E_FOCUS) {
+      await notificationChecks({ a, b, bContext, root, query, moveToProtected, ok });
+      await invitationChecks({
+        a, browser, base, root, password, channelPassword,
+        backendLogs: () => backendOutput, ok,
+      });
+    }
     await a.getByLabel("Zpráva", { exact: true }).fill("Čau Báro, slyšíme se.");
     await a.getByRole("button", { name: "Odeslat zprávu" }).click();
     await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
     ok("Chat kanálu A → B");
-    await chatChecks({ a, b, query, base, root, tsAddress, password, ok });
+    if (!process.env.E2E_FOCUS)
+      await chatChecks({ a, b, query, base, root, tsAddress, password, ok });
     await a.getByRole("button", { name: "Server", exact: true }).click();
     await b.getByRole("button", { name: "Server", exact: true }).click();
     await a
@@ -912,6 +918,7 @@ try {
       );
     } catch {}
   }
+  if (process.env.E2E_DEBUG) console.error("Backend diagnostika", backendOutput);
   process.exitCode = 1;
 } finally {
   query?.socket.destroy();

@@ -10,6 +10,7 @@ use axum::{
     response::IntoResponse,
     response::Response,
     routing::{get, post},
+    serve::ListenerExt,
 };
 use std::{env, future::IntoFuture, sync::Arc};
 use tokio::sync::{Semaphore, watch};
@@ -75,7 +76,13 @@ async fn main() {
         .expect("Neplatný PORT");
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port))
         .await
-        .expect("Port nelze otevřít");
+        .expect("Port nelze otevřít")
+        .tap_io(|stream| {
+            // Malé 20ms Opus pakety nesmějí čekat na Nagle / delayed ACK.
+            if stream.set_nodelay(true).is_err() {
+                tracing::warn!("TCP_NODELAY nelze zapnout");
+            }
+        });
     tracing::info!(port, "Mluvka naslouchá");
     let mut exiting = shutdown.subscribe();
     let signal = async move {
