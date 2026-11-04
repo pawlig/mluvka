@@ -19,7 +19,21 @@ export class AudioEngine {
   ptt = false;
   testing = false;
   ready = false;
-  lastVoice = 0;
+  lastVoice = -Infinity;
+  codec: "opus" | "pcm" = "pcm";
+  worker?: Worker;
+  private codecReady?: Promise<void>;
+  private pcmOnly = false;
+  private linkedNode?: AudioWorkletNode;
+  private linkedWorker?: Worker;
+  private history: Int16Array[] = [];
+  private pending?: Int16Array;
+  private upBytes = 0;
+  private downBytes = 0;
+  private rateAt = performance.now();
+  private captureTokens = 8;
+  private captureBudgetAt = performance.now();
+  onCodecFailure: () => void = () => {};
   transmitting = false;
   inputRequest = 0;
   private inputQueue: Promise<void> = Promise.resolve();
@@ -40,8 +54,19 @@ export class AudioEngine {
       micRms: 0,
       underruns: 0,
       droppedFrames: 0,
+      droppedCaptureFrames: 0,
       uid: "",
       sampleRate: 0,
+      bufferMs: 0,
+      targetBufferMs: 60,
+      driftCorrection: 0,
+      maxJump: 0,
+      outputRms: 0,
+      upKbps: 0,
+      downKbps: 0,
+      plcFrames: 0,
+      lostFrames: 0,
+      codec: "pcm",
     };
   }
   start(): Promise<void> {
@@ -91,30 +116,68 @@ export class AudioEngine {
         "devicechange",
         this.deviceChange,
       );
+      this.linkCodec();
       this.node.port.onmessage = ({ data }) => {
         if (data.underrun) window.__mluvkaStats.underruns++;
         if (data.dropped) window.__mluvkaStats.droppedFrames++;
+        if (data.stats) Object.assign(window.__mluvkaStats, data.stats);
+        if (data.plc && this.ready && this.codec === "opus")
+          this.worker?.postMessage({ plc: true });
+        this.measureRates();
         if (!data.pcm) return;
+        if (
+          typeof data.at === "number" &&
+          this.context &&
+          this.context.currentTime - data.at > 0.1
+        ) {
+          window.__mluvkaStats.droppedCaptureFrames++;
+          this.history = [];
+          this.pending = undefined;
+          this.transmitting = false;
+          return;
+        }
         const { settings: s } = this;
         const now = performance.now();
-        if (data.rms >= s.threshold) this.lastVoice = now;
+        const permitted =
+          this.ready && !s.microphone && !s.deafen && !this.testing;
+        if (permitted && data.rms >= s.threshold) this.lastVoice = now;
         const active =
-          this.ready &&
-          !s.microphone &&
-          !s.deafen &&
-          !this.testing &&
+          permitted &&
           (s.mode === "always" ||
             (s.mode === "ptt" && this.ptt) ||
-            (s.mode === "vad" && now - this.lastVoice < 300));
-        this.transmitting = active;
+            (s.mode === "vad" && now - this.lastVoice < 400));
         window.__mluvkaStats.micRms = data.rms;
         this.onLevel(data.rms, active);
-        if (active) {
-          const packet = new Uint8Array(1921);
-          packet[0] = 1;
-          packet.set(new Uint8Array(data.pcm), 1);
-          this.onFrame(packet.buffer);
+        const pcm = new Int16Array(data.pcm);
+        if (!permitted) {
+          this.history = [];
+          this.pending = undefined;
+          this.lastVoice = -Infinity;
+        } else if (active) {
+          if (!this.transmitting) {
+            const first = s.mode === "vad" ? [...this.history, pcm] : [pcm];
+            this.history = [];
+            this.fadeFrame(first[0], true);
+            for (const frame of first) {
+              if (this.pending) this.sendPcm(this.pending);
+              this.pending = frame;
+            }
+          } else {
+            if (this.pending) this.sendPcm(this.pending);
+            this.pending = pcm;
+          }
+        } else {
+          if (this.pending) {
+            this.fadeFrame(this.pending, false);
+            this.sendPcm(this.pending);
+            this.pending = undefined;
+          }
+          if (s.mode === "vad") {
+            this.history.push(pcm);
+            if (this.history.length > 5) this.history.shift();
+          }
         }
+        this.transmitting = active;
       };
     }
     void this.resume();
@@ -123,6 +186,143 @@ export class AudioEngine {
     if (!this.stream) await this.changeInput();
     await this.update(this.settings);
     this.checkState();
+  }
+  private fadeFrame(frame: Int16Array, start: boolean) {
+    for (let i = 0; i < 480; i++) {
+      const index = start ? i : frame.length - 1 - i;
+      frame[index] = Math.round((frame[index] * i) / 480);
+    }
+  }
+  private emitFrame(packet: ArrayBuffer) {
+    const now = performance.now();
+    this.captureTokens = Math.min(
+      8,
+      this.captureTokens + (now - this.captureBudgetAt) / 20,
+    );
+    this.captureBudgetAt = now;
+    if (this.captureTokens < 1) {
+      window.__mluvkaStats.droppedCaptureFrames++;
+      return;
+    }
+    this.captureTokens--;
+    this.onFrame(packet);
+  }
+  private sendPcm(pcm: Int16Array) {
+    if (this.codec === "opus" && this.worker)
+      this.worker.postMessage({ encode: pcm.buffer }, [pcm.buffer]);
+    else {
+      const packet = new Uint8Array(1921);
+      packet[0] = 1;
+      packet.set(new Uint8Array(pcm.buffer), 1);
+      this.emitFrame(packet.buffer);
+    }
+  }
+  recordSent(bytes: number) {
+    this.upBytes += bytes;
+  }
+  private measureRates() {
+    const now = performance.now(),
+      elapsed = now - this.rateAt;
+    if (elapsed < 1000) return;
+    window.__mluvkaStats.upKbps = (this.upBytes * 8) / elapsed;
+    window.__mluvkaStats.downKbps = (this.downBytes * 8) / elapsed;
+    this.upBytes = this.downBytes = 0;
+    this.rateAt = now;
+  }
+  private linkCodec() {
+    if (
+      !this.worker ||
+      !this.node ||
+      (this.linkedNode === this.node && this.linkedWorker === this.worker)
+    )
+      return;
+    const channel = new MessageChannel();
+    this.node.port.postMessage({ codecPort: channel.port1 }, [channel.port1]);
+    this.worker.postMessage({ playPort: channel.port2 }, [channel.port2]);
+    this.linkedNode = this.node;
+    this.linkedWorker = this.worker;
+  }
+  async prepareTransport() {
+    if (this.pcmOnly) return;
+    if (!this.codecReady)
+      this.codecReady = new Promise<void>((resolve) => {
+        const worker = new Worker(
+          new URL("./codec-worker.ts", import.meta.url),
+          { type: "module" },
+        );
+        this.worker = worker;
+        let initialized = false;
+        const fail = () => {
+          if (this.worker !== worker) return;
+          worker.terminate();
+          this.worker = undefined;
+          this.pcmOnly = true;
+          this.codec = "pcm";
+          clearTimeout(timer);
+          resolve();
+          if (initialized) this.onCodecFailure();
+        };
+        const timer = setTimeout(fail, 5000);
+        worker.onerror = (event) => {
+          event.preventDefault();
+          fail();
+        };
+        worker.onmessage = ({ data }) => {
+          if (this.worker !== worker) return;
+          if (data.ready) {
+            this.linkCodec();
+            initialized = true;
+            clearTimeout(timer);
+            resolve();
+          }
+          if (data.failed) fail();
+          if (data.encoded && this.ready && this.codec === "opus")
+            this.emitFrame(data.encoded);
+          if (data.lost) window.__mluvkaStats.lostFrames += data.lost;
+          if (data.decoded && this.ready && this.codec === "opus") {
+            window.__mluvkaStats.receivedFrames++;
+            window.__mluvkaStats.rms = data.rms;
+            if (data.plc) {
+              window.__mluvkaStats.plcFrames++;
+            }
+          }
+          if (data.pcm && this.ready && this.codec === "opus") {
+            if (data.plc) {
+              window.__mluvkaStats.plcFrames++;
+            }
+            this.playPcm(data.pcm);
+          }
+        };
+        worker.postMessage({ init: true, quality: this.settings.quality });
+      });
+    try {
+      await this.codecReady;
+    } catch {
+      this.worker?.terminate();
+      this.worker = undefined;
+      this.pcmOnly = true;
+      this.codec = "pcm";
+    }
+  }
+  transportOffer() {
+    return {
+      codec: this.worker ? "opus" : "pcm",
+      version: 1,
+      quality: this.settings.quality,
+    };
+  }
+  negotiate(codec: string) {
+    this.codec = codec === "opus" && this.worker ? "opus" : "pcm";
+    window.__mluvkaStats.codec = this.codec;
+    this.worker?.postMessage({ reset: true });
+    this.node?.port.postMessage({
+      settings: { opus: this.codec === "opus" },
+      flush: true,
+    });
+    this.history = [];
+    this.pending = undefined;
+    this.lastVoice = -Infinity;
+    this.transmitting = false;
   }
   changeInput(): Promise<void> {
     const request = ++this.inputRequest;
@@ -305,12 +505,14 @@ export class AudioEngine {
   }
   async update(settings: Settings) {
     const old = this.settings;
+    this.worker?.postMessage({ quality: settings.quality });
     this.settings = settings;
     this.node?.port.postMessage({
       settings: {
         gain: settings.gain,
         monitor: this.testing,
         silent: settings.deafen,
+        opus: this.codec === "opus",
       },
       flush: settings.deafen,
     });
@@ -318,7 +520,8 @@ export class AudioEngine {
     if (old.output !== settings.output)
       await this.setOutput(settings.output || "");
     if (
-      this.stream &&
+      this.context &&
+      this.node &&
       (old.input !== settings.input ||
         old.echo !== settings.echo ||
         old.noise !== settings.noise ||
@@ -327,12 +530,19 @@ export class AudioEngine {
       await this.changeInput();
   }
   receive(frame: ArrayBuffer) {
-    if (frame.byteLength !== 1921 || new Uint8Array(frame)[0] !== 2) return;
-    const pcm = frame.slice(1);
+    this.downBytes += frame.byteLength;
+    const type = new Uint8Array(frame)[0];
+    if (type === 4 && frame.byteLength > 5 && this.codec === "opus") {
+      this.worker?.postMessage({ decode: frame }, [frame]);
+      return;
+    }
+    if (type === 2 && frame.byteLength === 1921) this.playPcm(frame.slice(1));
+  }
+  private playPcm(pcm: ArrayBuffer) {
     const samples = new Int16Array(pcm);
     window.__mluvkaStats.receivedFrames++;
     window.__mluvkaStats.rms = Math.sqrt(
-      samples.reduce((sum, x) => sum + (x / 32768) ** 2, 0) / 960,
+      samples.reduce((sum, x) => sum + (x / 32768) ** 2, 0) / samples.length,
     );
     this.node?.port.postMessage({ pcm }, [pcm]);
   }
@@ -360,6 +570,11 @@ export class AudioEngine {
     osc.stop(t + 0.15);
   }
   async close() {
+    this.worker?.terminate();
+    this.worker = undefined;
+    this.codecReady = undefined;
+    this.history = [];
+    this.pending = undefined;
     this.startPromise = undefined;
     this.ready = false;
     ++this.inputRequest;

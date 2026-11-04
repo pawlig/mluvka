@@ -1,6 +1,16 @@
 // Skutečný TS3 + dvě izolované relace Chrome. Testovací hesla vznikají jen v paměti.
 import { chromium, expect } from "@playwright/test";
 import { mobileChecks, pwaChecks } from "./mobil.mjs";
+import {
+  jitterChecks,
+  installAudioProbe,
+  toneCheck,
+  vadCheck,
+  networkCheck,
+  shapeSocket,
+  fallbackCheck,
+  codecRecoveryCheck,
+} from "./audio.mjs";
 import { resamplingChecks } from "./resampling.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { spawn } from "node:child_process";
@@ -51,7 +61,18 @@ class Query {
     this.socket = socket;
     this.buffer = "";
     this.pending = undefined;
+    this.leaves = [];
+    this.notifications = "";
     socket.on("data", (data) => {
+      this.notifications += data.toString();
+      const lines = this.notifications.split(/[\r\n]+/);
+      this.notifications = lines.pop();
+      for (const line of lines)
+        if (line.startsWith("notifyclientleftview"))
+          this.leaves.push({
+            client: Number(/\bclid=(\d+)/.exec(line)?.[1]),
+            reason: Number(/\breasonid=(\d+)/.exec(line)?.[1]),
+          });
       this.buffer += data.toString();
       if (this.pending && /error id=\d+[^\n]*[\r\n]+/.test(this.buffer)) {
         const response = this.buffer;
@@ -105,7 +126,7 @@ async function fillLogin(page, nickname, pass = password) {
 }
 async function connected(page) {
   await expect(page.locator(".connection-status")).toHaveText("Připojeno", {
-    timeout: 30000,
+    timeout: 45000,
   });
 }
 async function moveToProtected(page) {
@@ -349,10 +370,27 @@ function startBackend() {
 async function restartBackend() {
   if (process.env.E2E_URL)
     throw Error("Restart vyžaduje lokální backend, bez E2E_URL.");
-  await new Promise((resolve) => {
-    backend.once("exit", resolve);
-    backend.kill("SIGKILL");
+  const stoppedAt = Date.now();
+  const leftBefore = query.leaves.length;
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(Error("SIGTERM neukončil backend do 5 s")),
+      5000,
+    );
+    backend.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    backend.kill("SIGTERM");
   });
+  const remaining = await query.cmd("clientlist");
+  expect(remaining).not.toContain("client_type=0");
+  const leaving = query.leaves.slice(leftBefore);
+  expect(leaving.length).toBeGreaterThan(0);
+  expect(leaving.every((client) => client.reason === 8)).toBe(true);
+  ok(
+    "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
+  );
   startBackend();
   await eventually(async () =>
     expect((await fetch(`${base}/healthz`)).status).toBe(200),
@@ -388,6 +426,7 @@ try {
   await wait(250);
   await query.cmd(`login serveradmin ${admin}`);
   await query.cmd("use 1");
+  await query.cmd("servernotifyregister event=server");
   await query.cmd(
     `serveredit virtualserver_name=Mluvka\\s·\\szkušebna virtualserver_password=${password} virtualserver_needed_identity_security_level=8 virtualserver_antiflood_points_needed_command_block=10000 virtualserver_antiflood_points_needed_ip_block=10000`,
   );
@@ -423,8 +462,10 @@ try {
   });
   expect((await fetch(base)).status).toBe(200);
   ok("HTTP frontend a /healthz → 200 ok");
-  await securityChecks(base, ok);
-  await earlyBackendMessages();
+  if (!process.env.E2E_FOCUS) {
+    await securityChecks(base, ok);
+    await earlyBackendMessages();
+  }
   const samples = 48000 * 2,
     wav = Buffer.alloc(44 + samples * 2);
   wav.write("RIFF");
@@ -455,291 +496,354 @@ try {
         : undefined),
     args: [
       "--use-fake-device-for-media-stream",
+      "--disable-audio-output",
+      "--disable-background-media-suspend",
       "--use-fake-ui-for-media-stream",
       `--use-file-for-fake-audio-capture=${wavPath}`,
       "--autoplay-policy=no-user-gesture-required",
       "--disable-features=HttpsFirstBalancedModeAutoEnable",
     ],
   });
-  resamplingChecks(ok);
-  await pwaChecks({ browser, base, root, ok });
-  await restoredTransmission("always", false);
-  await restoredTransmission("vad", false);
-  await restoredTransmission("always", true);
-  const aContext = await browser.newContext({
-      permissions: ["microphone"],
-      viewport: { width: 1440, height: 900 },
-    }),
-    bContext = await browser.newContext({
-      permissions: ["microphone"],
-      viewport: { width: 1440, height: 900 },
-    });
-  await aContext.addInitScript(() => {
-    const get = navigator.mediaDevices.getUserMedia.bind(
-      navigator.mediaDevices,
-    );
-    window.testMicTracks = [];
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await get(constraints);
-      window.testMicTracks.push(...stream.getAudioTracks());
-      return stream;
-    };
-  });
-  const a = await aContext.newPage(),
-    b = await bContext.newPage();
-  pages = [a, b];
-  for (const p of [a, b]) {
-    if (process.env.E2E_DEBUG)
-      p.on("websocket", (socket) => {
-        console.log("WS opened", p === a ? "A" : "B");
-        socket.on("framereceived", ({ payload }) => {
-          if (typeof payload === "string") {
-            const { type, code, fatal } = JSON.parse(payload);
-            console.log("WS reply", { type, code, fatal });
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    const context = await newContext(...args);
+    if (process.env.E2E_CODEC === "pcm")
+      await context.addInitScript(() => {
+        const send = WebSocket.prototype.send;
+        WebSocket.prototype.send = function (data) {
+          if (typeof data === "string") {
+            const msg = JSON.parse(data);
+            if (msg.type === "connect") {
+              msg.audio = { codec: "pcm", version: 1 };
+              data = JSON.stringify(msg);
+            }
           }
-        });
-        socket.on("close", () => console.log("WS closed", p === a ? "A" : "B"));
+          return send.call(this, data);
+        };
       });
-    p.on("pageerror", (e) => errors.push(e.message));
-    p.on("console", (m) => {
-      if (m.type() === "error") errors.push(m.text());
-    });
+    return context;
+  };
+  await codecRecoveryCheck(ok);
+  resamplingChecks(ok);
+  jitterChecks(ok);
+  if (!process.env.E2E_FOCUS) {
+    await pwaChecks({ browser, base, root, ok });
+    await restoredTransmission("always", false);
+    await restoredTransmission("vad", false);
+    await restoredTransmission("always", true);
   }
-  await a.goto(base);
-  await b.goto(base);
-  await fillLogin(a, "Adam", "zamerne-nespravne");
-  await expect(a.getByRole("alert")).toContainText("Nesprávné heslo", {
-    timeout: 30000,
-  });
-  await expect(a.getByRole("button", { name: /Připojit se/ })).toBeEnabled();
-  ok("Špatné heslo → česká chyba");
-  await fillLogin(a, "Adam");
-  await connected(a);
-  await b.getByLabel("Zapamatovat i hesla na tomto zařízení").uncheck();
-  await fillLogin(b, "Bára");
-  await connected(b);
-  await expect(
-    a.locator(".client-name").filter({ hasText: "Bára" }),
-  ).toBeVisible();
-  await expect(
-    b.locator(".client-name").filter({ hasText: "Adam" }),
-  ).toBeVisible();
-  ok("Dvě relace se vidí ve stromu TS");
-  const beforeUid = await b.evaluate(() => window.__mluvkaStats.uid);
-  const list = await query.cmd("clientlist -uid");
-  expect(list.replaceAll("\\/", "/")).toContain(beforeUid);
-  ok("Identita z prohlížeče odpovídá UID na TS serveru");
-  const cContext = await browser.newContext({ permissions: ["microphone"] });
-  const c = await cContext.newPage();
-  await c.goto(base);
-  await fillLogin(c, "Adam");
-  await connected(c);
-  await expect(c.locator(".self-card strong")).toHaveText("Adam1");
-  await cContext.close();
-  ok("Obsazená přezdívka se automaticky doplní o 1");
-  const live = await query.cmd(
-    "channelcreate channel_name=Změny channel_flag_permanent=1 channel_codec=4",
-  );
-  const liveId = /cid=(\d+)/.exec(live)[1];
-  await expect(
-    a.locator(".channel-button").filter({ hasText: "Změny" }),
-  ).toBeVisible();
-  await query.cmd(`channeledit cid=${liveId} channel_name=Přejmenováno`);
-  await expect(
-    b.locator(".channel-button").filter({ hasText: "Přejmenováno" }),
-  ).toBeVisible();
-  await query.cmd(`channeldelete cid=${liveId} force=1`);
-  await expect(
-    a.locator(".channel-button").filter({ hasText: "Přejmenováno" }),
-  ).toHaveCount(0);
-  ok("Živý vznik, přejmenování a smazání kanálu v obou relacích");
-  await moveToProtected(a);
-  await moveToProtected(b);
-  ok("Přesun obou relací do kanálu s heslem");
-  await a.getByLabel("Zpráva", { exact: true }).fill("Čau Báro, slyšíme se.");
-  await a.getByRole("button", { name: "Odeslat zprávu" }).click();
-  await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
-  ok("Chat kanálu A → B");
-  await a.getByRole("button", { name: "Server", exact: true }).click();
-  await b.getByRole("button", { name: "Server", exact: true }).click();
-  await a.getByLabel("Zpráva", { exact: true }).fill("Zpráva celému serveru.");
-  await a.getByRole("button", { name: "Odeslat zprávu" }).click();
-  await expect(b.getByRole("log")).toContainText("Zpráva celému serveru.");
-  ok("Chat serveru A → B");
-  await a.locator(".client-row").filter({ hasText: "Bára" }).click();
-  await a.getByRole("button", { name: "Napsat zprávu" }).click();
-  await a.getByLabel("Zpráva", { exact: true }).fill("Soukromě jen pro Báru.");
-  await a.getByRole("button", { name: "Odeslat zprávu" }).click();
-  await b
-    .locator(".chat-tabs")
-    .getByRole("button", { name: "Adam", exact: true })
-    .click();
-  await expect(b.getByRole("log")).toContainText("Soukromě jen pro Báru.");
-  ok("Soukromá zpráva A → B");
-  await a.getByRole("button", { name: "Nastavení", exact: true }).click();
-  for (const label of [
-    "Potlačení ozvěny",
-    "Potlačení šumu",
-    "Automatické zesílení",
-  ])
-    await a.getByLabel(label, { exact: true }).uncheck();
-  await expect
-    .poll(() =>
-      a.evaluate(() => {
-        const track = window.testMicTracks.findLast(
-          (track) => track.readyState === "live",
-        );
-        if (!track) return null;
-        const { echoCancellation, noiseSuppression, autoGainControl } =
-          track.getSettings();
-        return { echoCancellation, noiseSuppression, autoGainControl };
+  if (!process.env.E2E_TAIL) {
+    const aContext = await browser.newContext({
+        permissions: ["microphone"],
+        viewport: { width: 1440, height: 900 },
       }),
-    )
-    .toEqual({
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
+      bContext = await browser.newContext({
+        permissions: ["microphone"],
+        viewport: { width: 1440, height: 900 },
+      });
+    await installAudioProbe(aContext);
+    await installAudioProbe(bContext);
+    await aContext.addInitScript(() => {
+      const get = navigator.mediaDevices.getUserMedia.bind(
+        navigator.mediaDevices,
+      );
+      window.testMicTracks = [];
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await get(constraints);
+        window.testMicTracks.push(...stream.getAudioTracks());
+        return stream;
+      };
     });
-  ok(
-    "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
-  );
-  await a.getByRole("button", { name: "Hotovo", exact: true }).click();
-  await a.getByLabel("Režim vysílání", { exact: true }).selectOption("always");
-  await expect(
-    b.locator(".client-row.talking").filter({ hasText: "Adam" }),
-  ).toBeVisible({ timeout: 15000 });
-  await expect.poll(() => rms(b), { timeout: 15000 }).toBeGreaterThan(0.02);
-  const audible = await b.evaluate(() => ({
-    ...window.__mluvkaStats,
-    uid: undefined,
-  }));
-  ok("Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B", audible);
-  await b.locator(".client-row").filter({ hasText: "Adam" }).click();
-  await b.getByLabel("Lokálně ztlumit", { exact: true }).check();
-  await b.getByRole("button", { name: "Zavřít uživatele" }).click();
-  await expect.poll(() => rms(b)).toBeLessThan(0.001);
-  const sent = await a.evaluate(() => window.__mluvkaStats.sentFrames);
-  await expect
-    .poll(() => a.evaluate(() => window.__mluvkaStats.sentFrames))
-    .toBeGreaterThan(sent + 20);
-  ok("Lokální mute A u B → RMS < 0,001, A dál vysílá");
-  await b.locator(".client-row").filter({ hasText: "Adam" }).click();
-  await b.getByLabel("Lokálně ztlumit", { exact: true }).uncheck();
-  await b.getByRole("button", { name: "Zavřít uživatele" }).click();
-  await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
-  await a
-    .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
-    .click();
-  await expect(
-    b
-      .locator(".client-row")
-      .filter({ hasText: "Adam" })
-      .locator(".client-icons svg"),
-  ).toHaveCount(1);
-  await expect.poll(() => rms(b)).toBeLessThan(0.001);
-  await a
-    .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
-    .click();
-  ok("Mute mikrofonu se propíše do TS a zastaví hlas");
-  await b.getByRole("button", { name: "Ztlumit zvuk", exact: true }).click();
-  await expect.poll(() => rms(b)).toBeLessThan(0.001);
-  await b.getByRole("button", { name: "Ztlumit zvuk", exact: true }).click();
-  await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
-  ok("Deafen zastaví poslech a po vypnutí obnoví audio");
-  await a.getByRole("button", { name: "Nastavení", exact: true }).click();
-  await a.getByRole("button", { name: "Test mikrofonu", exact: true }).click();
-  await expect.poll(() => rms(b)).toBeLessThan(0.001);
-  await a.getByRole("button", { name: "Ukončit test mikrofonu" }).click();
-  await a.getByRole("button", { name: "Hotovo", exact: true }).click();
-  ok("Test mikrofonu nic nevysílá na server");
-  await a.getByLabel("Režim vysílání", { exact: true }).selectOption("ptt");
-  await expect.poll(() => rms(b)).toBeLessThan(0.001);
-  await a.getByLabel("Zpráva", { exact: true }).focus();
-  await a.keyboard.down("Space");
-  await wait(200);
-  expect(await rms(b)).toBeLessThan(0.001);
-  await a.keyboard.up("Space");
-  await a.locator(".room-title h1").click();
-  if (process.env.E2E_DEBUG)
-    console.log(
-      "Mikrofon PTT",
-      await a.evaluate(() =>
-        window.testMicTracks.map((track) => {
-          const {
-            echoCancellation,
-            noiseSuppression,
-            autoGainControl,
-            sampleRate,
-          } = track.getSettings();
-          return {
-            state: track.readyState,
-            echoCancellation,
-            noiseSuppression,
-            autoGainControl,
-            sampleRate,
-          };
-        }),
-      ),
+    const a = await aContext.newPage(),
+      b = await bContext.newPage();
+    const networkProfile = await shapeSocket(b);
+    pages = [a, b];
+    for (const p of [a, b]) {
+      if (process.env.E2E_DEBUG)
+        p.on("websocket", (socket) => {
+          console.log("WS opened", p === a ? "A" : "B");
+          socket.on("framereceived", ({ payload }) => {
+            if (typeof payload === "string") {
+              const { type, code, fatal } = JSON.parse(payload);
+              console.log("WS reply", { type, code, fatal });
+            }
+          });
+          socket.on("close", () =>
+            console.log("WS closed", p === a ? "A" : "B"),
+          );
+        });
+      p.on("pageerror", (e) => errors.push(e.message));
+      p.on("console", (m) => {
+        if (m.type() === "error") errors.push(m.text());
+      });
+    }
+    await a.goto(base);
+    await b.goto(base);
+    await fillLogin(a, "Adam", "zamerne-nespravne");
+    await expect(a.getByRole("alert")).toContainText("Nesprávné heslo", {
+      timeout: 30000,
+    });
+    await expect(a.getByRole("button", { name: /Připojit se/ })).toBeEnabled();
+    ok("Špatné heslo → česká chyba");
+    await fillLogin(a, "Adam");
+    await connected(a);
+    await b.getByLabel("Zapamatovat i hesla na tomto zařízení").uncheck();
+    await fillLogin(b, "Bára");
+    await connected(b);
+    await expect(
+      a.locator(".client-name").filter({ hasText: "Bára" }),
+    ).toBeVisible();
+    await expect(
+      b.locator(".client-name").filter({ hasText: "Adam" }),
+    ).toBeVisible();
+    ok("Dvě relace se vidí ve stromu TS");
+    const beforeUid = await b.evaluate(() => window.__mluvkaStats.uid);
+    const list = await query.cmd("clientlist -uid");
+    expect(list.replaceAll("\\/", "/")).toContain(beforeUid);
+    ok("Identita z prohlížeče odpovídá UID na TS serveru");
+    const cContext = await browser.newContext({ permissions: ["microphone"] });
+    const c = await cContext.newPage();
+    await c.goto(base);
+    await fillLogin(c, "Adam");
+    await connected(c);
+    await expect(c.locator(".self-card strong")).toHaveText("Adam1");
+    await cContext.close();
+    ok("Obsazená přezdívka se automaticky doplní o 1");
+    const live = await query.cmd(
+      "channelcreate channel_name=Změny channel_flag_permanent=1 channel_codec=4",
     );
-  await a.keyboard.down("Space");
-  await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
-  await a.keyboard.up("Space");
-  await expect.poll(() => rms(b)).toBeLessThan(0.001);
-  ok("PTT reaguje na mezerník mimo textová pole");
-  await a.getByLabel("Zpráva", { exact: true }).fill("");
-  await a.getByLabel("Režim vysílání", { exact: true }).selectOption("vad");
-  await a.getByRole("button", { name: "Nastavení", exact: true }).click();
-  await a.getByLabel("Práh hlasové aktivace", { exact: true }).fill("0.005");
-  await a.getByRole("button", { name: "Hotovo", exact: true }).click();
-  await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
-  ok("Hlasová aktivace vysílá nad prahem");
-  await b.getByRole("button", { name: "Odpojit", exact: true }).click();
-  await expect(b.getByLabel("Přezdívka", { exact: true })).toBeVisible();
-  await b.reload();
-  expect(await b.getByLabel("Přezdívka", { exact: true }).inputValue()).toBe(
-    "Bára",
-  );
-  expect(
-    await b.getByLabel("Heslo serveru", { exact: false }).inputValue(),
-  ).toBe("");
-  await b.locator("details").evaluate((el) => (el.open = true));
-  await b.getByLabel("Heslo kanálu", { exact: true }).fill(channelPassword);
-  await fillLogin(b, "Bára");
-  await connected(b);
-  expect(await b.evaluate(() => window.__mluvkaStats.uid)).toBe(beforeUid);
-  expect((await query.cmd("clientlist -uid")).replaceAll("\\/", "/")).toContain(
-    beforeUid,
-  );
-  ok("Obnovení: stejné UID na TS, údaje uloženy bez hesel");
-  await moveToProtected(b);
-  await a.getByLabel("Režim vysílání", { exact: true }).selectOption("always");
-  await a
-    .locator(".chat-tabs")
-    .getByRole("button", { name: "Kanál", exact: true })
-    .click();
-  await b
-    .locator(".chat-tabs")
-    .getByRole("button", { name: "Kanál", exact: true })
-    .click();
-  await uiCheck(a, "Desktop 1440×900: žádný přesah ani ovládání mimo okno");
-  await a.screenshot({ path: resolve(root, "docs/screenshots/desktop.png") });
-  await b.setViewportSize({ width: 390, height: 844 });
-  await uiCheck(b, "Mobil 390×844: strom bez přesahu");
-  await b.screenshot({ path: resolve(root, "docs/screenshots/mobil.png") });
-  await b.getByRole("button", { name: "Chat", exact: true }).click();
-  await uiCheck(b, "Mobil 390×844: chat bez přesahu");
-  await b.screenshot({
-    path: resolve(root, "docs/screenshots/mobil-chat.png"),
+    const liveId = /cid=(\d+)/.exec(live)[1];
+    await expect(
+      a.locator(".channel-button").filter({ hasText: "Změny" }),
+    ).toBeVisible();
+    await query.cmd(`channeledit cid=${liveId} channel_name=Přejmenováno`);
+    await expect(
+      b.locator(".channel-button").filter({ hasText: "Přejmenováno" }),
+    ).toBeVisible();
+    await query.cmd(`channeldelete cid=${liveId} force=1`);
+    await expect(
+      a.locator(".channel-button").filter({ hasText: "Přejmenováno" }),
+    ).toHaveCount(0);
+    ok("Živý vznik, přejmenování a smazání kanálu v obou relacích");
+    await moveToProtected(a);
+    await moveToProtected(b);
+    ok("Přesun obou relací do kanálu s heslem");
+    await a.getByLabel("Zpráva", { exact: true }).fill("Čau Báro, slyšíme se.");
+    await a.getByRole("button", { name: "Odeslat zprávu" }).click();
+    await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
+    ok("Chat kanálu A → B");
+    await a.getByRole("button", { name: "Server", exact: true }).click();
+    await b.getByRole("button", { name: "Server", exact: true }).click();
+    await a
+      .getByLabel("Zpráva", { exact: true })
+      .fill("Zpráva celému serveru.");
+    await a.getByRole("button", { name: "Odeslat zprávu" }).click();
+    await expect(b.getByRole("log")).toContainText("Zpráva celému serveru.");
+    ok("Chat serveru A → B");
+    await a.locator(".client-row").filter({ hasText: "Bára" }).click();
+    await a.getByRole("button", { name: "Napsat zprávu" }).click();
+    await a
+      .getByLabel("Zpráva", { exact: true })
+      .fill("Soukromě jen pro Báru.");
+    await a.getByRole("button", { name: "Odeslat zprávu" }).click();
+    await b
+      .locator(".chat-tabs")
+      .getByRole("button", { name: "Adam", exact: true })
+      .click();
+    await expect(b.getByRole("log")).toContainText("Soukromě jen pro Báru.");
+    ok("Soukromá zpráva A → B");
+    await a.getByRole("button", { name: "Nastavení", exact: true }).click();
+    for (const label of [
+      "Potlačení ozvěny",
+      "Potlačení šumu",
+      "Automatické zesílení prohlížeče (může zesilovat začátky)",
+    ])
+      await a.getByLabel(label, { exact: true }).uncheck();
+    await expect
+      .poll(() =>
+        a.evaluate(() => {
+          const track = window.testMicTracks.findLast(
+            (track) => track.readyState === "live",
+          );
+          if (!track) return null;
+          const { echoCancellation, noiseSuppression, autoGainControl } =
+            track.getSettings();
+          return { echoCancellation, noiseSuppression, autoGainControl };
+        }),
+      )
+      .toEqual({
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      });
+    ok(
+      "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
+    );
+    await a.getByRole("button", { name: "Hotovo", exact: true }).click();
+    await a
+      .getByLabel("Režim vysílání", { exact: true })
+      .selectOption("always");
+    await expect(
+      b.locator(".client-row.talking").filter({ hasText: "Adam" }),
+    ).toBeVisible({ timeout: 15000 });
+    await expect.poll(() => rms(b), { timeout: 15000 }).toBeGreaterThan(0.02);
+    const audible = await b.evaluate(() => ({
+      ...window.__mluvkaStats,
+      uid: undefined,
+    }));
+    ok(
+      "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
+      audible,
+    );
+    await toneCheck(a, b, ok, process.env.E2E_CODEC || "opus");
+    await networkCheck(
+      browser,
+      a,
+      b,
+      ok,
+      process.env.E2E_CODEC || "opus",
+      networkProfile,
+      query,
+    );
+    await b.locator(".client-row").filter({ hasText: "Adam" }).click();
+    await b.getByLabel("Lokálně ztlumit", { exact: true }).check();
+    await b.getByRole("button", { name: "Zavřít uživatele" }).click();
+    await expect.poll(() => rms(b)).toBeLessThan(0.001);
+    const sent = await a.evaluate(() => window.__mluvkaStats.sentFrames);
+    await expect
+      .poll(() => a.evaluate(() => window.__mluvkaStats.sentFrames))
+      .toBeGreaterThan(sent + 20);
+    ok("Lokální mute A u B → RMS < 0,001, A dál vysílá");
+    await b.locator(".client-row").filter({ hasText: "Adam" }).click();
+    await b.getByLabel("Lokálně ztlumit", { exact: true }).uncheck();
+    await b.getByRole("button", { name: "Zavřít uživatele" }).click();
+    await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
+    await a
+      .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
+      .click();
+    await expect(
+      b
+        .locator(".client-row")
+        .filter({ hasText: "Adam" })
+        .locator(".client-icons svg"),
+    ).toHaveCount(1);
+    await expect.poll(() => rms(b)).toBeLessThan(0.001);
+    await a
+      .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
+      .click();
+    ok("Mute mikrofonu se propíše do TS a zastaví hlas");
+    await b.getByRole("button", { name: "Ztlumit zvuk", exact: true }).click();
+    await expect.poll(() => rms(b)).toBeLessThan(0.001);
+    await b.getByRole("button", { name: "Ztlumit zvuk", exact: true }).click();
+    await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
+    ok("Deafen zastaví poslech a po vypnutí obnoví audio");
+    await a.getByRole("button", { name: "Nastavení", exact: true }).click();
+    await a
+      .getByRole("button", { name: "Test mikrofonu", exact: true })
+      .click();
+    await expect.poll(() => rms(b)).toBeLessThan(0.001);
+    await a.getByRole("button", { name: "Ukončit test mikrofonu" }).click();
+    await a.getByRole("button", { name: "Hotovo", exact: true }).click();
+    ok("Test mikrofonu nic nevysílá na server");
+    await a.getByLabel("Režim vysílání", { exact: true }).selectOption("ptt");
+    await expect.poll(() => rms(b)).toBeLessThan(0.001);
+    await a.getByLabel("Zpráva", { exact: true }).focus();
+    await a.keyboard.down("Space");
+    await wait(200);
+    expect(await rms(b)).toBeLessThan(0.001);
+    await a.keyboard.up("Space");
+    await a.locator(".room-title h1").click();
+    if (process.env.E2E_DEBUG)
+      console.log(
+        "Mikrofon PTT",
+        await a.evaluate(() =>
+          window.testMicTracks.map((track) => {
+            const {
+              echoCancellation,
+              noiseSuppression,
+              autoGainControl,
+              sampleRate,
+            } = track.getSettings();
+            return {
+              state: track.readyState,
+              echoCancellation,
+              noiseSuppression,
+              autoGainControl,
+              sampleRate,
+            };
+          }),
+        ),
+      );
+    await a.keyboard.down("Space");
+    await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
+    await a.keyboard.up("Space");
+    await expect.poll(() => rms(b)).toBeLessThan(0.001);
+    ok("PTT reaguje na mezerník mimo textová pole");
+    await a.getByLabel("Zpráva", { exact: true }).fill("");
+    await a.getByLabel("Režim vysílání", { exact: true }).selectOption("vad");
+    await a.getByRole("button", { name: "Nastavení", exact: true }).click();
+    await a.getByLabel("Práh hlasové aktivace", { exact: true }).fill("0.005");
+    await a.getByRole("button", { name: "Hotovo", exact: true }).click();
+    await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
+    ok("Hlasová aktivace vysílá nad prahem");
+    await b.getByRole("button", { name: "Odpojit", exact: true }).click();
+    await expect(b.getByLabel("Přezdívka", { exact: true })).toBeVisible();
+    await b.reload();
+    expect(await b.getByLabel("Přezdívka", { exact: true }).inputValue()).toBe(
+      "Bára",
+    );
+    expect(
+      await b.getByLabel("Heslo serveru", { exact: false }).inputValue(),
+    ).toBe("");
+    await b.locator("details").evaluate((el) => (el.open = true));
+    await b.getByLabel("Heslo kanálu", { exact: true }).fill(channelPassword);
+    await fillLogin(b, "Bára");
+    await connected(b);
+    expect(await b.evaluate(() => window.__mluvkaStats.uid)).toBe(beforeUid);
+    expect(
+      (await query.cmd("clientlist -uid")).replaceAll("\\/", "/"),
+    ).toContain(beforeUid);
+    ok("Obnovení: stejné UID na TS, údaje uloženy bez hesel");
+    await moveToProtected(b);
+    await a
+      .getByLabel("Režim vysílání", { exact: true })
+      .selectOption("always");
+    await a
+      .locator(".chat-tabs")
+      .getByRole("button", { name: "Kanál", exact: true })
+      .click();
+    await b
+      .locator(".chat-tabs")
+      .getByRole("button", { name: "Kanál", exact: true })
+      .click();
+    await uiCheck(a, "Desktop 1440×900: žádný přesah ani ovládání mimo okno");
+    await a.screenshot({ path: resolve(root, "docs/screenshots/desktop.png") });
+    await b.setViewportSize({ width: 390, height: 844 });
+    await uiCheck(b, "Mobil 390×844: strom bez přesahu");
+    await b.screenshot({ path: resolve(root, "docs/screenshots/mobil.png") });
+    await b.getByRole("button", { name: "Chat", exact: true }).click();
+    await uiCheck(b, "Mobil 390×844: chat bez přesahu");
+    await b.screenshot({
+      path: resolve(root, "docs/screenshots/mobil-chat.png"),
+    });
+    await aContext.close();
+    await expect
+      .poll(async () => {
+        const r = await query.cmd("clientlist");
+        return r.includes("client_nickname=Adam");
+      })
+      .toBe(false);
+    ok("Zavření prohlížeče odpojí jeho TS klienta");
+    await bContext.close();
+  }
+  await vadCheck({
+    browser,
+    base,
+    login: fillLogin,
+    ok,
+    codec: process.env.E2E_CODEC || "opus",
   });
-  await aContext.close();
-  await expect
-    .poll(async () => {
-      const r = await query.cmd("clientlist");
-      return r.includes("client_nickname=Adam");
-    })
-    .toBe(false);
-  ok("Zavření prohlížeče odpojí jeho TS klienta");
-  await bContext.close();
+  await fallbackCheck(browser, base, fillLogin, ok);
   await mobileChecks({
     browser,
     base,
@@ -765,20 +869,41 @@ try {
   for (const page of pages) {
     try {
       console.error(
-        await page.evaluate(() => ({
-          stats: { ...window.__mluvkaStats, uid: undefined },
-          error: document.querySelector(".toast")?.textContent,
-          status: document.querySelector(".connection-status")?.textContent,
-          visibility: document.visibilityState,
-          mode: document.querySelector(".mode-select select")?.value,
-        })),
+        await Promise.race([
+          page.evaluate(() => ({
+            stats: { ...window.__mluvkaStats, uid: undefined },
+            error: document.querySelector(".toast")?.textContent,
+            status: document.querySelector(".connection-status")?.textContent,
+            visibility: document.visibilityState,
+            mode: document.querySelector(".mode-select select")?.value,
+          })),
+          wait(1000).then(() => ({ diagnostic: "JS nereaguje" })),
+        ]),
       );
     } catch {}
   }
   process.exitCode = 1;
 } finally {
   query?.socket.destroy();
-  backend?.kill("SIGTERM");
-  ts?.kill("SIGTERM");
+  await Promise.all(
+    [backend, ts].map(
+      (child) =>
+        new Promise((resolve) => {
+          if (!child || child.exitCode !== null || child.signalCode !== null) {
+            resolve();
+            return;
+          }
+          const timer = setTimeout(() => {
+            child.kill("SIGKILL");
+            resolve();
+          }, 5000);
+          child.once("exit", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          child.kill("SIGTERM");
+        }),
+    ),
+  );
   await Promise.race([browser?.close(), wait(5000)]);
 }

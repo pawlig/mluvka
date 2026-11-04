@@ -3,7 +3,7 @@ import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
 import { Install, useServiceWorker } from "./pwa";
 import {
-  defaultSettings,
+  loadSettings,
   load,
   save,
   type Channel,
@@ -93,10 +93,7 @@ export function App() {
     ...blankLogin,
     ...load("login", {}),
   }));
-  const [settings, setSettings] = useState<Settings>(() => ({
-    ...defaultSettings,
-    ...load("settings", {}),
-  }));
+  const [settings, setSettings] = useState<Settings>(loadSettings);
   const [peers, setPeers] = useState<Record<string, Peer>>(() =>
     load("peers", {}),
   );
@@ -117,6 +114,8 @@ export function App() {
     undefined,
   );
   const retryCount = useRef(0);
+  const retryAfter = useRef(0);
+  const restarting = useRef(false);
   const lastMessage = useRef(0);
   const closeStale = useRef<(() => void) | undefined>(undefined);
   const pendingMove = useRef<{ channel: number; password: string } | undefined>(
@@ -180,6 +179,7 @@ export function App() {
         ) {
           ws.current.send(data);
           window.__mluvkaStats.sentFrames++;
+          engine.current?.recordSent(data.byteLength);
         }
       },
     );
@@ -189,6 +189,7 @@ export function App() {
   const connected = status === "connected";
   useServiceWorker(status !== "idle" || retryAttempt > 0);
   audio.onBlocked = setAudioBlocked;
+  audio.onCodecFailure = () => closeStale.current?.();
   const currentThread =
     thread === "channel" ? `channel:${me?.channel}` : thread;
   const visibleMessages = messages.filter((m) => m.thread === currentThread);
@@ -325,7 +326,14 @@ export function App() {
     if (document.visibilityState === "hidden") return;
     retryTimer.current = setTimeout(
       () => void openConnection(lastLogin.current),
-      [1000, 2000, 4000, 8000, 15000][Math.min(attempt - 1, 4)],
+      Math.max(
+        retryAfter.current - Date.now(),
+        (restarting.current
+          ? [3000, 6000, 12000, 15000]
+          : [1000, 2000, 4000, 8000, 15000])[
+          Math.min(attempt - 1, restarting.current ? 3 : 4)
+        ],
+      ),
     );
   }
   function tryNow() {
@@ -336,6 +344,10 @@ export function App() {
     )
       return;
     clearTimeout(retryTimer.current);
+    if (Date.now() < retryAfter.current) {
+      retryTimer.current = setTimeout(tryNow, retryAfter.current - Date.now());
+      return;
+    }
     void openConnection(lastLogin.current);
   }
   function connect(e?: FormEvent) {
@@ -363,6 +375,7 @@ export function App() {
       return;
     const token = ++generation.current;
     audio.ready = false;
+    audio.negotiate("pcm");
     audio.ptt = false;
     setError("");
     setNotice("");
@@ -381,6 +394,8 @@ export function App() {
             "Mikrofon není dostupný. Povolte přístup nebo ho zapněte klepnutím na zvuk.",
           );
       });
+    await audio.prepareTransport();
+    if (token !== generation.current || !wanted.current) return;
     const socket = new WebSocket(
       `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`,
     );
@@ -415,6 +430,7 @@ export function App() {
           type: "connect",
           ...credentials,
           identity: load<string | null>("identity", null),
+          audio: audio.transportOffer(),
         }),
       );
     };
@@ -433,12 +449,14 @@ export function App() {
         socket.close();
         return;
       }
+      if (msg.type === "hello") audio.negotiate(msg.audio?.codec);
       if (msg.type === "identity") {
         save("identity", msg.identity);
         window.__mluvkaStats.uid = msg.uid;
       }
       if (msg.type === "error") {
         setError(msg.message);
+        if (msg.code === "flood") retryAfter.current = Date.now() + 120000;
         if (
           msg.fatal !== false &&
           ["bad_password", "banned", "not_allowed", "invalid"].includes(
@@ -461,6 +479,12 @@ export function App() {
       }
       if (msg.type === "notice") {
         setNotice(msg.message);
+        if (msg.code === "server_restart") {
+          restarting.current = true;
+          retryCount.current = 0;
+          retryAfter.current = Math.max(retryAfter.current, Date.now() + 3000);
+          setError("");
+        }
         if (msg.code === "session_replaced") {
           wanted.current = false;
           clearTimeout(retryTimer.current);
@@ -468,6 +492,8 @@ export function App() {
         }
       }
       if (msg.type === "state") {
+        restarting.current = false;
+        retryAfter.current = 0;
         audio.ready = true;
         const next = msg as RoomState;
         const prev = roomRef.current;
@@ -965,7 +991,9 @@ export function App() {
       {retryAttempt > 0 && (
         <div className="reconnect-banner" role="status">
           <span>
-            Spojení ztraceno — připojuji znovu (pokus {retryAttempt})…
+            {restarting.current
+              ? "Mluvka se aktualizuje — připojuji znovu…"
+              : `Spojení ztraceno — připojuji znovu (pokus ${retryAttempt})…`}
           </span>
           <button className="secondary" onClick={tryNow}>
             Zkusit hned
@@ -1670,12 +1698,33 @@ export function App() {
                   nastavení systému.
                 </p>
               )}
+              <h3>Kvalita zvuku</h3>
+              <label>
+                Kvalita zvuku
+                <select
+                  value={settings.quality}
+                  onChange={(e) =>
+                    change("quality", e.target.value as Settings["quality"])
+                  }
+                >
+                  <option value="high">Vysoká (64 / 96 kb/s)</option>
+                  <option value="economy">Úsporná (32 / 48 kb/s)</option>
+                </select>
+              </label>
+              <p className="help">
+                Kvalita poslechu se použije při dalším připojení. Kompresor
+                vyrovnává hlasitost mikrofonu; hlasová aktivace má předběh 100
+                ms. Práh se měří před kompresorem.
+              </p>
               <h3>Zpracování mikrofonu</h3>
               {(
                 [
                   ["echo", "Potlačení ozvěny"],
                   ["noise", "Potlačení šumu"],
-                  ["autoGain", "Automatické zesílení"],
+                  [
+                    "autoGain",
+                    "Automatické zesílení prohlížeče (může zesilovat začátky)",
+                  ],
                   ["beep", "Pípnutí při příchodu a odchodu"],
                   ["wakeLock", "Nezhasínat displej"],
                 ] as const
@@ -1689,6 +1738,10 @@ export function App() {
                   {label}
                 </label>
               ))}
+              <details>
+                <summary>Diagnostika zvuku</summary>
+                <AudioDebug />
+              </details>
               <button
                 className="text-button"
                 onClick={() => {
@@ -1920,5 +1973,38 @@ export function App() {
         </footer>
       )}
     </div>
+  );
+}
+
+function AudioDebug() {
+  const [stats, setStats] = useState(window.__mluvkaStats);
+  useEffect(() => {
+    const timer = setInterval(
+      () => setStats({ ...window.__mluvkaStats }),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <pre className="audio-debug">
+      {JSON.stringify(
+        {
+          codec: stats.codec,
+          underruns: stats.underruns,
+          bufferMs: Math.round(stats.bufferMs),
+          targetBufferMs: Math.round(stats.targetBufferMs),
+          driftPercent: stats.driftCorrection.toFixed(3),
+          droppedFrames: stats.droppedFrames,
+          droppedCaptureFrames: stats.droppedCaptureFrames,
+          maxJump: stats.maxJump.toFixed(4),
+          upKbps: stats.upKbps.toFixed(1),
+          downKbps: stats.downKbps.toFixed(1),
+          plcFrames: stats.plcFrames,
+          lostFrames: stats.lostFrames,
+        },
+        null,
+        2,
+      )}
+    </pre>
   );
 }

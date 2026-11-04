@@ -88,18 +88,18 @@ Vite vypíše adresu a přesměruje `/ws` i `/healthz` na backend na portu 3000.
 
 ## Nastavení provozu
 
-| Proměnná | Výchozí | Význam |
-| --- | --- | --- |
-| `PORT` | `3000` | Jediný HTTP/WS port. |
-| `ALLOWED_SERVERS` | prázdné | Čárkami oddělené `host[:port]`. Prázdné (výchozí) povolí libovolný server — tak se Mluvka zatím nasazuje. Omezení lze kdykoliv zapnout. |
-| `MAX_SESSIONS` | `20` | Současná spojení včetně WS čekajících na přihlášení. |
-| `RUST_LOG` | `mluvka=info` | Úroveň logů aplikace. TS paketové logy jsou kvůli přihlašovacím údajům vždy vypnuté. |
-| `STATIC_DIR` | `dist` | Cesta k frontendu. |
+| Proměnná          | Výchozí       | Význam                                                                                                                                  |
+| ----------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`            | `3000`        | Jediný HTTP/WS port.                                                                                                                    |
+| `ALLOWED_SERVERS` | prázdné       | Čárkami oddělené `host[:port]`. Prázdné (výchozí) povolí libovolný server — tak se Mluvka zatím nasazuje. Omezení lze kdykoliv zapnout. |
+| `MAX_SESSIONS`    | `20`          | Současná spojení včetně WS čekajících na přihlášení.                                                                                    |
+| `RUST_LOG`        | `mluvka=info` | Úroveň logů aplikace. TS paketové logy jsou kvůli přihlašovacím údajům vždy vypnuté.                                                    |
+| `STATIC_DIR`      | `dist`        | Cesta k frontendu.                                                                                                                      |
 
 Ilustrační příklad: `ALLOWED_SERVERS=ts.example.org:9987,voice.example.net:9990`.
 Port se porovnává přesně, hostname bez rozlišení velikosti písmen. `host` znamená port 9987.
 IPv6 zadávejte jako `[adresa]:port`. TS nickname a DNS SRV lookup nejsou podporované;
-z více DNS adres se použije první.
+při nedostupnosti první IP se zkusí i další vrácené DNS adresy.
 
 Hesla ani identity se na backendu neukládají a nelogují. Limity chrání počty relací, velikosti
 zpráv, tempo vstupu i síťové čekání. Každý návštěvník obsadí TS slot a komunikuje z IP kontejneru;
@@ -113,13 +113,13 @@ z `Dockerfile.build` a při každém pushi do `main` ho publikuje jako `ghcr.io/
 
 1. Přidejte **App** a jako zdroj zvolte **Docker Image** `ghcr.io/pawlig/mluvka:latest`
    (image je veřejný, přihlášení k registru netřeba).
-   *Jde i zdroj GitHub `pawlig/mluvka` + build Dockerfile — kořenový `Dockerfile` obsahuje jen
+   _Jde i zdroj GitHub `pawlig/mluvka` + build Dockerfile — kořenový `Dockerfile` obsahuje jen
    `FROM ghcr.io/pawlig/mluvka:latest`, takže se nic nepřekládá. Automatické nasazení po pushi ale pak
-   vypněte, jinak Easypanel stáhne image dřív, než ho CI stihne postavit.*
+   vypněte, jinak Easypanel stáhne image dřív, než ho CI stihne postavit._
 2. Nastavte port **3000**. Kontejner běží jako UID 10001, nepotřebuje volume ani databázi.
 3. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), případně `MAX_SESSIONS` a `RUST_LOG`.
 4. Přidejte doménu s **HTTPS** a nasaďte. WSS jede na stejné doméně přes `/ws`; Traefik předává upgrade.
-5. **Automatické nasazení po buildu:** v Easypanelu zkopírujte *Deploy Webhook* aplikace a uložte ho
+5. **Automatické nasazení po buildu:** v Easypanelu zkopírujte _Deploy Webhook_ aplikace a uložte ho
    na GitHubu jako secret `EASYPANEL_DEPLOY_WEBHOOK`
    (`gh secret set EASYPANEL_DEPLOY_WEBHOOK --repo pawlig/mluvka`). CI ho zavolá až po publikaci image.
    Bez secretu se nasazuje ručně tlačítkem Deploy.
@@ -179,12 +179,12 @@ Prohlížeč neumí TS3 UDP protokol a kryptografii. Rust používá
 [ReSpeak/tsclientlib](https://github.com/ReSpeak/tsclientlib) s pevným rev
 `ee3bc6f45a7137db7793ba5593a321df400d53e5`, ostatní závislosti fixuje Cargo.lock.
 `AudioHandler` dekóduje, bufferuje a mixuje hlasy. Vstupní Opus má mono 48 kHz, 20 ms,
-OpusVoice; frontend zpracovává zvuk v AudioWorkletu s 80ms přehrávacím bufferem.
+OpusVoice; frontend zpracovává zvuk v AudioWorkletu s adaptivním přehrávacím bufferem 60–100 ms.
 Záložní C# varianta nebyla potřeba. [Úplný WS protokol](docs/protokol.md).
 
 ## Známá omezení
 
-- PCM po WS spotřebuje asi **770 kb/s v každém směru** při vysílání; příjem teče i s tichem.
+- Záložní PCM po WS spotřebuje asi **770 kb/s v každém směru** při vysílání; výchozí Opus používá 64/96 kb/s. Příjem teče i s tichem.
   TCP a dva jitter buffery přidávají latenci proti nativnímu klientovi.
 - Výběr výstupu závisí na `AudioContext.setSinkId` a oprávnění prohlížeče. Kde chybí
   (např. některé verze Safari/Firefox), volba se skryje s poznámkou o systémovém výstupu.
@@ -201,3 +201,31 @@ Záložní C# varianta nebyla potřeba. [Úplný WS protokol](docs/protokol.md).
 - Bez administrace serveru, souborů, avatarů a whisperu.
 
 Mluvka není oficiální produkt TeamSpeak. TS3 server a jeho licence nejsou součástí repozitáře.
+
+## Zvuk a diagnostika
+
+Výchozí přenos je Opus VBR 48 kHz mono / 20 ms: **Vysoká 64/96 kb/s** nahoru/dolů,
+**Úsporná 32/48 kb/s**. Mikrofonní Opus jde do TS beze změny; mix používá `Application::Audio`,
+protože zachovává obecné audio i tón bez vnucené řečové charakteristiky. FFT/RMS měření
+je součást E2E; RMS se porovnává se signálem za kompresorem. Licence jsou v `docs/licence/`. FEC je zapnuté, DTX vypnuté. PCM zůstává zálohou pro starší klienty/backend
+a chybu WASM. Podrobnosti: [protokol](docs/protokol.md).
+
+Prohlížeč používá [libopus-wasm 0.4.1](https://github.com/openclaw/libopus-wasm), MIT
+(wrapper), BSD-3-Clause (libopus). Aktuálně udržovaný balík poskytuje encoder i decoder,
+PLC, FEC a všechny požadované CTL. Instalovaný balík má 434 641 B; samostatný Vite Worker
+má přibližně 442 kB nekomprimovaný (WASM je vložený). Worker se načte až při připojování;
+SW jej při instalaci nepřednačítá. Funguje bez WebCodecs, SharedArrayBuffer a COOP/COEP.
+
+Automatické zesílení **prohlížeče (AGC) je výchozí vypnuté**: v tichu zvyšuje zisk a může
+zesilovat začátky vět. Jednorázová migrace nastavení v2 jej vypne i ve starých uložených
+volbách; uživatel jej pak může znovu zapnout. Vlastní kompresor −18 dBFS / 4:1 / 5 ms /
+150 ms a předstihem limiteru 5 ms běží stále, VAD měří před ním. Předběh 100 ms zachová slabý začátek slova,
+hold 400 ms a rampy omezují lupnutí na hranicích vysílání.
+
+Nastavení → Diagnostika zvuku ukazuje podtečení, buffer, korekci driftu, nouzové zahození,
+maximální skok, kb/s a WS PLC rámce. Totéž je v `window.__mluvkaStats`.
+Přehrávání má cíl 60 ms (při měřeném jitteru až 100 ms) a plynule opravuje rozdíl hodin.
+Dekodér posílá PCM přímo do workletu přes MessagePort; o PLC worklet žádá přímo Worker,
+aby zdržení hlavního vlákna nepřerušilo přehrávání. SIGTERM/SIGINT čistě odpojí TS
+relace a prohlížeče po aktualizaci obnoví hovor. Globální limit připojování omezuje flood
+při současném reconnectu; skutečný flood blokuje cíl na 120 s.

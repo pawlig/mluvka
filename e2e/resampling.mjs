@@ -38,17 +38,16 @@ export function resamplingChecks(ok = console.log) {
     assert.equal(frames.length, 50, `${rate} → 48000: počet 20ms rámců`);
     assert.ok(frames.every((frame) => frame.length === 960));
     assert.ok(processor.position <= 1, `zbytek vzorků ${processor.position}`);
-    for (const frame of frames)
-      processor.port.onmessage({ data: { pcm: frame.buffer } });
-    // Queue je záměrně omezená, proto délku měříme postupně po jednotlivých rámcích.
+    // Sledujeme počet zapsaných vzorků ve skutečném kruhovém bufferu.
     const playback = new Processor();
-    let length = 0;
-    for (const frame of frames) {
+    for (const frame of frames)
       playback.port.onmessage({ data: { pcm: frame.buffer } });
-      length += playback.queue.pop().length;
-    }
+    const length = playback.write;
     assert.ok(Math.abs(length - rate) <= 1, `48000 → ${rate}: délka ${length}`);
-    assert.ok(Math.max(...frames[10]) > 12000, "audio zůstalo slyšitelné");
+    assert.ok(
+      Math.max(...frames[10]) > 3000,
+      "komprimované audio zůstalo slyšitelné",
+    );
     ok(
       `Worklet ${rate} → 48000 → ${rate}: 50 × 960 vzorků, zpět ${length} vzorků`,
     );

@@ -1,6 +1,7 @@
 export type Mode = "ptt" | "vad" | "always";
 export interface Settings {
   mode: Mode;
+  quality: "high" | "economy";
   key: string;
   threshold: number;
   volume: number;
@@ -17,6 +18,7 @@ export interface Settings {
 }
 export const defaultSettings: Settings = {
   mode: "ptt",
+  quality: "high",
   key: "Space",
   threshold: 0.035,
   volume: 1,
@@ -25,12 +27,24 @@ export const defaultSettings: Settings = {
   deafen: false,
   echo: true,
   noise: true,
-  autoGain: true,
+  autoGain: false,
   input: "",
   output: "",
   beep: true,
   wakeLock: false,
 };
+export function loadSettings(): Settings {
+  const saved = {
+    ...defaultSettings,
+    ...load<Partial<Settings>>("settings", {}),
+  };
+  if (load("settingsVersion", 0) < 2) {
+    saved.autoGain = false;
+    save("settings", saved);
+    save("settingsVersion", 2);
+  }
+  return saved;
+}
 export interface Channel {
   id: number;
   parent: number;
@@ -102,8 +116,19 @@ declare global {
       micRms: number;
       underruns: number;
       droppedFrames: number;
+      droppedCaptureFrames: number;
       uid: string;
       sampleRate: number;
+      bufferMs: number;
+      targetBufferMs: number;
+      driftCorrection: number;
+      maxJump: number;
+      outputRms: number;
+      upKbps: number;
+      downKbps: number;
+      plcFrames: number;
+      lostFrames: number;
+      codec: "pcm" | "opus";
     };
   }
 }

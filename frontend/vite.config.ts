@@ -27,7 +27,12 @@ export default defineConfig({
           version.update(readFileSync(dist + file));
         const sw = readFileSync(`${dist}/sw.js`, "utf8")
           .replace("__CACHE_VERSION__", version.digest("hex").slice(0, 16))
-          .replace(/\/\*__ASSETS__\*\/\s*\[\]/, JSON.stringify(assets));
+          .replace(
+            /\/\*__ASSETS__\*\/\s*\[\]/,
+            JSON.stringify(
+              assets.filter((asset) => !asset.includes("codec-worker")),
+            ),
+          );
         writeFileSync(`${dist}/sw.js`, sw);
       },
     },

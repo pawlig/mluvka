@@ -7,10 +7,11 @@
     "dev": "vite --config frontend/vite.config.ts",
     "build": "npm run typecheck && vite build --config frontend/vite.config.ts",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/run.mjs"
+    "e2e": "node e2e/all.mjs"
   },
   "dependencies": {
     "@fontsource/manrope": "5.2.8",
+    "libopus-wasm": "0.4.1",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

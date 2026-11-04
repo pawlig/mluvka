@@ -8,18 +8,23 @@ Zavření WS odpojí TS a ztráta TS ukončí WS; opětovné připojení vytvá�
 
 Všechny zprávy jsou objekt s polem `type`:
 
-| `type` | Pole | Význam |
-| --- | --- | --- |
-| `connect` | `nickname: string`, `server: string`, `password?: string`, `channel?: string`, `channel_password?: string`, `identity?: string \| null` | První zpráva, do 15 s. Server `host[:port]` (9987), IPv6 `[adresa]:port`. Kanál názvem/cestou. Hesla prostým textem uvnitř WSS; TS hash vytvoří backend. |
-| `move` | `channel: number`, `password?: string` | Přesun vlastního klienta podle ID kanálu. |
-| `chat` | `target: "channel" \| "server" \| "private"`, `client?: number`, `text: string` | Soukromý chat vyžaduje `client`. Text má 1–4000 bajtů UTF-8. |
-| `mute` | `microphone: boolean`, `deafen: boolean` | Nastavení obou TS příznaků. Deafen potlačí příjem i vysílání. |
-| `peer` | `uid: string`, `volume: number`, `muted: boolean` | Lokální příjem jednoho UID, hlasitost 0–2. Ztlumený hlas se nevloží do mixovací fronty; stará fronta se odstraní. |
-| `ping` | — | Aplikační heartbeat každých 10 s po připojení; backend odpoví JSON `pong`. |
-| `disconnect` | — | Ukončení TS i WS. |
+| `type`       | Pole                                                                                                                                                                                                                   | Význam                                                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connect`    | `nickname: string`, `server: string`, `password?: string`, `channel?: string`, `channel_password?: string`, `identity?: string \| null`, `audio?: {codec: "opus" \| "pcm", version: 1, quality?: "high" \| "economy"}` | První zpráva, do 15 s. Server `host[:port]` (9987), IPv6 `[adresa]:port`. Kanál názvem/cestou. Hesla prostým textem uvnitř WSS; TS hash vytvoří backend. |
+| `move`       | `channel: number`, `password?: string`                                                                                                                                                                                 | Přesun vlastního klienta podle ID kanálu.                                                                                                                |
+| `chat`       | `target: "channel" \| "server" \| "private"`, `client?: number`, `text: string`                                                                                                                                        | Soukromý chat vyžaduje `client`. Text má 1–4000 bajtů UTF-8.                                                                                             |
+| `mute`       | `microphone: boolean`, `deafen: boolean`                                                                                                                                                                               | Nastavení obou TS příznaků. Deafen potlačí příjem i vysílání.                                                                                            |
+| `peer`       | `uid: string`, `volume: number`, `muted: boolean`                                                                                                                                                                      | Lokální příjem jednoho UID, hlasitost 0–2. Ztlumený hlas se nevloží do mixovací fronty; stará fronta se odstraní.                                        |
+| `ping`       | —                                                                                                                                                                                                                      | Aplikační heartbeat každých 10 s po připojení; backend odpoví JSON `pong`.                                                                               |
+| `disconnect` | —                                                                                                                                                                                                                      | Ukončení TS i WS.                                                                                                                                        |
 
 ```json
-{"type":"connect","nickname":"Mluvka","server":"ts.example.org","identity":null}
+{
+  "type": "connect",
+  "nickname": "Mluvka",
+  "server": "ts.example.org",
+  "identity": null
+}
 ```
 
 Po prvním `state` klient odešle uložené `mute` a `peer`. TS příkazy se interně potvrzují
@@ -28,16 +33,17 @@ Checkboxy zapamatování jsou klientské; dodatečná pole backend ignoruje.
 
 ## Backend → prohlížeč (JSON)
 
-| `type` | Pole | Význam |
-| --- | --- | --- |
-| `identity` | `identity: string`, `uid: string`, `level: number` | Privátní text `čítačVbase64-klíč` se uloží do `mluvka.identity`. Nová identita má úroveň ≥8. Posílá se znovu i při zvýšení úrovně požadovaném TS serverem. `uid` je veřejná identita. |
-| `state` | `name: string`, `self: number`, `channels: Channel[]`, `clients: Client[]` | Úplný snímek po připojení a změnách TS knihy. První snímek může být bez klientů, další jej doplní. |
-| `talking` | `client: number`, `active: boolean` | Indikátor příchodu hlasových paketů; po 300 ms bez paketu `false`. Lokální mute ho nepotlačí. Vlastní indikátor řídí mikrofon v prohlížeči. |
-| `chat` | `target: "channel" \| "server" \| "private"`, `client: number \| null`, `from: number`, `name: string`, `text: string` | `from` je odesílatel, `client` příjemce soukromé zprávy. Vlastní odeslanou zprávu přidává UI ihned, TS ji nemusí vrátit. |
-| `poke` | `target: "poke"`, `client: number`, `from: number`, `name: string`, `text: string` | Výrazné upozornění na šťouchnutí. |
-| `notice` | `message: string` | Česká informace, například pokus s přezdívkou doplněnou o `1`. |
-| `pong` | — | Odpověď na JSON `ping`, také každých 10 s spolu s WS pingem. |
-| `error` | `code: string`, `message: string`, `fatal: boolean`, `field: string` | Česká chyba. Odmítnutí příkazu nechá spojení otevřené; chyba připojení, protokolu, limitu nebo výpadek vede k uzavření WS. |
+| `type`     | Pole                                                                                                                   | Význam                                                                                                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`    | `audio: {codec: "opus" \| "pcm", version: 1, quality: string}`                                                         | Vyjednaný transport, před prvním `state`. Bez nabídky Opus v1 se použije PCM.                                                                                                         |
+| `identity` | `identity: string`, `uid: string`, `level: number`                                                                     | Privátní text `čítačVbase64-klíč` se uloží do `mluvka.identity`. Nová identita má úroveň ≥8. Posílá se znovu i při zvýšení úrovně požadovaném TS serverem. `uid` je veřejná identita. |
+| `state`    | `name: string`, `self: number`, `channels: Channel[]`, `clients: Client[]`                                             | Úplný snímek po připojení a změnách TS knihy. První snímek může být bez klientů, další jej doplní.                                                                                    |
+| `talking`  | `client: number`, `active: boolean`                                                                                    | Indikátor příchodu hlasových paketů; po 300 ms bez paketu `false`. Lokální mute ho nepotlačí. Vlastní indikátor řídí mikrofon v prohlížeči.                                           |
+| `chat`     | `target: "channel" \| "server" \| "private"`, `client: number \| null`, `from: number`, `name: string`, `text: string` | `from` je odesílatel, `client` příjemce soukromé zprávy. Vlastní odeslanou zprávu přidává UI ihned, TS ji nemusí vrátit.                                                              |
+| `poke`     | `target: "poke"`, `client: number`, `from: number`, `name: string`, `text: string`                                     | Výrazné upozornění na šťouchnutí.                                                                                                                                                     |
+| `notice`   | `message: string`                                                                                                      | Česká informace, například pokus s přezdívkou doplněnou o `1`.                                                                                                                        |
+| `pong`     | —                                                                                                                      | Odpověď na JSON `ping`, také každých 10 s spolu s WS pingem.                                                                                                                          |
+| `error`    | `code: string`, `message: string`, `fatal: boolean`, `field: string`                                                   | Česká chyba. Odmítnutí příkazu nechá spojení otevřené; chyba připojení, protokolu, limitu nebo výpadek vede k uzavření WS.                                                            |
 
 `Channel`: `{id: number, parent: number, order: number, name: string, password: boolean, topic: string | null}`.
 `parent: 0` = kořen; `order` = ID předchozího sourozence (0 = první), nikoli pořadové číslo.
@@ -48,31 +54,54 @@ nastavení neukládá; nikdy se nenahrazuje přezdívkou. Rozsah viditelnosti po
 
 ## Binární audio
 
-Přesně **1921 bajtů**, v obou směrech:
+Všechny rámce nesou mono 48 kHz, 20 ms (960 vzorků). První bajt je typ:
 
-| Pozice | Délka | Obsah |
-| --- | --- | --- |
-| 0 | 1 B | `0x01` mikrofon → backend; `0x02` backend → reproduktory |
-| 1 | 1920 B | 960 vzorků signed Int16 LE, mono, 48 000 Hz, 20 ms |
+| Typ    | Směr         | Zbytek rámce                                                  |
+| ------ | ------------ | ------------------------------------------------------------- |
+| `0x01` | nahoru, PCM  | 1920 B signed Int16 LE (celkem 1921 B)                        |
+| `0x02` | dolů, PCM    | 1920 B signed Int16 LE (celkem 1921 B)                        |
+| `0x03` | nahoru, Opus | jeden raw Opus paket (bez Ogg/WebM), nejvýše 1275 B           |
+| `0x04` | dolů, Opus   | uint32 LE pořadí rámce + jeden raw Opus paket, nejvýše 1275 B |
 
-AudioWorklet převzorkuje frekvenci AudioContextu na 48 kHz a příjem zpět na frekvenci kontextu.
-Streaming lineární interpolace zachovává fázi mezi render kvanty; rámce na drátu mají vždy 960 vzorků. Vstupní zesílení se omezí do −1 až 1.
-PTT/VAD/always brána běží v klientovi, VAD drží 300 ms po překročení prahu. Test mikrofonu
-přehrává lokální vstup a po dobu testu nic nevysílá. Backend ještě kontroluje mute/deafen
-a TS oprávnění k vysílání.
+Klient načte WASM Worker teprve při připojování a nabídne
+`audio: {codec: "opus", version: 1, quality: "high"}`. Backend potvrdí `hello.audio`.
+Bez nabídky, při jiné verzi nebo při selhání WASM se použije PCM. Při selhání Workeru
+za běhu klient obnoví spojení s PCM nabídkou. Starší backend bez `hello` dostává PCM.
+Volba `quality: "economy"` znamená 32 kb/s nahoru a 48 kb/s dolů, jinak 64/96 kb/s.
+Oba enkodéry používají VBR, complexity 10, FEC a očekávanou ztrátovost 10 %, bez DTX.
+Nahoru `Voip`, dolů `Audio`. Uplink Opus paket backend validuje (20 ms mono) a posílá
+beze změny jako TS `OpusVoice`; PCM zálohu backend kóduje.
 
-Backend kóduje mono OpusVoice, `AudioHandler` dekóduje a mixuje ve stereu; výsledek se
-průměruje do mono a omezí proti přetečení. Dolů se posílá 50 rámců/s včetně ticha.
-Přehrávání začne po 4 rámcích (80 ms); při výpadku znovu předbufferuje, při více než 8 rámcích
-zkrátí frontu na 4. TS `AudioHandler` má navíc vlastní adaptivní jitter buffer.
+AudioWorklet převzorkuje vstupní frekvenci na 48 kHz a příjem zpět. Mikrofon měří
+VAD před kompresorem; kompresor má práh −18 dBFS, poměr 4:1, attack 5 ms, release
+150 ms, předstih limiteru 5 ms a měkké omezení špiček. VAD má 100 ms předběh, 400 ms hold, první/poslední
+rámec má 10 ms rampu; jeden rámec se drží pro doznění. Test nic nevysílá.
+Vstupní rámec starší než 100 ms se po zdržení hlavního vlákna nezpracovává. Odchozí
+dávka má nejvýše 8 rámců a doplňuje se rychlostí 50 rámců/s, v Opus i PCM režimu.
 
-`window.__mluvkaStats`: `receivedFrames`, `sentFrames`, `rms` (poslední přijatý rámec před hlavní
-hlasitostí), `micRms`, `underruns`, `droppedFrames`, `uid`, `sampleRate`. Jde o diagnostiku
-skutečného audio toku, nikoli generátor testovacích dat.
+TS `AudioHandler` řadí pakety podle jejich ID a při chybějícím paketu volá Opus PLC
+(`decode_float(None, …)`), případně FEC; po třech ztrátách ukončí daný hlas. Mix se
+průměruje ze sterea a měkce omezuje až nad 0,8. Každý 20ms tick se odbaví (`Burst`).
+Pořadí `0x04` umožňuje Workeru doplnit zahozené WS rámce pomocí PLC. Při poklesu rezervy pod 60 ms
+si worklet vyžádá PLC předem přímo od Workeru přes MessagePort; PCM se vrací tímto portem,
+nezávisle na hlavním vlákně; opožděný skutečný rámec obnoví stav dekodéru. Doplnění pro deadline neposouvá
+pořadí na drátu: falešně pozdní pakety se nesmějí trvale odmítat. Po delším výpadku se doplňuje nejvýše 10 rámců.
+
+Přehrávání začíná po 60 ms; při měřeném jitteru roste cíl nejvýše na 100 ms. PI regulátor mění lineární interpolaci nejvýše ±1,05 %,
+aby zvládl i testovaný drift ±1 %; žádné celé rámce se běžně nezahazují. Při >300 ms
+se buffer nouzově srovná na 60 ms s prolnutím. Podtečení i obnovení mají 5 ms rampu.
+
+Diagnostika v Nastavení a `window.__mluvkaStats`: `receivedFrames`, `sentFrames`,
+`rms` (dekódovaný příjem před hlasitostí), `micRms` (před kompresorem), `underruns`,
+`droppedFrames` (nouzové srovnání), `droppedCaptureFrames` (starý vstup / překročená odchozí dávka), `bufferMs`, `targetBufferMs`, `driftCorrection` (procenta), `maxJump`
+(maximum rozdílu sousedních výstupních vzorků), `upKbps`, `downKbps` (binární WS
+payload včetně typů/pořadí, bez TCP/TLS), `plcFrames` (včetně předběžného dočasného doplnění), `lostFrames` (skutečné mezery
+pořadí na WS), `codec`, `uid`, `sampleRate`. TS ztráty se řeší uvnitř `AudioHandler`;
+tyto dva PLC čítače je nezahrnují.
 
 ## Limity
 
-- WS rámec i zpráva ≤16 KiB; binární audio přesně 1921 B.
+- WS rámec i zpráva ≤16 KiB; binární PCM 1921 B, Opus nahoru ≤1276 B a dolů ≤1280 B.
 - Nejvýše 40 řídicích a 100 audio zpráv/s/relaci; překročení ukončí spojení.
 - `MAX_SESSIONS` (20) zahrnuje čekající WS; vyčerpání → HTTP 503.
 - Neshodný `Origin` a `Host` → HTTP 403. Vite proxy origin přepisuje.
@@ -80,7 +109,7 @@ skutečného audio toku, nikoli generátor testovacích dat.
   (záložní limit 25 s kontroluje audio tick, UDP disconnect nejvýše další 2 s).
   Browser WS pong posílá sám. Frontend navíc po 20 s bez jakékoli serverové zprávy
   zneplatní WS a obnovuje připojení.
-- DNS 5 s, připojení TS 25 s, potvrzení příkazu 10 s, WS zápis 2 s.
+- DNS 5 s, připojení TS 25 s, potvrzení příkazu 10 s, WS zápis 2 s v samostatném úkolu. Řídicí fronta 256 zpráv, audio 8 rámců; plná audio fronta rámce zahazuje (příjemce doplní PLC). Plné řízení nebo chyba writeru relaci čistě odpojí.
 - `ALLOWED_SERVERS` se porovnává po normalizaci hostu/portu. Poté se předá pevná IP;
   TS nickname a SRV přesměrování se nepoužívá.
 - Identity a hesla se neukládají na backendu; TS paketové logování je vypnuté i při `RUST_LOG=trace`.
@@ -91,18 +120,19 @@ skutečného audio toku, nikoli generátor testovacích dat.
 `field` určuje vstup formuláře (`server`, `password`, `channel_password`, `nickname`) pro fokus.
 `fatal: true` znamená ukončení relace; `fatal: false` odmítnutý příkaz v běžícím spojení.
 
-| `code` | Význam | Opakování připojení po ukončení |
-| --- | --- | --- |
-| `bad_password` | Heslo serveru nebo kanálu | ne |
-| `banned` | Zákaz přístupu | ne |
-| `not_allowed` | Nepovolený server / oprávnění | ne |
-| `invalid` | Neplatné údaje či protokol | ne |
-| `nickname` | Obsazená či odmítnutá přezdívka | ano |
-| `unreachable` | Nedostupný server / transport | ano |
-| `timeout` | Vypršel čas | ano |
-| `kicked` | Vyhození ze serveru | ano |
-| `server_closed` | TS server ukončil spojení | ano |
-| `full` | Plný server | ano |
+| `code`          | Význam                                | Opakování připojení po ukončení |
+| --------------- | ------------------------------------- | ------------------------------- |
+| `bad_password`  | Heslo serveru nebo kanálu             | ne                              |
+| `banned`        | TS `ConnectFailedBanned` (0x0d01)     | ne                              |
+| `flood`         | TS `BanFlooding` / `ClientIsFlooding` | nejdříve za 120 s               |
+| `not_allowed`   | Nepovolený server / oprávnění         | ne                              |
+| `invalid`       | Neplatné údaje či protokol            | ne                              |
+| `nickname`      | Obsazená či odmítnutá přezdívka       | ano                             |
+| `unreachable`   | Nedostupný server / transport         | ano                             |
+| `timeout`       | Vypršel čas                           | ano                             |
+| `kicked`        | Vyhození ze serveru                   | ano                             |
+| `server_closed` | TS server ukončil spojení             | ano                             |
+| `full`          | Plný server                           | ano                             |
 
 Po nečekaném ukončení frontend používá prodlevy 1 → 2 → 4 → 8 → 15 s, dále 15 s.
 Na pozadí nové pokusy nespouští; při `online` a návratu do popředí pokus uspíší.
@@ -119,3 +149,15 @@ aby se dvě viditelná okna nepřetahovala o stejné UID. Registr žije jen v pa
 Po pádu celého backendu se může starý klient dočasně držet na TS; odmítne-li TS duplicitní UID,
 reconnect vyčká na jeho timeout. Při obsazené přezdívce se použije přípona `1` a každých 10 s se po
 uvolnění původního jména zkusí přejmenovat zpět. Nová identita se kvůli výpadku nevytváří.
+
+Backend sdílí limit 6 nových TS handshake za 30 s na cílovou IP/port napříč relacemi,
+včetně opakování po změně identity/přezdívky a další DNS adresy. Flood chyba navíc
+blokuje všechny pokusy na daný cíl na 120 s. DNS se projde přes všechny vrácené IP;
+TS odmítnutí (heslo/ban) se na jiné IP neopakuje. Loguje se jen název varianty a
+číselný TS kód, bez adresy, textu serveru, identity, přezdívky nebo hesla.
+
+SIGINT i SIGTERM rozešlou `notice` s `code: "server_restart"`, poté UDP
+`clientdisconnect` s důvodem „Mluvka se aktualizuje“. Na dokončení se čeká nejvýše
+3 s. Klient obnovuje stejnou identitu, přezdívku a kanál po 3 → 6 → 12 → 15 s;
+aktualizace se nepočítá jako trvalá chyba. Čekání na WS zápis nikdy neblokuje pollování
+TS událostí ani ping/ACK.
