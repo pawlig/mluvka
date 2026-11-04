@@ -10,14 +10,15 @@ use axum::{
     response::Response,
     routing::get,
 };
-use std::{env, sync::Arc};
-use tokio::sync::Semaphore;
+use std::{env, future::IntoFuture, sync::Arc};
+use tokio::sync::{Semaphore, watch};
 use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
 #[derive(Clone)]
 struct App {
     slots: Arc<Semaphore>,
     allowed: Arc<Vec<String>>,
+    shutdown: watch::Sender<bool>,
 }
 
 #[tokio::main]
@@ -39,9 +40,12 @@ async fn main() {
         .unwrap_or_else(|_| "20".into())
         .parse::<usize>()
         .expect("Neplatné MAX_SESSIONS");
+    let (shutdown, _) = watch::channel(false);
+    let slots = Arc::new(Semaphore::new(max));
     let state = App {
-        slots: Arc::new(Semaphore::new(max)),
+        slots: slots.clone(),
         allowed: Arc::new(allowed),
+        shutdown: shutdown.clone(),
     };
     let dist = env::var("STATIC_DIR").unwrap_or_else(|_| "dist".into());
     let app = Router::new()
@@ -66,12 +70,40 @@ async fn main() {
         .await
         .expect("Port nelze otevřít");
     tracing::info!(port, "Mluvka naslouchá");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
+    let mut exiting = shutdown.subscribe();
+    let signal = async move {
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = term.recv() => {} }
+        }
+        #[cfg(not(unix))]
+        {
             let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .expect("HTTP server skončil chybou");
+        }
+        shutdown.send_replace(true);
+    };
+    let server = axum::serve(listener, app)
+        .with_graceful_shutdown(signal)
+        .into_future();
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => {
+            result.expect("HTTP server skončil chybou");
+            if *exiting.borrow() {
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(3), slots.acquire_many(max as u32)).await;
+            }
+        },
+        _ = exiting.changed() => {
+            // Stejný společný deadline pro HTTP i UDP; Upgrade úlohy nejsou součástí HTTP shutdown.
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                let (_, result) = tokio::join!(slots.acquire_many(max as u32), &mut server);
+                result.expect("HTTP server skončil chybou");
+            }).await;
+        }
+    }
 }
 
 async fn upgrade(
@@ -79,6 +111,9 @@ async fn upgrade(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    if *app.shutdown.borrow() {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     // Chrání před připojením cizího webu ke zdejšímu backendu. CLI bez Origin je povolené.
     if let Some(origin) = headers.get("origin").and_then(|h| h.to_str().ok()) {
         let host = headers
@@ -96,7 +131,7 @@ async fn upgrade(
         .max_frame_size(16 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
-            session::run(socket, &app.allowed).await;
+            session::run(socket, &app.allowed, app.shutdown.subscribe()).await;
         })
         .into_response()
 }

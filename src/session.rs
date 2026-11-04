@@ -1,4 +1,4 @@
-use audiopus::{Application, Channels, SampleRate, coder::Encoder};
+use audiopus::{Application, Bitrate, Channels, SampleRate, coder::Encoder};
 use axum::extract::ws::{Message, WebSocket};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
@@ -6,11 +6,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::SocketAddr,
     sync::{Arc, Mutex, OnceLock, Weak},
     time::{Duration, Instant},
 };
+use tokio::sync::{mpsc, watch};
 use tokio::time::{MissedTickBehavior, interval, timeout};
 use tsclientlib::{
     ClientId, Connection, DisconnectOptions, Identity, MessageTarget, OutCommandExt, StreamItem,
@@ -19,6 +20,28 @@ use tsclientlib::{
 use tsproto_packets::packets::{
     AudioData, CodecType, Direction, Flags, OutAudio, OutCommand, PacketType,
 };
+
+#[derive(Clone, Default, Deserialize, serde::Serialize)]
+struct AudioOptions {
+    #[serde(default)]
+    codec: String,
+    #[serde(default)]
+    version: u8,
+    #[serde(default)]
+    quality: String,
+}
+impl AudioOptions {
+    fn opus(&self) -> bool {
+        self.codec == "opus" && self.version == 1
+    }
+    fn bitrate(&self) -> i32 {
+        if self.quality == "economy" {
+            48000
+        } else {
+            96000
+        }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -33,6 +56,8 @@ enum Control {
         #[serde(default)]
         channel_password: String,
         identity: Option<String>,
+        #[serde(default)]
+        audio: AudioOptions,
     },
     Move {
         channel: u64,
@@ -93,13 +118,32 @@ pub fn normalize_server(input: &str) -> Result<String, String> {
     ))
 }
 
-async fn send(ws: &mut WebSocket, msg: Message) -> Result<(), String> {
-    timeout(Duration::from_secs(2), ws.send(msg))
-        .await
-        .map_err(|_| "Prohlížeč přestal přijímat data.")?
-        .map_err(|_| "Webové spojení bylo uzavřeno.".into())
+// Pouze writer čeká na TCP. Relace nikdy nečeká na plný socket a dál polluje TS.
+struct Socket {
+    input: futures_util::stream::SplitStream<WebSocket>,
+    control: mpsc::Sender<Message>,
+    audio: mpsc::Sender<Message>,
+    pending_mute: Option<(bool, bool)>,
 }
-async fn json_send(ws: &mut WebSocket, value: Value) -> Result<(), String> {
+impl Socket {
+    async fn recv(&mut self) -> Option<Result<Message, axum::Error>> {
+        self.input.next().await
+    }
+}
+async fn send(ws: &mut Socket, msg: Message) -> Result<(), String> {
+    if matches!(msg, Message::Binary(_)) {
+        match ws.audio.try_send(msg) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+            Err(_) => Err("Webové spojení bylo uzavřeno.".into()),
+        }
+    } else {
+        // Řízení se nikdy tiše nezahodí: zahlcenou relaci čistě odpojíme.
+        ws.control
+            .try_send(msg)
+            .map_err(|_| "Prohlížeč přestal přijímat data.".into())
+    }
+}
+async fn json_send(ws: &mut Socket, value: Value) -> Result<(), String> {
     send(ws, Message::Text(value.to_string().into())).await
 }
 fn command(name: &str, args: &[(&str, String)]) -> OutCommand {
@@ -121,30 +165,147 @@ fn identity_text(id: &Identity) -> String {
 }
 
 // Vnější text serveru se nevrací ani neloguje: může obsahovat osobní údaje.
-fn ts_error(err: &tsclientlib::Error) -> String {
-    let text = format!("{err:?}").to_ascii_lowercase();
-    if text.contains("password") && text.contains("channel") {
-        "Nesprávné heslo kanálu."
-    } else if text.contains("password") {
-        "Nesprávné heslo serveru."
-    } else if text.contains("banned") || text.contains("ban") {
-        "Server vás odmítl kvůli zákazu přístupu (ban)."
-    } else if text.contains("nickname") || text.contains("nameinuse") {
-        "Přezdívka je obsazená nebo není povolená."
-    } else if text.contains("kick") {
-        "Byli jste vyhozeni ze serveru."
-    } else if text.contains("full") || text.contains("maxclients") {
-        "Server je plný."
-    } else if text.contains("shutdown") || text.contains("serverstop") {
-        "TS server ukončil spojení."
-    } else if text.contains("timeout") {
-        "Vypršel čas připojení. Ověřte adresu a odchozí UDP."
-    } else if text.contains("permission") {
-        "Server tuto akci nepovolil. Chybí oprávnění."
-    } else {
-        "Server je nedostupný nebo odmítl spojení či požadavek."
+fn ts_variant(err: &tsclientlib::Error) -> (&'static str, Option<tsproto_types::errors::Error>) {
+    use tsclientlib::Error as E;
+    match err {
+        E::ConnectFailed { errors, .. } => errors
+            .iter()
+            .map(ts_variant)
+            .max_by_key(|(name, code)| {
+                if code.is_some() {
+                    3
+                } else if *name == "IdentityLevel" {
+                    2
+                } else {
+                    1
+                }
+            })
+            .unwrap_or(("ConnectFailed", None)),
+        E::ConnectTs(code) => ("ConnectTs", Some(*code)),
+        E::CommandError(e) => ("CommandError", Some(e.error)),
+        E::IdentityLevel(_) => ("IdentityLevel", None),
+        E::ResolveAddress(_) => ("ResolveAddress", None),
+        E::Io(_) => ("Io", None),
+        E::InitserverTimeout => ("InitserverTimeout", None),
+        E::Connect(tsproto::client::Error::TsProto(tsproto::Error::Timeout(_))) => {
+            ("ConnectTimeout", None)
+        }
+        E::Connect(_) => ("Connect", None),
+        E::ConnectionFailed(tsproto::client::Error::TsProto(tsproto::Error::Timeout(_))) => {
+            ("ConnectionTimeout", None)
+        }
+        E::ConnectionFailed(_) => ("ConnectionFailed", None),
+        E::InitserverWait(tsproto::client::Error::TsProto(tsproto::Error::Timeout(_))) => {
+            ("InitserverTimeout", None)
+        }
+        E::InitserverWait(_) => ("InitserverWait", None),
+        _ => ("Other", None),
     }
-    .into()
+}
+fn ts_error(err: &tsclientlib::Error) -> String {
+    use tsproto_types::errors::Error as T;
+    let (variant, code) = ts_variant(err);
+    // Debug pouze nad číselným enumem, nikdy nad chybou s adresou/serverovým textem.
+    if let Some(code) = code {
+        tracing::warn!(ts_error = %format!("{variant}({code:?})"), code = %format!("0x{:04x}", code as u32), "Chyba TS");
+    } else {
+        tracing::warn!(ts_error = variant, "Chyba TS");
+    }
+    match code {
+        Some(T::ConnectFailedBanned) => "Server vás odmítl: zákaz přístupu (ban).",
+        Some(T::BanFlooding | T::ClientIsFlooding) => "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.",
+        Some(T::ChannelInvalidPassword) => "Nesprávné heslo kanálu.",
+        Some(T::ServerInvalidPassword | T::ClientInvalidPassword) => "Nesprávné heslo serveru.",
+        Some(T::ClientNicknameInuse) => "Přezdívka je obsazená nebo není povolená.",
+        Some(T::ServerMaxclientsReached | T::ChannelMaxclientsReached) => "Server je plný.",
+        Some(T::PermissionsClientInsufficient | T::Permissions | T::PermissionsInsufficientGroupPower | T::PermissionsInsufficientPermissionPower) => "Server tuto akci nepovolil. Chybí oprávnění.",
+        _ if matches!(variant, "InitserverTimeout" | "ConnectTimeout" | "ConnectionTimeout") => "Vypršel čas připojení. Ověřte adresu a odchozí UDP.",
+        _ => "Adresu serveru nelze přeložit nebo není dostupná.",
+    }.into()
+}
+fn is_nickname_error(err: &tsclientlib::Error) -> bool {
+    ts_variant(err).1 == Some(tsproto_types::errors::Error::ClientNicknameInuse)
+}
+fn retryable_address(err: &tsclientlib::Error) -> bool {
+    ts_variant(err).1.is_none() && ts_variant(err).0 != "IdentityLevel"
+}
+// Sdílený limit podle cílové IP a portu (i při různých DNS aliasech).
+#[derive(Default)]
+struct AttemptBudget {
+    times: VecDeque<Instant>,
+    blocked_until: Option<Instant>,
+}
+impl AttemptBudget {
+    fn reserve(&mut self, now: Instant) -> Option<Duration> {
+        if let Some(until) = self.blocked_until
+            && until > now
+        {
+            return Some(until.duration_since(now));
+        }
+        while self
+            .times
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(30))
+        {
+            self.times.pop_front();
+        }
+        if self.times.len() >= 6 {
+            return Some(Duration::from_secs(30).saturating_sub(now.duration_since(self.times[0])));
+        }
+        self.times.push_back(now);
+        None
+    }
+}
+fn budgets() -> &'static Mutex<HashMap<SocketAddr, AttemptBudget>> {
+    static ALL: OnceLock<Mutex<HashMap<SocketAddr, AttemptBudget>>> = OnceLock::new();
+    ALL.get_or_init(Mutex::default)
+}
+fn block_flood(addr: SocketAddr) {
+    budgets()
+        .lock()
+        .expect("budgets")
+        .entry(addr)
+        .or_default()
+        .blocked_until = Some(Instant::now() + Duration::from_secs(120));
+}
+async fn connection_budget(addr: SocketAddr) {
+    loop {
+        let delay = {
+            let mut all = budgets().lock().expect("budgets");
+            let now = Instant::now();
+            all.retain(|_, b| {
+                b.blocked_until.is_some_and(|t| t > now)
+                    || b.times
+                        .back()
+                        .is_some_and(|t| now.duration_since(*t) < Duration::from_secs(30))
+            });
+            all.entry(addr).or_default().reserve(now)
+        };
+        match delay {
+            Some(delay) => tokio::time::sleep(delay).await,
+            None => return,
+        }
+    }
+}
+async fn wait_budget(ws: &mut Socket, addr: SocketAddr) -> Result<(), String> {
+    let budget = connection_budget(addr);
+    tokio::pin!(budget);
+    let mut heartbeat = interval(Duration::from_secs(5));
+    loop {
+        tokio::select! {
+            _ = &mut budget => return Ok(()),
+            _ = heartbeat.tick() => json_send(ws, json!({"type":"pong"})).await?,
+            msg = ws.recv() => match msg {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return Err("Webové spojení bylo uzavřeno.".into()),
+                Some(Ok(Message::Text(text))) => match serde_json::from_str::<Control>(&text) {
+                Ok(Control::Disconnect) => return Err("Webové spojení bylo uzavřeno.".into()),
+                Ok(Control::Mute { microphone, deafen }) => ws.pending_mute = Some((microphone, deafen)),
+                _ => {},
+            },
+                _ => {},
+            }
+        }
+    }
 }
 
 async fn next_event(con: &mut Connection) -> Option<Result<StreamItem, tsclientlib::Error>> {
@@ -153,7 +314,9 @@ async fn next_event(con: &mut Connection) -> Option<Result<StreamItem, tsclientl
 
 fn error_code(message: &str) -> &'static str {
     let text = message.to_lowercase();
-    if text.contains("heslo") {
+    if text.contains("příliš mnoho pokusů") {
+        "flood"
+    } else if text.contains("heslo") {
         "bad_password"
     } else if text.contains("ban") {
         "banned"
@@ -220,14 +383,50 @@ fn identity_slot(key: String) -> Arc<IdentitySlot> {
     slot
 }
 
-pub async fn run(mut ws: WebSocket, allowed: &[String]) {
-    if let Err(message) = session(&mut ws, allowed).await {
+pub async fn run(ws: WebSocket, allowed: &[String], mut shutdown: watch::Receiver<bool>) {
+    let (mut sink, input) = ws.split();
+    let (control, mut controls) = mpsc::channel(256);
+    let (audio, mut frames) = mpsc::channel(8);
+    let mut writer = tokio::spawn(async move {
+        loop {
+            let msg = tokio::select! { biased;
+                msg = controls.recv() => match msg { Some(msg) => msg, None => break },
+                msg = frames.recv() => match msg { Some(msg) => msg, None => break },
+            };
+            if !matches!(
+                timeout(Duration::from_secs(2), sink.send(msg)).await,
+                Ok(Ok(()))
+            ) {
+                break;
+            }
+        }
+        let _ = timeout(Duration::from_millis(100), sink.close()).await;
+    });
+    let mut ws = Socket {
+        input,
+        control,
+        audio,
+        pending_mute: None,
+    };
+    if !*shutdown.borrow()
+        && let Err(message) = session(&mut ws, allowed, &mut shutdown).await
+    {
         let _ = json_send(&mut ws, error_message(&message, true)).await;
     }
-    let _ = timeout(Duration::from_secs(1), ws.close()).await;
+    drop(ws);
+    if timeout(Duration::from_millis(300), &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
 }
 
-async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
+async fn session(
+    ws: &mut Socket,
+    allowed: &[String],
+    shutdown: &mut watch::Receiver<bool>,
+) -> Result<(), String> {
     let first = timeout(Duration::from_secs(15), ws.recv())
         .await
         .map_err(|_| "Vypršel čas pro zadání připojení.")?
@@ -243,6 +442,7 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
         channel,
         channel_password,
         identity,
+        audio,
     } = serde_json::from_str(&first).map_err(|_| "Neplatné údaje připojení.")?
     else {
         return Err("Očekávám údaje připojení.".into());
@@ -255,11 +455,20 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
         return Err("Přezdívka musí mít 1–64 bajtů.".into());
     }
     // Cílová IP je po ověření hostu pevná. Knihovna už nesmí následovat TS přesměrování/SRV.
-    let addr = timeout(Duration::from_secs(5), tokio::net::lookup_host(&server))
+    let addresses: Vec<_> = timeout(Duration::from_secs(5), tokio::net::lookup_host(&server))
         .await
-        .map_err(|_| "Vypršel čas hledání serveru.")?
-        .map_err(|_| "Adresu serveru se nepodařilo najít.")?
-        .next()
+        .map_err(|_| {
+            tracing::warn!(ts_error = "ResolveTimeout", "Chyba připojení");
+            "Vypršel čas hledání serveru."
+        })?
+        .map_err(|_| {
+            tracing::warn!(ts_error = "ResolveAddress", "Chyba připojení");
+            "Adresu serveru nelze přeložit nebo není dostupná."
+        })?
+        .collect();
+    let mut address_index = 0;
+    let mut addr = *addresses
+        .first()
         .ok_or("Server nemá dostupnou IP adresu.")?;
     let id = tokio::task::spawn_blocking(move || {
         let mut id = match identity {
@@ -282,6 +491,16 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
     if superseded.has_changed().unwrap_or(true) {
         return Ok(());
     }
+    tokio::select! {
+        result = wait_budget(ws, addr) => result?,
+        _ = shutdown.changed() => {
+            let _ = json_send(ws, json!({"type":"notice", "code":"server_restart", "message":"Mluvka se aktualizuje — připojuji znovu…"})).await;
+            return Ok(());
+        }
+    }
+    if *shutdown.borrow() {
+        return Ok(());
+    }
     let mut con = Connection::build(addr)
         .identity(id.clone())
         .name(nickname.clone())
@@ -291,13 +510,17 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
         .connect()
         .map_err(|e| ts_error(&e))?;
     let result = tokio::select! {
+      _ = shutdown.changed() => {
+          let _ = json_send(ws, json!({"type":"notice", "code":"server_restart", "message":"Mluvka se aktualizuje — připojuji znovu…"})).await;
+          Ok(())
+      },
       _ = superseded.changed() => {
           let _ = json_send(ws, json!({"type":"notice", "code":"session_replaced", "message":"Spojení převzalo jiné okno Mluvky."})).await;
           Ok(())
       },
       result = async {
     let mut renamed = false;
-    let mut initial_mute = None;
+    let mut initial_mute = ws.pending_mute.take();
     let deadline = Instant::now() + Duration::from_secs(25);
     loop {
         let event = tokio::select! {
@@ -318,21 +541,26 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
                 }
                 continue;
             }
-            _ = tokio::time::sleep_until(deadline.into()) => return Err("Vypršel čas připojení. Server neodpovídá.".into()),
+            _ = tokio::time::sleep_until(deadline.into()) => { tracing::warn!(ts_error = "ConnectTimeout", "Chyba připojení"); return Err("Vypršel čas připojení. Server neodpovídá.".into()); },
         };
         match event {
             Some(Ok(StreamItem::BookEvents(_))) => break,
             Some(Ok(StreamItem::IdentityLevelIncreased)) => {
+                // Knihovna vytvořila nový handshake future, ale ještě jej nepollovala.
+                // I zvýšení identity proto spotřebuje společný limit připojení.
+                wait_budget(ws, addr).await?;
                 if let Some(id) = con.get_options().get_identity() {
                     json_send(ws, json!({"type":"identity", "identity":identity_text(id),"uid":id.key().to_pub().get_uid().to_string(),"level":id.level()})).await?;
                 }
             }
             Some(Err(e)) => {
-                let detail = format!("{e:?}").to_ascii_lowercase();
-                if !renamed && detail.contains("nameinuse") {
+                if ts_variant(&e).1.is_some_and(|c| matches!(c, tsproto_types::errors::Error::BanFlooding | tsproto_types::errors::Error::ClientIsFlooding)) { block_flood(addr); }
+                let _ = ts_error(&e);
+                if !renamed && is_nickname_error(&e) {
                     renamed = true;
                     let name = format!("{}1", nickname.chars().take(29).collect::<String>());
                     json_send(ws, json!({"type":"notice", "message":format!("Přezdívka je obsazená, zkouším {name}.")})).await?;
+                    wait_budget(ws, addr).await?;
                     con = Connection::build(addr)
                         .identity(id.clone())
                         .name(name)
@@ -341,21 +569,33 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
                         .channel_password(channel_password.clone())
                         .connect()
                         .map_err(|e| ts_error(&e))?;
-                } else {
-                    return Err(ts_error(&e));
-                }
+                } else if retryable_address(&e) && address_index + 1 < addresses.len() {
+                    address_index += 1;
+                    addr = addresses[address_index];
+                    wait_budget(ws, addr).await?;
+                    con = Connection::build(addr).identity(id.clone()).name(nickname.clone()).password(password.clone()).channel(channel.clone()).channel_password(channel_password.clone()).connect().map_err(|e| ts_error(&e))?;
+                } else { return Err(ts_error(&e)); }
             }
             None => return Err("Server ukončil spojení.".into()),
             _ => {}
         }
     }
-    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str())).await
+    let initial_mute = ws.pending_mute.take().or(initial_mute);
+    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio).await
       } => result,
     };
     // I při chybě WS je nutné dokončit UDP odpojení a zahodit identitu v paměti.
     // Po odmítnutí handshake je spojovací future knihovny již dokončená;
     // její další poll by panikoval. UDP disconnect potřebuje jen navázaná TS relace.
-    if con.get_state().is_ok() && con.disconnect(DisconnectOptions::new()).is_ok() {
+    if con.get_state().is_ok()
+        && con
+            .disconnect(DisconnectOptions::new().message(if *shutdown.borrow() {
+                "Mluvka se aktualizuje"
+            } else {
+                "Odpojení z Mluvky"
+            }))
+            .is_ok()
+    {
         let _ = timeout(Duration::from_secs(2), async {
             while con.events().next().await.is_some() {}
         })
@@ -374,10 +614,11 @@ fn snapshot(con: &Connection) -> Result<Value, String> {
 }
 
 async fn connected(
-    ws: &mut WebSocket,
+    ws: &mut Socket,
     con: &mut Connection,
     initial_mute: Option<(bool, bool)>,
     restore_nickname: Option<&str>,
+    options: &AudioOptions,
 ) -> Result<(), String> {
     let (mut microphone, mut deafen) = initial_mute.unwrap_or_default();
     if initial_mute.is_some() {
@@ -394,16 +635,35 @@ async fn connected(
     command("channelsubscribeall", &[])
         .send_with_result(con)
         .map_err(|e| ts_error(&e))?;
+    json_send(ws, json!({"type":"hello", "audio":{"codec":if options.opus() {"opus"} else {"pcm"}, "version":1, "quality": options.quality}})).await?;
     json_send(ws, snapshot(con)?).await?;
     let mut audio = AudioHandler::<ClientId>::new();
     let encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)
         .map_err(|_| "Opus enkodér nelze spustit.")?;
+    let mut down_encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio)
+        .map_err(|_| "Opus enkodér nelze spustit.")?;
+    down_encoder
+        .set_bitrate(Bitrate::BitsPerSecond(options.bitrate()))
+        .map_err(|_| "Chyba nastavení Opus.")?;
+    down_encoder
+        .set_complexity(10)
+        .map_err(|_| "Chyba nastavení Opus.")?;
+    down_encoder
+        .set_vbr(true)
+        .map_err(|_| "Chyba nastavení Opus.")?;
+    down_encoder
+        .set_inband_fec(true)
+        .map_err(|_| "Chyba nastavení Opus.")?;
+    down_encoder
+        .set_packet_loss_perc(10)
+        .map_err(|_| "Chyba nastavení Opus.")?;
+    let mut down_sequence = 0u32;
     let mut peers: HashMap<String, (f32, bool)> = HashMap::new();
     let mut talking: HashMap<ClientId, Instant> = HashMap::new();
     let mut was_sending = false;
     let mut last_up = Instant::now();
     let mut tick = interval(Duration::from_millis(20));
-    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Burst);
     let mut heartbeat = interval(Duration::from_secs(10));
     let mut last_pong = Instant::now();
     let mut restore_nickname = restore_nickname;
@@ -445,12 +705,19 @@ async fn connected(
                     },
                     Message::Binary(data) => {
                         audio_count += 1;
-                        if audio_count > 100 || data.len() != 1921 || data[0] != 1 { return Err("Neplatný nebo příliš rychlý audio proud.".into()); }
+                        if audio_count > 100 || !(data.len() == 1921 && data[0] == 1 || options.opus() && (4..=1276).contains(&data.len()) && data[0] == 3) { return Err("Neplatný nebo příliš rychlý audio proud.".into()); }
                         if !microphone && !deafen && con.can_send_audio() {
+                            if data[0] == 3 {
+                                // Ověříme 20 ms mono paket, ale nedekódujeme ani nepřekódujeme.
+                                let packet = (&data[1..]).try_into().map_err(|_| "Neplatný Opus paket.")?;
+                                if audiopus::packet::nb_samples(packet, SampleRate::Hz48000).map_err(|_| "Neplatný Opus paket.")? != 960 || audiopus::packet::nb_channels((&data[1..]).try_into().map_err(|_| "Neplatný Opus paket.")?).map_err(|_| "Neplatný Opus paket.")? != Channels::Mono { return Err("Neplatný Opus rámec.".into()); }
+                                con.send_audio(OutAudio::new(&AudioData::C2S { id:0, codec:CodecType::OpusVoice, data:&data[1..] })).map_err(|e| ts_error(&e))?;
+                            } else {
                             let samples: Vec<i16> = data[1..].as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes([b[0],b[1]])).collect();
                             let mut encoded = [0u8; 4000];
                             let len = encoder.encode(&samples, &mut encoded).map_err(|_| "Chyba kódování hlasu.")?;
                             con.send_audio(OutAudio::new(&AudioData::C2S { id:0,codec:CodecType::OpusVoice,data:&encoded[..len] })).map_err(|e| ts_error(&e))?;
+                            }
                             was_sending = true; last_up = Instant::now();
                         }
                     },
@@ -498,8 +765,19 @@ async fn connected(
                 }
                 let mut stereo = [0.0f32;1920];
                 if !deafen && con.can_receive_audio() { audio.fill_buffer(&mut stereo); }
-                let mut frame = Vec::with_capacity(1921); frame.push(2);
-                for lr in stereo.as_chunks::<2>().0 { let sample = (((lr[0]+lr[1])*0.5).clamp(-1.0,1.0)*32767.0) as i16; frame.extend_from_slice(&sample.to_le_bytes()); }
+                let mono: Vec<f32> = stereo.as_chunks::<2>().0.iter().map(|lr| soft_limit((lr[0]+lr[1])*0.5)).collect();
+                let mut frame = Vec::with_capacity(1921);
+                if options.opus() {
+                    frame.push(4);
+                    frame.extend_from_slice(&down_sequence.to_le_bytes());
+                    down_sequence = down_sequence.wrapping_add(1);
+                    let mut encoded = [0u8; 1275];
+                    let len = down_encoder.encode_float(&mono, &mut encoded).map_err(|_| "Chyba kódování mixu.")?;
+                    frame.extend_from_slice(&encoded[..len]);
+                } else {
+                    frame.push(2);
+                    for sample in mono { frame.extend_from_slice(&((sample*32767.0) as i16).to_le_bytes()); }
+                }
                 send(ws,Message::Binary(frame.into())).await?;
                 if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
@@ -520,9 +798,66 @@ async fn connected(
     }
 }
 
+fn soft_limit(x: f32) -> f32 {
+    if x.abs() <= 0.8 {
+        x
+    } else {
+        x.signum() * (0.8 + 0.2 * ((x.abs() - 0.8) / 0.2).tanh())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn backend_budget_and_flood_are_shared_and_bounded() {
+        let now = Instant::now();
+        let mut budget = AttemptBudget::default();
+        for _ in 0..6 {
+            assert!(budget.reserve(now).is_none());
+        }
+        assert_eq!(budget.reserve(now), Some(Duration::from_secs(30)));
+        assert!(budget.reserve(now + Duration::from_secs(30)).is_none());
+        budget.blocked_until = Some(now + Duration::from_secs(150));
+        assert_eq!(
+            budget.reserve(now + Duration::from_secs(30)),
+            Some(Duration::from_secs(120))
+        );
+    }
+    #[test]
+    fn connection_errors_do_not_inspect_addresses() {
+        use tsclientlib::Error as E;
+        use tsproto_types::errors::Error as T;
+        let timeout = E::ConnectFailed {
+            address: "ts.urban-ban.example".into(),
+            errors: vec![E::InitserverTimeout],
+        };
+        assert_ne!(error_code(&ts_error(&timeout)), "banned");
+        assert_eq!(
+            error_code(&ts_error(&E::ConnectTs(T::ConnectFailedBanned))),
+            "banned"
+        );
+        assert_eq!(
+            error_code(&ts_error(&E::ConnectTs(T::BanFlooding))),
+            "flood"
+        );
+        assert_eq!(
+            error_code(&ts_error(&E::ConnectTs(T::ClientIsFlooding))),
+            "flood"
+        );
+        let nested = E::ConnectFailed {
+            address: "ban".into(),
+            errors: vec![E::ConnectTs(T::BanFlooding)],
+        };
+        assert_eq!(error_code(&ts_error(&nested)), "flood");
+    }
+    #[test]
+    fn limiter_is_continuous_and_preserves_quiet_audio() {
+        assert_eq!(soft_limit(0.5), 0.5);
+        assert!((soft_limit(0.800001) - 0.8).abs() < 0.00001);
+        assert!(soft_limit(4.0) <= 1.0);
+        assert_eq!(soft_limit(-0.9), -soft_limit(0.9));
+    }
     #[test]
     fn machine_error_codes_cover_reconnect_policy() {
         for (message, code) in [
