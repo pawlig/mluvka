@@ -1,12 +1,179 @@
 {
-  "date": "2026-11-04T22:17:12.639Z",
-  "complete": false,
-  "runs": [
+  "date": "2026-11-04T22:23:17.803Z",
+  "results": [
     {
-      "codec": "opus",
-      "exitCode": 1
+      "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
+      "result": "OK"
+    },
+    {
+      "test": "HTTP frontend a /healthz → 200 ok",
+      "result": "OK"
+    },
+    {
+      "test": "ALLOWED_SERVERS odmítá nepovolený cíl před UDP připojením",
+      "result": "OK"
+    },
+    {
+      "test": "Neplatný řídicí protokol → česká chyba a uzavření WS",
+      "result": "OK"
+    },
+    {
+      "test": "Limit WS zprávy 16 KiB ukončí spojení",
+      "result": "OK"
+    },
+    {
+      "test": "Cizí Origin při WS upgradu → HTTP 403",
+      "result": "OK"
+    },
+    {
+      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "result": "OK"
+    },
+    {
+      "test": "Backend zahodí audio během navazování a použije poslední mute/deafen",
+      "result": "OK"
+    },
+    {
+      "test": "Uplink: dávka nejvýše 8 rámců a dále 50 rámců/s i po zdržení prohlížeče",
+      "result": "OK"
+    },
+    {
+      "test": "Opus Worker: 30 PLC rámců nezablokuje pozdější zvuk; skutečná mezera se počítá samostatně",
+      "result": "OK"
+    },
+    {
+      "test": "Worklet 16000 → 48000 → 16000: 50 × 960 vzorků, zpět 16000 vzorků",
+      "result": "OK"
+    },
+    {
+      "test": "Worklet 44100 → 48000 → 44100: 50 × 960 vzorků, zpět 44100 vzorků",
+      "result": "OK"
+    },
+    {
+      "test": "Worklet 48000 → 48000 → 48000: 50 × 960 vzorků, zpět 48000 vzorků",
+      "result": "OK"
+    },
+    {
+      "test": "Worklet 96000 → 48000 → 96000: 50 × 960 vzorků, zpět 96000 vzorků",
+      "result": "OK"
+    },
+    {
+      "test": "Jitter buffer 30 s, takt 1: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.028814637567847967,
+      "minBufferMs": 41.89575610583097,
+      "maxBufferMs": 68.36914514340242,
+      "driftPercent": 0.0016007147073475937
+    },
+    {
+      "test": "Jitter buffer 60 s, takt 1.01: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.029110440984368324,
+      "minBufferMs": 46.38743751762862,
+      "maxBufferMs": 93.51948747589874,
+      "driftPercent": 1.0283399274832088
+    },
+    {
+      "test": "Jitter buffer 60 s, takt 0.99: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.028673477470874786,
+      "minBufferMs": 24.206585917267756,
+      "maxBufferMs": 68.62027426928398,
+      "driftPercent": -0.9921940054301805
+    },
+    {
+      "test": "Podtečení a obnovení používají plynulé prolnutí",
+      "result": "OK",
+      "fadeMaxJump": 0.0020833611488342285
+    },
+    {
+      "test": "PWA manifest, MIME, rozměry 192/512/maskable/180 a no-cache index/SW",
+      "result": "OK"
+    },
+    {
+      "test": "Chrome CDP: instalovatelnost bez chyb, SW registrován, /ws a /healthz mimo SW, offline skořápka",
+      "result": "OK"
+    },
+    {
+      "test": "Obnovený režim always: žádné zprávy před state, připojení a hlas pokračují",
+      "result": "OK"
+    },
+    {
+      "test": "Obnovený režim vad: žádné zprávy před state, připojení a hlas pokračují",
+      "result": "OK"
+    },
+    {
+      "test": "Klik na mute/deafen během připojování přežije a stav se přenese do TS",
+      "result": "OK"
+    },
+    {
+      "test": "Špatné heslo → česká chyba",
+      "result": "OK"
+    },
+    {
+      "test": "Dvě relace se vidí ve stromu TS",
+      "result": "OK"
+    },
+    {
+      "test": "Identita z prohlížeče odpovídá UID na TS serveru",
+      "result": "OK"
+    },
+    {
+      "test": "Obsazená přezdívka se automaticky doplní o 1",
+      "result": "OK"
+    },
+    {
+      "test": "Živý vznik, přejmenování a smazání kanálu v obou relacích",
+      "result": "OK"
+    },
+    {
+      "test": "Přesun obou relací do kanálu s heslem",
+      "result": "OK"
+    },
+    {
+      "test": "Chat kanálu A → B",
+      "result": "OK"
+    },
+    {
+      "test": "Chat serveru A → B",
+      "result": "OK"
+    },
+    {
+      "test": "Soukromá zpráva A → B",
+      "result": "OK"
+    },
+    {
+      "test": "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
+      "result": "OK"
+    },
+    {
+      "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
+      "result": "OK",
+      "receivedFrames": 418,
+      "sentFrames": 0,
+      "rms": 0.11188503537208369,
+      "micRms": 0.019808149581331345,
+      "underruns": 0,
+      "droppedFrames": 0,
+      "droppedCaptureFrames": 0,
+      "sampleRate": 48000,
+      "bufferMs": 88.21043955240869,
+      "targetBufferMs": 90,
+      "driftCorrection": -0.013284590008038437,
+      "maxJump": 0.00005757954568252899,
+      "outputRms": 0.0000014529425322952261,
+      "upKbps": 0,
+      "downKbps": 35.758106920430265,
+      "plcFrames": 87,
+      "lostFrames": 0,
+      "codec": "opus"
     }
   ],
-  "results": [],
   "errors": []
 }
