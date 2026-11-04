@@ -66,17 +66,29 @@ TS správce může sdílenou IP omezit. Používejte povolené servery, kterým 
 
 ## Nasazení na Easypanel
 
-1. Přidejte **App**, zdroj GitHub **`pawlig/mluvka`**, větev **`main`**.
-2. Zvolte build přes **Dockerfile** v kořeni repozitáře.
-3. Nastavte port **3000**. Kontejner běží jako UID 10001, nepotřebuje volume ani databázi.
-4. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), případně `MAX_SESSIONS` a `RUST_LOG`.
-5. Přidejte doménu s **HTTPS** a nasaďte. WSS jede na stejné doméně přes `/ws`; Traefik předává upgrade.
+Image se **nestaví na Easypanelu** (Rust build tam padal na paměti). Staví ho GitHub Actions
+z `Dockerfile.build` a při každém pushi do `main` ho publikuje jako `ghcr.io/pawlig/mluvka:latest`
+(a `:sha-<commit>`), jen `linux/amd64`. Easypanel hotový image jen stáhne.
+
+1. Přidejte **App** a jako zdroj zvolte **Docker Image** `ghcr.io/pawlig/mluvka:latest`
+   (image je veřejný, přihlášení k registru netřeba).
+   *Jde i zdroj GitHub `pawlig/mluvka` + build Dockerfile — kořenový `Dockerfile` obsahuje jen
+   `FROM ghcr.io/pawlig/mluvka:latest`, takže se nic nepřekládá. Automatické nasazení po pushi ale pak
+   vypněte, jinak Easypanel stáhne image dřív, než ho CI stihne postavit.*
+2. Nastavte port **3000**. Kontejner běží jako UID 10001, nepotřebuje volume ani databázi.
+3. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), případně `MAX_SESSIONS` a `RUST_LOG`.
+4. Přidejte doménu s **HTTPS** a nasaďte. WSS jede na stejné doméně přes `/ws`; Traefik předává upgrade.
+5. **Automatické nasazení po buildu:** v Easypanelu zkopírujte *Deploy Webhook* aplikace a uložte ho
+   na GitHubu jako secret `EASYPANEL_DEPLOY_WEBHOOK`
+   (`gh secret set EASYPANEL_DEPLOY_WEBHOOK --repo pawlig/mluvka`). CI ho zavolá až po publikaci image.
+   Bez secretu se nasazuje ručně tlačítkem Deploy.
 6. Ověřte `/healthz`, připojení a hlas dvou relací. Host musí dosáhnout na **odchozí UDP port TS**
    (obvykle 9987). Příchozí UDP pro aplikaci se nepublikuje.
 
-Dockerfile staví frontend v Node, backend v Rustu a kopíruje je do ne-root `debian:bookworm-slim`.
-CI na push `main` a PR postaví image bez registru a ověří HTTP i UID běžícího kontejneru:
+`Dockerfile.build` staví frontend v Node, backend v Rustu a kopíruje je do ne-root `debian:bookworm-slim`.
+CI na PR jen staví a ověří HTTP i UID; na push do `main` navíc publikuje do GHCR:
 [běhy Docker CI](https://github.com/pawlig/mluvka/actions/workflows/docker.yml).
+Lokální build celého image: `docker build -f Dockerfile.build -t mluvka .`
 
 ## Ověření
 
