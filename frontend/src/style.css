@@ -1758,3 +1758,19 @@ textarea {
     display: none;
   }
 }
+
+html,
+body {
+  touch-action: manipulation;
+}
+/* I pozdější specifičtější pravidla musí na iOS zabránit focus zoomu. */
+input,
+textarea,
+select {
+  font-size: max(16px, 1em) !important;
+}
+.audio-debug {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

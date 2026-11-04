@@ -360,6 +360,11 @@ export async function mobileChecks({
   let restartedSockets = 0;
   fresh.page.on("websocket", () => restartedSockets++);
   await restartBackend();
+  await expect(
+    fresh.page
+      .getByText("Mluvka se aktualizuje — připojuji znovu…", { exact: true })
+      .first(),
+  ).toBeVisible();
   await expect
     .poll(() => restartedSockets, { timeout: 20000 })
     .toBeGreaterThan(0);
@@ -482,6 +487,29 @@ export async function mobileChecks({
       path: resolve(root, `docs/screenshots/${name.toLowerCase()}-menu.png`),
     });
     await p.getByRole("button", { name: "Zavřít uživatele" }).click();
+    await p.getByRole("button", { name: "Chat", exact: true }).click();
+    await p.getByLabel("Zpráva", { exact: true }).focus();
+    const zoom = await p.evaluate(() => ({
+      scale: visualViewport.scale,
+      viewport: document.querySelector('meta[name="viewport"]').content,
+      fonts: [...document.querySelectorAll("input, textarea, select")].map(
+        (e) => parseFloat(getComputedStyle(e).fontSize),
+      ),
+      touch: getComputedStyle(document.documentElement).touchAction,
+      gesturePrevented: !document.dispatchEvent(
+        new Event("gesturestart", { cancelable: true }),
+      ),
+    }));
+    expect(zoom.scale).toBe(1);
+    expect(zoom.viewport).toContain("maximum-scale=1, user-scalable=no");
+    expect(zoom.fonts.every((size) => size >= 16)).toBe(true);
+    expect(zoom.touch).toBe("manipulation");
+    expect(zoom.gesturePrevented).toBe(true);
+    await p.getByLabel("Zpráva", { exact: true }).blur();
+    ok(`${name}: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované`, {
+      scale: zoom.scale,
+      minFontPx: Math.min(...zoom.fonts),
+    });
     await p.setViewportSize({
       width: device.viewport.height,
       height: device.viewport.width,

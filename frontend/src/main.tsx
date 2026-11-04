@@ -12,3 +12,16 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
+
+// Safari ignoruje viewport při pinch gestu. Jednoprstový scroll zůstává nativní.
+for (const event of ["gesturestart", "gesturechange"])
+  document.addEventListener(event, (e) => e.preventDefault(), {
+    passive: false,
+  });
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  },
+  { passive: false },
+);
