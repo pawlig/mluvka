@@ -159,6 +159,9 @@ unzip -q tmp-ts3/server.zip -d tmp-ts3
 TS3 je x86_64 a na Apple Silicon vyžaduje Rosettu. Skript spustí TS3 s přijatou licencí,
 backend i prohlížeč a na konci je ukončí. Potřebuje volné porty 9987/UDP, 10011/TCP,
 30033/TCP a 3000/TCP. `TS3_DIR` může ukazovat i na rozbalený Linux TS3 server.
+Porty jdou přepsat proměnnými `E2E_PORT`, `TS3_VOICE_PORT`, `TS3_QUERY_PORT` a `TS3_FT_PORT` — pro souběžné běhy
+stačí každému dát vlastní porty a vlastní kopii TS3 (`TS3_DIR`, bez `ts3server.sqlitedb*`, ať se virtuální server
+založí na nových portech).
 `E2E_URL` dovoluje připojit již běžící backend; úplná sada včetně restartu vyžaduje lokální backend bez této volby.
 
 **Používejte jen vyhrazený testovací TS server:** skript přenastaví jeho jméno a heslo,

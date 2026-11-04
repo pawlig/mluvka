@@ -11,7 +11,13 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, ".."),
   temp = resolve(root, "tmp-ts3"),
-  base = process.env.E2E_URL || "http://localhost:3000";
+  appPort = process.env.E2E_PORT || "3000",
+  base = process.env.E2E_URL || `http://localhost:${appPort}`;
+// Porty TS3 lze přepsat, aby šlo pustit víc E2E souběžně (každý se svou kopií TS3_DIR).
+const tsVoicePort = process.env.TS3_VOICE_PORT || "9987",
+  tsQueryPort = Number(process.env.TS3_QUERY_PORT || 10011),
+  tsFilePort = process.env.TS3_FT_PORT || "30033",
+  tsAddress = `127.0.0.1:${tsVoicePort}`;
 const admin = randomBytes(18).toString("hex"),
   password = randomBytes(12).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
@@ -99,7 +105,7 @@ async function fillLogin(page, nickname, pass = password) {
   await page.getByLabel("Přezdívka", { exact: true }).fill(nickname);
   await page
     .getByLabel("Adresa serveru", { exact: true })
-    .fill("127.0.0.1:9987");
+    .fill(tsAddress);
   await page.getByLabel("Heslo serveru", { exact: false }).fill(pass);
   await page.getByRole("button", { name: /Připojit se/ }).click();
 }
@@ -155,7 +161,7 @@ async function earlyBackendMessages() {
           JSON.stringify({
             type: "connect",
             nickname: "Časné zprávy",
-            server: "127.0.0.1:9987",
+            server: tsAddress,
             password,
           }),
         );
@@ -338,7 +344,7 @@ function startBackend() {
     cwd: root,
     env: {
       ...process.env,
-      PORT: "3000",
+      PORT: appPort,
       ALLOWED_SERVERS: "127.0.0.1",
       MAX_SESSIONS: "6",
     },
@@ -379,11 +385,14 @@ try {
       "voice_ip=127.0.0.1",
       "query_protocols=raw",
       "filetransfer_ip=127.0.0.1",
+      `default_voice_port=${tsVoicePort}`,
+      `query_port=${tsQueryPort}`,
+      `filetransfer_port=${tsFilePort}`,
     ],
     { cwd: tsDir, stdio: "ignore" },
   );
   ts.on("error", () => {});
-  const socket = await eventually(() => socketOpen(10011));
+  const socket = await eventually(() => socketOpen(tsQueryPort));
   query = new Query(socket);
   await wait(250);
   await query.cmd(`login serveradmin ${admin}`);
