@@ -2,9 +2,12 @@ mod session;
 
 use axum::{
     Router,
+    extract::Request,
     extract::{State, WebSocketUpgrade},
     http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::IntoResponse,
+    response::Response,
     routing::get,
 };
 use std::{env, sync::Arc};
@@ -45,6 +48,7 @@ async fn main() {
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(upgrade))
         .fallback_service(ServeDir::new(dist))
+        .layer(middleware::from_fn(static_headers))
         .layer(SetResponseHeaderLayer::if_not_present(
             axum::http::header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
@@ -95,4 +99,31 @@ async fn upgrade(
             session::run(socket, &app.allowed).await;
         })
         .into_response()
+}
+
+async fn static_headers(req: Request, next: Next) -> Response {
+    let path = req.uri().path().to_owned();
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    if matches!(
+        path.as_str(),
+        "/" | "/index.html" | "/sw.js" | "/audio-worklet.js"
+    ) {
+        headers.insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        );
+    } else if path.starts_with("/assets/") {
+        headers.insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+    }
+    if path == "/manifest.webmanifest" {
+        headers.insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/manifest+json"),
+        );
+    }
+    response
 }
