@@ -1,0 +1,408 @@
+import { expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const escapeQuery = (text) =>
+  text
+    .replaceAll("\\", "\\\\")
+    .replaceAll("/", "\\/")
+    .replaceAll(" ", "\\s")
+    .replaceAll("|", "\\p")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r");
+async function probe(base, tsAddress, password) {
+  const ws = new WebSocket(base.replace(/^http/, "ws") + "/ws");
+  const token = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(Error("Chybí upload token přihlášené relace")),
+      30000,
+    );
+    ws.onerror = () => {
+      clearTimeout(timer);
+      reject(Error("Upload WS selhal"));
+    };
+    ws.onopen = () =>
+      ws.send(
+        JSON.stringify({
+          type: "connect",
+          nickname: "Upload test",
+          server: tsAddress,
+          password,
+        }),
+      );
+    ws.onmessage = ({ data }) => {
+      if (typeof data !== "string") return;
+      const message = JSON.parse(data);
+      if (message.type === "error") {
+        clearTimeout(timer);
+        reject(Error("Upload test se nepřihlásil k TS"));
+      }
+      if (message.type === "upload_token") {
+        clearTimeout(timer);
+        resolve(message.token);
+      }
+    };
+  });
+  const ping = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ type: "ping" }));
+  }, 5000);
+  return {
+    token,
+    close: () => {
+      clearInterval(ping);
+      ws.close();
+    },
+  };
+}
+export async function chatChecks({
+  a,
+  b,
+  query,
+  base,
+  root,
+  tsAddress,
+  password,
+  ok,
+}) {
+  for (const page of [a, b])
+    await page.getByRole("button", { name: "Server", exact: true }).click();
+  const send = async (text) => {
+    await a.getByLabel("Zpráva", { exact: true }).fill(text);
+    await a
+      .getByRole("button", { name: "Odeslat zprávu", exact: true })
+      .click();
+  };
+  const text =
+    "Koukni na https://example.org/a?b=1 a [URL=https://example.org]tohle[/URL] javascript:alert(1) [B]tučně[/B] <script>window.chatXss=1</script>";
+  await send(text);
+  const message = b.locator(".message").filter({ hasText: "Koukni na" }).last();
+  await expect(message.locator("a")).toHaveCount(2);
+  for (const anchor of await message.locator("a").all()) {
+    await expect(anchor).toHaveAttribute("target", "_blank");
+    await expect(anchor).toHaveAttribute("rel", "noopener noreferrer nofollow");
+  }
+  await expect(
+    message.locator("strong").filter({ hasText: "tučně" }),
+  ).toHaveCount(1);
+  await expect(message).toContainText("javascript:alert(1)");
+  await expect(message).toContainText("<script>window.chatXss=1</script>");
+  expect(await b.evaluate(() => window.chatXss)).toBeUndefined();
+  await send(
+    "[I]kurzíva[/I] [U]podtržené[/U] [S]škrtnuté[/S] [COLOR=black]čitelná barva[/COLOR] [COLOR=red;position:fixed]bez CSS[/COLOR] [NEZNÁMÉ]text[/NEZNÁMÉ] [URL=javascript:alert(1)]nebezpečné[/URL] www.example.org [URL]https://example.org/b[/URL] ts3server://voice.example.org",
+  );
+  const styles = b.locator(".message").filter({ hasText: "kurzíva" }).last();
+  await expect(styles.locator("em")).toHaveText("kurzíva");
+  await expect(styles.locator("u")).toHaveText("podtržené");
+  await expect(styles.locator("s")).toHaveText("škrtnuté");
+  await expect(styles.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await expect(styles.locator('a[href^="ts3server:"]')).not.toHaveAttribute(
+    "target",
+  );
+  await expect(styles).toContainText("[NEZNÁMÉ]text[/NEZNÁMÉ]");
+  expect(
+    await styles
+      .getByText("čitelná barva", { exact: true })
+      .evaluate((el) => getComputedStyle(el).color),
+  ).not.toBe("rgb(0, 0, 0)");
+  ok("Chat: bezpečné URL, BBCode, barvy, neznámé značky a HTML bez spuštění");
+
+  const attachment =
+    '{"msg_type":"ts.file.myts","file_id":"…","chat_user_id":"@…:chat-8.tmspk.net","file_name":"9854755_78f48.gif","file_size":1301257,"body":"9854755_78f48.gif","v2":true}';
+  await query.cmd(
+    `sendtextmessage targetmode=3 target=1 msg=${escapeQuery(attachment)}`,
+  );
+  const card = b.locator(".ts-attachment").last();
+  await expect(card).toContainText("9854755_78f48.gif · 1,3 MB");
+  await expect(card).toContainText("TeamSpeak 5/6");
+  await expect(b.getByRole("log")).not.toContainText('"msg_type"');
+  await query.cmd(
+    `sendtextmessage targetmode=3 target=1 msg=${escapeQuery('{"msg_type":"ts.other","body":"Text novějšího klienta"}')}`,
+  );
+  await expect(b.getByRole("log")).toContainText("Text novějšího klienta");
+  await query.cmd(
+    `sendtextmessage targetmode=3 target=1 msg=${escapeQuery('{"msg_type":"ts.other"}')}`,
+  );
+  await expect(b.getByRole("log")).toContainText(
+    "Zpráva z novějšího TeamSpeaku, kterou Mluvka neumí zobrazit",
+  );
+  await send('{"neplatný JSON');
+  await expect(b.getByRole("log")).toContainText('{"neplatný JSON');
+  ok(
+    "TS5/TS6 JSON přes ServerQuery: karta, velikost, fallback; bez surového JSON",
+  );
+
+  const pngPath = resolve(root, "e2e/fixtures/gps.png"),
+    gifPath = resolve(root, "e2e/fixtures/animated.gif");
+  const png = readFileSync(pngPath),
+    gif = readFileSync(gifPath);
+  expect(png.includes(Buffer.from("eXIf"))).toBe(true);
+  const chooser = a.waitForEvent("filechooser");
+  await a.getByRole("button", { name: "Přidat obrázek" }).click();
+  await (await chooser).setFiles(pngPath);
+  await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
+  await a.getByLabel("Zpráva", { exact: true }).fill("Fotka bez polohy");
+  await a.getByRole("button", { name: "Odeslat obrázek" }).click();
+  const received = b
+    .locator(".message")
+    .filter({ hasText: "Fotka bez polohy" })
+    .last();
+  const preview = received.locator(".image-preview img");
+  await expect
+    .poll(() => preview.evaluate((img) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  expect(
+    await preview.evaluate((img) =>
+      Math.max(img.naturalWidth, img.naturalHeight),
+    ),
+  ).toBeLessThanOrEqual(2048);
+  const url = await preview.getAttribute("src");
+  const response = await fetch(url),
+    output = Buffer.from(await response.arrayBuffer());
+  expect(response.headers.get("content-type")).toBe("image/webp");
+  expect(response.headers.get("cache-control")).toBe(
+    "public, max-age=604800, immutable",
+  );
+  expect(response.headers.get("content-security-policy")).toBe(
+    "default-src 'none'",
+  );
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  for (const marker of ["EXIF", "Exif", "eXIf", "GPS"])
+    expect(output.includes(Buffer.from(marker))).toBe(false);
+  await received.getByRole("button", { name: "Otevřít obrázek" }).click();
+  const viewer = b.getByRole("dialog", { name: "Prohlížeč obrázku" });
+  await expect(viewer).toBeVisible();
+  expect(
+    await viewer.evaluate((el) => ({ w: el.clientWidth, h: el.clientHeight })),
+  ).toEqual({ w: 1440, h: 900 });
+  await b.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
+  await send(`Samostatný odkaz ${url}?preview=1`);
+  const bare = b
+    .locator(".message")
+    .filter({ hasText: "Samostatný odkaz" })
+    .last();
+  await expect
+    .poll(() => bare.locator("img").evaluate((img) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  ok(
+    "A → B PNG s GPS: canvas odstraní EXIF, resize ≤2048, náhled i holá URL, viewer a Esc",
+  );
+
+  await a.getByLabel("Vybrat obrázek").setInputFiles(gifPath);
+  await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
+  await a.getByLabel("Zpráva", { exact: true }).fill("Animovaný GIF");
+  await a.getByRole("button", { name: "Odeslat obrázek" }).click();
+  const gifImage = b
+    .locator(".message")
+    .filter({ hasText: "Animovaný GIF" })
+    .last()
+    .locator(".image-preview img");
+  await expect
+    .poll(() => gifImage.evaluate((img) => img.naturalWidth))
+    .toBeGreaterThan(0);
+  expect(
+    Buffer.from(
+      await (await fetch(await gifImage.getAttribute("src"))).arrayBuffer(),
+    ),
+  ).toEqual(gif);
+  ok("A → B GIF: zachované bajty animovaného souboru");
+  await send(`Nedostupný obrázek [IMG]${base}/healthz[/IMG]`);
+  const broken = b
+    .locator(".message")
+    .filter({ hasText: "Nedostupný obrázek" })
+    .last();
+  await expect(broken.locator("a")).toHaveCount(1);
+  await expect(broken.locator(".image-preview")).toHaveCount(0);
+  ok("Nenačtený obrázek ponechá pouze bezpečný odkaz");
+
+  for (const kind of ["paste", "drop"]) {
+    await a.locator(".chat-panel").evaluate(
+      (el, { data, kind }) => {
+        const file = new File(
+          [Uint8Array.from(atob(data), (c) => c.charCodeAt(0))],
+          "clipboard.gif",
+          { type: "image/gif" },
+        );
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        el.dispatchEvent(
+          kind === "paste"
+            ? new ClipboardEvent("paste", {
+                clipboardData: transfer,
+                bubbles: true,
+                cancelable: true,
+              })
+            : new DragEvent("drop", {
+                dataTransfer: transfer,
+                bubbles: true,
+                cancelable: true,
+              }),
+        );
+      },
+      { data: gif.toString("base64"), kind },
+    );
+    await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
+    await a.getByRole("button", { name: "Zrušit", exact: true }).click();
+    await expect(a.getByAltText("Náhled před odesláním")).toHaveCount(0);
+  }
+  ok("Schránka a přetažení obrázku otevřou náhled, Zrušit jej odstraní");
+
+  await send(
+    `Fotka z výletu: https://example.org a [URL=https://example.org]další odkaz[/URL]`,
+  );
+  await query.cmd(
+    `sendtextmessage targetmode=3 target=1 msg=${escapeQuery(attachment)}`,
+  );
+  await send(`[IMG]${url}[/IMG]`);
+  await expect(b.locator(".ts-attachment")).toHaveCount(2);
+  await a
+    .locator(".messages")
+    .evaluate((el) =>
+      el.scrollTo({ top: el.scrollHeight, behavior: "instant" }),
+    );
+  await expect(a.locator(".ts-attachment").last()).toBeVisible();
+  await expect
+    .poll(() =>
+      a
+        .locator(".image-preview img")
+        .last()
+        .evaluate((img) => img.naturalWidth),
+    )
+    .toBeGreaterThan(0);
+  await a.screenshot({
+    path: resolve(root, "docs/screenshots/chat-desktop.png"),
+  });
+  await b.setViewportSize({ width: 390, height: 960 });
+  await b.getByRole("button", { name: "Chat", exact: true }).click();
+  const mobileChooser = b.waitForEvent("filechooser");
+  await b.getByRole("button", { name: "Přidat obrázek" }).click();
+  await (await mobileChooser).setFiles(gifPath);
+  await expect(b.getByAltText("Náhled před odesláním")).toBeVisible();
+  await b.getByRole("button", { name: "Zrušit", exact: true }).click();
+  // Screenshot obsahuje odkazy, přílohu i obrázek v jednom výřezu.
+  await b.locator(".ts-attachment").last().scrollIntoViewIfNeeded();
+  await b.locator(".messages").evaluate((el) => {
+    const card = el.querySelector(".ts-attachment:last-of-type");
+    el.style.scrollBehavior = "auto";
+    el.scrollTop = el.scrollHeight;
+  });
+  await b.screenshot({
+    path: resolve(root, "docs/screenshots/chat-mobil.png"),
+  });
+  await b.setViewportSize({ width: 390, height: 844 });
+  await send(
+    `Dlouhá URL https://example.org/${"velmi-dlouha-cesta".repeat(30)}`,
+  );
+  await expect(b.getByRole("log")).toContainText("Dlouhá URL");
+  expect(
+    await b.evaluate(
+      () =>
+        document.documentElement.scrollWidth <= innerWidth &&
+        document.querySelector(".messages").scrollWidth <=
+          document.querySelector(".messages").clientWidth,
+    ),
+  ).toBe(true);
+  const mobileImage = b.locator(".image-preview").first();
+  await mobileImage.scrollIntoViewIfNeeded();
+  await mobileImage.click();
+  await expect(viewer).toBeVisible();
+  const cdp = await b.context().newCDPSession(b);
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [
+      { x: 140, y: 350, id: 1 },
+      { x: 240, y: 350, id: 2 },
+    ],
+  });
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [
+      { x: 80, y: 350, id: 1 },
+      { x: 300, y: 350, id: 2 },
+    ],
+  });
+  await cdp.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await expect
+    .poll(() =>
+      viewer
+        .locator("img")
+        .evaluate(
+          (img) => new DOMMatrixReadOnly(getComputedStyle(img).transform).a,
+        ),
+    )
+    .toBeGreaterThan(1);
+  expect(await b.evaluate(() => visualViewport.scale)).toBe(1);
+  await b.keyboard.press("Escape");
+  await mobileImage.click();
+  await b.mouse.move(190, 250);
+  await b.mouse.down();
+  await b.mouse.move(190, 450, { steps: 5 });
+  await b.mouse.up();
+  await expect(viewer).toHaveCount(0);
+  expect(await b.evaluate(() => visualViewport.scale)).toBe(1);
+  await mobileImage.click();
+  await viewer.click({ position: { x: 20, y: 400 } });
+  await expect(viewer).toHaveCount(0);
+  await b.setViewportSize({ width: 1440, height: 900 });
+  ok(
+    "Mobil: dlouhá URL bez přesahu, výběr souboru, viewer zavře tažení; stránka 100 %",
+  );
+
+  const post = (body, token, headers = {}) =>
+    fetch(`${base}/api/upload`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body,
+    });
+  expect((await post(png)).status).toBe(401);
+  expect((await post(png, "neplatny")).status).toBe(401);
+  let session = await probe(base, tsAddress, password);
+  try {
+    for (const fake of [
+      "<svg xmlns='http://www.w3.org/2000/svg'/>",
+      "<!doctype html><script>alert(1)</script>",
+    ])
+      expect(
+        (
+          await post(fake, session.token, {
+            "Content-Disposition": 'attachment; filename="image.png"',
+          })
+        ).status,
+      ).toBe(415);
+    const large = Buffer.alloc(10 * 1024 * 1024 + 1);
+    png.copy(large);
+    expect((await post(large, session.token)).status).toBe(413);
+    const largeGif = Buffer.alloc(8 * 1024 * 1024 + 1);
+    gif.copy(largeGif);
+    expect((await post(largeGif, session.token)).status).toBe(413);
+  } finally {
+    session.close();
+  }
+  await expect
+    .poll(async () => (await post(gif, session.token)).status)
+    .toBe(401);
+  session = await probe(base, tsAddress, password);
+  try {
+    for (let i = 0; i < 10; i++)
+      expect((await post(gif, session.token)).status).toBe(201);
+    expect((await post(gif, session.token)).status).toBe(429);
+  } finally {
+    session.close();
+  }
+  ok(
+    "Upload API: 401 bez/po relaci, SVG/HTML 415, 10 MiB a GIF 8 MiB 413, jedenáctý upload 429",
+  );
+  for (const page of [a, b])
+    await page
+      .locator(".chat-tabs")
+      .getByRole("button", { name: "Kanál", exact: true })
+      .click();
+}

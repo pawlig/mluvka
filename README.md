@@ -17,6 +17,24 @@ pípnutí při příchodu/odchodu z kanálu. Mobil má záložky kanálů a chat
 TS identita (úroveň ≥8) zůstává v prohlížeči, lze ji exportovat/importovat jako text. Údaje
 připojení i hesla se pamatují podle voleb na formuláři (výchozí zapnuté).
 
+## Obrázky a odkazy v chatu
+
+Odkazy HTTP/HTTPS a `www.` jsou klikatelné, `ts3server://` otevře TS klienta. Chat rozumí TS3
+BBCode URL, IMG, B, I, U, S a bezpečným pojmenovaným/hex barvám s upraveným kontrastem.
+Obrázky mají náhled a prohlížeč přes celé okno (klepnutí, tažení dolů nebo Esc zavírá,
+přiblížení dvěma prsty či kolečkem probíhá uvnitř prohlížeče).
+
+Tlačítkem 📎 vyberte obrázek z galerie či fotoaparátu, vložte jej ze schránky nebo přetáhněte
+do chatu. Před odesláním lze připsat text nebo obrázek zrušit. Prohlížeč zmenší delší stranu
+na 2048 px a přes canvas vytvoří WebP/JPEG bez EXIF včetně GPS. GIF zůstane beze změny
+kvůli animaci (nejvýše 8 MiB); ostatní výstupy nejvýše 10 MiB, vstup nejvýše 50 MiB.
+Přílohy z myTeamSpeak (TS5/TS6) ukážou název a velikost: prohlížejte je v TeamSpeak klientu.
+Mluvka se k myTeamSpeak nepřihlašuje.
+
+Nahrané obrázky mají veřejnou náhodnou URL sdílenou do TS chatu, kdokoli s odkazem je může
+otevřít. Výchozí uchování je 7 dní; při vyčerpání kapacity zmizí nejstarší soubory i dříve.
+Kopie již uložená v cache příjemce může přežít smazání na serveru. Chat není archiv.
+
 ## Na mobilu / instalace na plochu
 
 - **iPhone:** otevřete Mluvku v **Safari → Sdílet → Přidat na plochu**. Nápovědu na přihlášení
@@ -67,7 +85,7 @@ brew install rust cmake opus pkg-config
 npm ci
 npm run build
 cargo build --release --locked
-./target/release/mluvka
+UPLOAD_DIR=./tmp-ts3/uploads ./target/release/mluvka
 ```
 
 Na Debianu/Ubuntu jsou stavební závislosti `build-essential cmake pkg-config libopus-dev`.
@@ -77,14 +95,14 @@ a oprávnění prohlížeče. Produkční frontend servíruje axum ze složky `d
 Vývoj ve dvou terminálech:
 
 ```sh
-cargo run
+UPLOAD_DIR=./tmp-ts3/uploads cargo run
 ```
 
 ```sh
 npm run dev
 ```
 
-Vite vypíše adresu a přesměruje `/ws` i `/healthz` na backend na portu 3000.
+Vite vypíše adresu a přesměruje `/ws`, `/healthz`, `/api` a `/img` na backend na portu 3000.
 
 ## Nastavení provozu
 
@@ -95,6 +113,10 @@ Vite vypíše adresu a přesměruje `/ws` i `/healthz` na backend na portu 3000.
 | `MAX_SESSIONS` | `20` | Současná spojení včetně WS čekajících na přihlášení. |
 | `RUST_LOG` | `mluvka=info` | Úroveň logů aplikace. TS paketové logy jsou kvůli přihlašovacím údajům vždy vypnuté. |
 | `STATIC_DIR` | `dist` | Cesta k frontendu. |
+| `UPLOAD_DIR` | `/data/uploads` | Adresář obrázků, zapisovatelný UID 10001. |
+| `UPLOAD_TTL_DAYS` | `7` | Doba uchování; úklid při startu a každou hodinu. |
+| `UPLOAD_MAX_TOTAL_MB` | `1024` | Kapacita v MiB, při překročení se mažou nejstarší obrázky. |
+| `PUBLIC_URL` | z HTTP hlaviček | Doporučená veřejná HTTPS adresa Mluvky bez koncového lomítka. Jinak `Host` + `X-Forwarded-Proto` od Traefiku (lokálně HTTP). |
 
 Ilustrační příklad: `ALLOWED_SERVERS=ts.example.org:9987,voice.example.net:9990`.
 Port se porovnává přesně, hostname bez rozlišení velikosti písmen. `host` znamená port 9987.
@@ -116,8 +138,8 @@ z `Dockerfile.build` a při každém pushi do `main` ho publikuje jako `ghcr.io/
    *Jde i zdroj GitHub `pawlig/mluvka` + build Dockerfile — kořenový `Dockerfile` obsahuje jen
    `FROM ghcr.io/pawlig/mluvka:latest`, takže se nic nepřekládá. Automatické nasazení po pushi ale pak
    vypněte, jinak Easypanel stáhne image dřív, než ho CI stihne postavit.*
-2. Nastavte port **3000**. Kontejner běží jako UID 10001, nepotřebuje volume ani databázi.
-3. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), případně `MAX_SESSIONS` a `RUST_LOG`.
+2. Nastavte port **3000**. Kontejner běží jako UID 10001. Připojte trvalý **volume na `/data`**, zapisovatelný tímto UID; bez volume se obrázky po redeployi ztratí. Databázi nepotřebuje.
+3. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), nastavte `PUBLIC_URL=https://vase-domena` a případně `MAX_SESSIONS`, `RUST_LOG`, `UPLOAD_TTL_DAYS`, `UPLOAD_MAX_TOTAL_MB`. `UPLOAD_DIR` ponechte `/data/uploads`.
 4. Přidejte doménu s **HTTPS** a nasaďte. WSS jede na stejné doméně přes `/ws`; Traefik předává upgrade.
 5. **Automatické nasazení po buildu:** v Easypanelu zkopírujte *Deploy Webhook* aplikace a uložte ho
    na GitHubu jako secret `EASYPANEL_DEPLOY_WEBHOOK`
@@ -161,7 +183,9 @@ backend i prohlížeč a na konci je ukončí. Potřebuje volné porty 9987/UDP,
 30033/TCP a 3000/TCP. `TS3_DIR` může ukazovat i na rozbalený Linux TS3 server.
 Porty jdou přepsat proměnnými `E2E_PORT`, `TS3_VOICE_PORT`, `TS3_QUERY_PORT` a `TS3_FT_PORT` — pro souběžné běhy
 stačí každému dát vlastní porty a vlastní kopii TS3 (`TS3_DIR`, bez `ts3server.sqlitedb*`, ať se virtuální server
-založí na nových portech).
+založí na nových portech). Neregistrovaný nativní TS3 však dovolí jen jednu současnou
+instanci na počítači; E2E běhy proto v takovém prostředí střídejte.
+E2E vytváří dočasný `UPLOAD_DIR` a po skončení jej odstraní; výchozí `/data` nepoužívá.
 `E2E_URL` dovoluje připojit již běžící backend; úplná sada včetně restartu vyžaduje lokální backend bez této volby.
 
 **Používejte jen vyhrazený testovací TS server:** skript přenastaví jeho jméno a heslo,

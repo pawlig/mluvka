@@ -2,11 +2,19 @@
 import { chromium, expect } from "@playwright/test";
 import { mobileChecks, pwaChecks } from "./mobil.mjs";
 import { resamplingChecks } from "./resampling.mjs";
+import { chatChecks } from "./chat.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { spawn } from "node:child_process";
 import { connect as tcpConnect } from "node:net";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  mkdtempSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, ".."),
@@ -22,6 +30,7 @@ const admin = randomBytes(18).toString("hex"),
   password = randomBytes(12).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
 const tsDir = process.env.TS3_DIR || resolve(temp, "teamspeak3-server_mac");
+const uploadDir = mkdtempSync(resolve(tmpdir(), "mluvka-chat-upload-"));
 let ts, backend, browser, query;
 let pages = [];
 const results = [],
@@ -103,9 +112,7 @@ async function socketOpen(port) {
 }
 async function fillLogin(page, nickname, pass = password) {
   await page.getByLabel("Přezdívka", { exact: true }).fill(nickname);
-  await page
-    .getByLabel("Adresa serveru", { exact: true })
-    .fill(tsAddress);
+  await page.getByLabel("Adresa serveru", { exact: true }).fill(tsAddress);
   await page.getByLabel("Heslo serveru", { exact: false }).fill(pass);
   await page.getByRole("button", { name: /Připojit se/ }).click();
 }
@@ -345,7 +352,9 @@ function startBackend() {
     env: {
       ...process.env,
       PORT: appPort,
-      ALLOWED_SERVERS: "127.0.0.1",
+      ALLOWED_SERVERS: tsAddress,
+      UPLOAD_DIR: uploadDir,
+      PUBLIC_URL: base,
       MAX_SESSIONS: "6",
     },
     stdio: process.env.E2E_DEBUG ? ["ignore", "inherit", "inherit"] : "ignore",
@@ -569,6 +578,7 @@ try {
   await a.getByRole("button", { name: "Odeslat zprávu" }).click();
   await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
   ok("Chat kanálu A → B");
+  await chatChecks({ a, b, query, base, root, tsAddress, password, ok });
   await a.getByRole("button", { name: "Server", exact: true }).click();
   await b.getByRole("button", { name: "Server", exact: true }).click();
   await a.getByLabel("Zpráva", { exact: true }).fill("Zpráva celému serveru.");
@@ -790,4 +800,5 @@ try {
   backend?.kill("SIGTERM");
   ts?.kill("SIGTERM");
   await Promise.race([browser?.close(), wait(5000)]);
+  rmSync(uploadDir, { recursive: true, force: true });
 }

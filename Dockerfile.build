@@ -21,6 +21,8 @@ LABEL org.opencontainers.image.source="https://github.com/pawlig/mluvka"
 RUN apt-get update && apt-get install -y --no-install-recommends libopus0 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 mluvka && useradd --uid 10001 --gid 10001 --no-create-home mluvka
+RUN mkdir -p /data/uploads && chown -R 10001:10001 /data
+VOLUME /data
 WORKDIR /app
 COPY --from=backend /app/target/release/mluvka /app/mluvka
 COPY --from=frontend /app/dist /app/dist

@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-04T20:46:36.136Z",
+  "date": "2026-11-04T22:10:57.917Z",
   "results": [
     {
       "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
@@ -98,6 +98,38 @@
       "result": "OK"
     },
     {
+      "test": "Chat: bezpečné URL, BBCode, barvy, neznámé značky a HTML bez spuštění",
+      "result": "OK"
+    },
+    {
+      "test": "TS5/TS6 JSON přes ServerQuery: karta, velikost, fallback; bez surového JSON",
+      "result": "OK"
+    },
+    {
+      "test": "A → B PNG s GPS: canvas odstraní EXIF, resize ≤2048, náhled i holá URL, viewer a Esc",
+      "result": "OK"
+    },
+    {
+      "test": "A → B GIF: zachované bajty animovaného souboru",
+      "result": "OK"
+    },
+    {
+      "test": "Nenačtený obrázek ponechá pouze bezpečný odkaz",
+      "result": "OK"
+    },
+    {
+      "test": "Schránka a přetažení obrázku otevřou náhled, Zrušit jej odstraní",
+      "result": "OK"
+    },
+    {
+      "test": "Mobil: dlouhá URL bez přesahu, výběr souboru, viewer zavře tažení; stránka 100 %",
+      "result": "OK"
+    },
+    {
+      "test": "Upload API: 401 bez/po relaci, SVG/HTML 415, 10 MiB a GIF 8 MiB 413, jedenáctý upload 429",
+      "result": "OK"
+    },
+    {
       "test": "Chat serveru A → B",
       "result": "OK"
     },
@@ -112,12 +144,12 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 66,
+      "receivedFrames": 669,
       "sentFrames": 0,
-      "rms": 0.15085084777330984,
-      "micRms": 0.07354000006225898,
+      "rms": 0.14564909768264417,
+      "micRms": 0.019916904381845325,
       "underruns": 0,
-      "droppedFrames": 4,
+      "droppedFrames": 0,
       "sampleRate": 48000
     },
     {
@@ -183,7 +215,7 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 33
+      "elapsed_ms": 35
     },
     {
       "test": "Restart backendu za hovoru: automatický návrat, původní UID a přezdívka",
