@@ -1,3 +1,4 @@
+/*! libopus-wasm: MIT, /licence/libopus-wasm.txt; libopus: BSD-3-Clause, /licence/libopus.txt */
 import {
   Application,
   createDecoder,

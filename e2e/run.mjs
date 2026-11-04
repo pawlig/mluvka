@@ -22,7 +22,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, ".."),
   temp = resolve(root, "tmp-ts3"),
   base = process.env.E2E_URL || "http://localhost:3000";
-const admin = randomBytes(18).toString("hex"),
+const admin = process.env.E2E_TS_ADMIN || randomBytes(18).toString("hex"),
   password = randomBytes(12).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
 const tsDir = process.env.TS3_DIR || resolve(temp, "teamspeak3-server_mac");
@@ -390,6 +390,11 @@ async function restartBackend() {
   expect(leaving.every((client) => client.reason === 8)).toBe(true);
   ok(
     "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
+    {
+      elapsedMs: Date.now() - stoppedAt,
+      disconnectedClients: leaving.length,
+      disconnectReasons: [...new Set(leaving.map((client) => client.reason))],
+    },
   );
   startBackend();
   await eventually(async () =>
@@ -408,19 +413,21 @@ try {
     throw Error(
       "Chybí lokální TS3 server. Stáhněte ho do tmp-ts3 podle README nebo nastavte TS3_DIR.",
     );
-  ts = spawn(
-    executable,
-    [
-      "license_accepted=1",
-      `serveradmin_password=${admin}`,
-      "query_ip=127.0.0.1",
-      "voice_ip=127.0.0.1",
-      "query_protocols=raw",
-      "filetransfer_ip=127.0.0.1",
-    ],
-    { cwd: tsDir, stdio: "ignore" },
-  );
-  ts.on("error", () => {});
+  if (!process.env.E2E_TS_ADMIN) {
+    ts = spawn(
+      executable,
+      [
+        "license_accepted=1",
+        `serveradmin_password=${admin}`,
+        "query_ip=127.0.0.1",
+        "voice_ip=127.0.0.1",
+        "query_protocols=raw",
+        "filetransfer_ip=127.0.0.1",
+      ],
+      { cwd: tsDir, stdio: "ignore" },
+    );
+    ts.on("error", () => {});
+  }
   const socket = await eventually(() => socketOpen(10011));
   query = new Query(socket);
   await wait(250);

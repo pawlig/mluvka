@@ -143,6 +143,8 @@ npm run e2e
 ```
 
 E2E používá Playwright s vlastním headless Chrome, dvěma prázdnými kontexty a falešným mikrofonem.
+Běhy různých pracovních stromů na stejném počítači spouštějte sériově: místní TS3
+bez licence odmítá další instanci přes local accounting.
 Na Macu použije `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, jinde Playwright
 Chromium (`npx playwright install chromium`). Cestu lze přepsat přes `CHROME_PATH`.
 Spojitý testovací tón putuje skutečným workletem přes PCM, Opus a TS. Hesla testů vznikají
@@ -179,7 +181,7 @@ Prohlížeč neumí TS3 UDP protokol a kryptografii. Rust používá
 [ReSpeak/tsclientlib](https://github.com/ReSpeak/tsclientlib) s pevným rev
 `ee3bc6f45a7137db7793ba5593a321df400d53e5`, ostatní závislosti fixuje Cargo.lock.
 `AudioHandler` dekóduje, bufferuje a mixuje hlasy. Vstupní Opus má mono 48 kHz, 20 ms,
-OpusVoice; frontend zpracovává zvuk v AudioWorkletu s adaptivním přehrávacím bufferem 60–100 ms.
+OpusVoice; frontend zpracovává zvuk v AudioWorkletu s adaptivním přehrávacím bufferem 60–90 ms.
 Záložní C# varianta nebyla potřeba. [Úplný WS protokol](docs/protokol.md).
 
 ## Známá omezení
@@ -207,7 +209,7 @@ Mluvka není oficiální produkt TeamSpeak. TS3 server a jeho licence nejsou sou
 Výchozí přenos je Opus VBR 48 kHz mono / 20 ms: **Vysoká 64/96 kb/s** nahoru/dolů,
 **Úsporná 32/48 kb/s**. Mikrofonní Opus jde do TS beze změny; mix používá `Application::Audio`,
 protože zachovává obecné audio i tón bez vnucené řečové charakteristiky. FFT/RMS měření
-je součást E2E; RMS se porovnává se signálem za kompresorem. Licence jsou v `docs/licence/`. FEC je zapnuté, DTX vypnuté. PCM zůstává zálohou pro starší klienty/backend
+je součást E2E; RMS se porovnává se signálem za kompresorem. Licence jsou v `frontend/public/licence/` (součást distribuovaného frontendu). FEC je zapnuté, DTX vypnuté. PCM zůstává zálohou pro starší klienty/backend
 a chybu WASM. Podrobnosti: [protokol](docs/protokol.md).
 
 Prohlížeč používá [libopus-wasm 0.4.1](https://github.com/openclaw/libopus-wasm), MIT
@@ -224,7 +226,7 @@ hold 400 ms a rampy omezují lupnutí na hranicích vysílání.
 
 Nastavení → Diagnostika zvuku ukazuje podtečení, buffer, korekci driftu, nouzové zahození,
 maximální skok, kb/s a WS PLC rámce. Totéž je v `window.__mluvkaStats`.
-Přehrávání má cíl 60 ms (při měřeném jitteru až 100 ms) a plynule opravuje rozdíl hodin.
+Přehrávání má cíl 60 ms (při měřeném jitteru až 90 ms) a plynule opravuje rozdíl hodin.
 Dekodér posílá PCM přímo do workletu přes MessagePort; o PLC worklet žádá přímo Worker,
 aby zdržení hlavního vlákna nepřerušilo přehrávání. SIGTERM/SIGINT čistě odpojí TS
 relace a prohlížeče po aktualizaci obnoví hovor. Globální limit připojování omezuje flood

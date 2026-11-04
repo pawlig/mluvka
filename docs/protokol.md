@@ -87,7 +87,7 @@ si worklet vyžádá PLC předem přímo od Workeru přes MessagePort; PCM se vr
 nezávisle na hlavním vlákně; opožděný skutečný rámec obnoví stav dekodéru. Doplnění pro deadline neposouvá
 pořadí na drátu: falešně pozdní pakety se nesmějí trvale odmítat. Po delším výpadku se doplňuje nejvýše 10 rámců.
 
-Přehrávání začíná po 60 ms; při měřeném jitteru roste cíl nejvýše na 100 ms. PI regulátor mění lineární interpolaci nejvýše ±1,05 %,
+Přehrávání začíná po 60 ms; při měřeném jitteru roste cíl nejvýše na 90 ms. PI regulátor mění lineární interpolaci nejvýše ±1,05 %,
 aby zvládl i testovaný drift ±1 %; žádné celé rámce se běžně nezahazují. Při >300 ms
 se buffer nouzově srovná na 60 ms s prolnutím. Podtečení i obnovení mají 5 ms rampu.
 
