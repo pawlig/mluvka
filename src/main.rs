@@ -1,4 +1,5 @@
 mod session;
+mod upload;
 
 use axum::{
     Router,
@@ -8,7 +9,7 @@ use axum::{
     middleware::{self, Next},
     response::IntoResponse,
     response::Response,
-    routing::get,
+    routing::{get, post},
 };
 use std::{env, future::IntoFuture, sync::Arc};
 use tokio::sync::{Semaphore, watch};
@@ -16,6 +17,7 @@ use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 
 #[derive(Clone)]
 struct App {
+    uploads: upload::Uploads,
     slots: Arc<Semaphore>,
     allowed: Arc<Vec<String>>,
     shutdown: watch::Sender<bool>,
@@ -42,7 +44,10 @@ async fn main() {
         .expect("Neplatné MAX_SESSIONS");
     let (shutdown, _) = watch::channel(false);
     let slots = Arc::new(Semaphore::new(max));
+    let uploads = upload::Uploads::from_env().await;
+    uploads.start_cleanup();
     let state = App {
+        uploads,
         slots: slots.clone(),
         allowed: Arc::new(allowed),
         shutdown: shutdown.clone(),
@@ -51,6 +56,8 @@ async fn main() {
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(upgrade))
+        .route("/api/upload", post(upload::upload))
+        .route("/img/{name}", get(upload::image))
         .fallback_service(ServeDir::new(dist))
         .layer(middleware::from_fn(static_headers))
         .layer(SetResponseHeaderLayer::if_not_present(
@@ -131,7 +138,13 @@ async fn upgrade(
         .max_frame_size(16 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
-            session::run(socket, &app.allowed, app.shutdown.subscribe()).await;
+            session::run(
+                socket,
+                &app.allowed,
+                app.shutdown.subscribe(),
+                app.uploads.sessions,
+            )
+            .await;
         })
         .into_response()
 }

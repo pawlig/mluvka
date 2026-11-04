@@ -161,3 +161,28 @@ SIGINT i SIGTERM rozešlou `notice` s `code: "server_restart"`, poté UDP
 3 s. Klient obnovuje stejnou identitu, přezdívku a kanál po 3 → 6 → 12 → 15 s;
 aktualizace se nepočítá jako trvalá chyba. Čekání na WS zápis nikdy neblokuje pollování
 TS událostí ani ping/ACK.
+## Obrázky přes HTTP
+
+Po úspěšném přihlášení k TS přijde jednou na WS `{"type":"upload_token","token":"…"}`.
+Token (256 náhodných bitů) žije jen v paměti po dobu této relace, není identitou TS ani
+uloženým přihlášením. Odpojení, převzetí identity nebo restart jej zruší. Frontend ho neukládá.
+
+`POST /api/upload` přijímá **syrové bajty obrázku** s `Authorization: Bearer <token>`
+a `Content-Type` obrázku, nikoli multipart ani jméno souboru. Autoritativní jsou magické
+bajty PNG/JPEG/GIF/WebP. SVG/HTML → 415, přes 10 MiB (GIF 8 MiB) → 413, chybějící/neplatný
+nebo zrušený token → 401, jedenáctý pokus v klouzavých 5 minutách → 429. Pokusy o upload
+se počítají včetně odmítnutých formátů/velikostí. Nedostatečná kapacita pro jediný soubor → 507.
+Úspěch: HTTP 201, `Cache-Control: no-store`, JSON `{"url":"https://host/img/<id>.webp"}`.
+`id` má 256 náhodných bitů v base64url, příponu volí backend. Jména/obsah ani TS cíl se nelogují.
+
+Klient před uploadem provede orientaci, resize a nové zakódování přes canvas bez EXIF/GPS;
+GIF posílá beze změny. Přímé API kontroluje typ a velikost, metadata samo neodstraňuje.
+URL pak odešle běžnou zprávou `chat` jako `[IMG]https://host/img/<id>.webp[/IMG]`, případně
+s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5/TS6 nebylo ověřeno.
+
+`GET /img/<id>.<ext>` je veřejný, po expiraci/odstranění vrací 404. Hlavičky:
+`Content-Type: image/png|image/jpeg|image/gif|image/webp`,
+`Cache-Control: public, max-age=604800, immutable`, `X-Content-Type-Options: nosniff`,
+`Content-Security-Policy: default-src 'none'`. URL z `PUBLIC_URL`, jinak `Host` a důvěryhodné
+`X-Forwarded-Proto` (http/https). Produkční proxy musí tyto hlavičky přepisovat.
+Úklid je při startu a každou hodinu; před zápisem se také hlídá celková kapacita.

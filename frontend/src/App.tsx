@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ChatMessage as MessageBody } from "./ChatMessage";
+import { ImageComposer } from "./ImageComposer";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
@@ -175,6 +177,7 @@ export function App() {
   const [thread, setThread] = useState("channel");
   const [privateTabs, setPrivateTabs] = useState<Record<number, string>>({});
   const [text, setText] = useState("");
+  const [uploadToken, setUploadToken] = useState("");
   const [mobile, setMobile] = useState("channels");
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const ws = useRef<WebSocket | undefined>(undefined);
@@ -410,6 +413,7 @@ export function App() {
 
   function updateStatus(next: "idle" | "connecting" | "connected") {
     phase.current = next;
+    if (next === "idle") setUploadToken("");
     setStatus(next);
   }
   function persistLogin(value: Login) {
@@ -480,6 +484,7 @@ export function App() {
     )
       return;
     const token = ++generation.current;
+    setUploadToken("");
     audio.ready = false;
     audio.negotiate("pcm");
     audio.ptt = false;
@@ -558,6 +563,8 @@ export function App() {
         return;
       }
       if (msg.type === "hello") audio.negotiate(msg.audio?.codec);
+      if (msg.type === "upload_token") setUploadToken(msg.token);
+
       if (msg.type === "identity") {
         save("identity", msg.identity);
         window.__mluvkaStats.uid = msg.uid;
@@ -938,8 +945,7 @@ export function App() {
   function stopLongPress() {
     clearTimeout(longPress.current);
   }
-  function sendChat(e: FormEvent) {
-    e.preventDefault();
+  function sendChat(text: string) {
     if (!text.trim() || !me) return;
     const privateId = thread.startsWith("private:")
       ? Number(thread.split(":")[1])
@@ -1564,29 +1570,20 @@ export function App() {
                           })}
                         </time>
                       </div>
-                      <p>{m.text}</p>
+                      <MessageBody text={m.text} />
                     </div>
                   </article>
                 ))}
                 <div ref={chatEnd} />
               </div>
-              <form className="composer" onSubmit={sendChat}>
-                <input
-                  aria-label="Zpráva"
-                  value={text}
-                  maxLength={2000}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder={`Napsat ${thread === "channel" ? "do kanálu" : thread === "server" ? "na server" : "soukromou zprávu"}…`}
-                />
-                <button
-                  aria-label="Odeslat zprávu"
-                  disabled={!text.trim()}
-                  type="submit"
-                >
-                  <Icon name="send" size={20} />
-                </button>
-                <span>ENTER PRO ODESLÁNÍ</span>
-              </form>
+              <ImageComposer
+                text={text}
+                setText={setText}
+                send={sendChat}
+                token={uploadToken}
+                active={connected}
+                thread={currentThread}
+              />
             </section>
           </main>
           <footer className="voice-bar">

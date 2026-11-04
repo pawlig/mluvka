@@ -12,13 +12,14 @@ import {
   codecRecoveryCheck,
 } from "./audio.mjs";
 import { resamplingChecks } from "./resampling.mjs";
+import { chatChecks } from "./chat.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { notificationChecks } from "./upozorneni.mjs";
 import { invitationChecks } from "./pozvanky.mjs";
 import { spawn } from "node:child_process";
 import { connect as tcpConnect } from "node:net";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, ".."),
@@ -33,6 +34,7 @@ const admin = process.env.E2E_TS_ADMIN || randomBytes(18).toString("hex"),
   password = randomBytes(12).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
 const tsDir = process.env.TS3_DIR || resolve(temp, "teamspeak3-server_mac");
+const uploadDir = mkdtempSync(resolve(root, "tmp-ts3/mluvka-chat-upload-"));
 let ts, backend, browser, query;
 let backendOutput = "";
 let pages = [];
@@ -369,6 +371,8 @@ function startBackend() {
       ...process.env,
       PORT: appPort,
       ALLOWED_SERVERS: tsAddress,
+      UPLOAD_DIR: uploadDir,
+      PUBLIC_URL: base,
       MAX_SESSIONS: "6",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -657,6 +661,7 @@ try {
     await a.getByRole("button", { name: "Odeslat zprávu" }).click();
     await expect(b.getByRole("log")).toContainText("Čau Báro, slyšíme se.");
     ok("Chat kanálu A → B");
+    await chatChecks({ a, b, query, base, root, tsAddress, password, ok });
     await a.getByRole("button", { name: "Server", exact: true }).click();
     await b.getByRole("button", { name: "Server", exact: true }).click();
     await a
@@ -931,4 +936,5 @@ try {
     ),
   );
   await Promise.race([browser?.close(), wait(5000)]);
+  rmSync(uploadDir, { recursive: true, force: true });
 }

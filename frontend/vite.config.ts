@@ -45,6 +45,8 @@ export default defineConfig({
     proxy: {
       "/ws": { target: "ws://localhost:3000", ws: true, rewriteWsOrigin: true },
       "/healthz": "http://localhost:3000",
+      "/api": "http://localhost:3000",
+      "/img": "http://localhost:3000",
     },
   },
 });

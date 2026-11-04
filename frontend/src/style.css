@@ -1797,3 +1797,179 @@ select {
 .invite-modal > footer {
   margin-top: 16px;
 }
+
+/* Obsah zpráv nesmí roztáhnout chat ani mobilní viewport. */
+html {
+  touch-action: manipulation;
+}
+.chat-panel {
+  position: relative;
+  min-width: 0;
+}
+.message > div {
+  flex: 1;
+}
+.message-text a {
+  color: #c0e5a0;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.image-preview {
+  display: block;
+  max-width: 100%;
+  margin-top: 10px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #20261c;
+}
+.image-preview img {
+  display: block;
+  max-height: 240px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.ts-attachment {
+  display: flex;
+  gap: 10px;
+  border: 1px solid #48543e;
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 8px;
+  background: #242c20;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ts-attachment > div {
+  min-width: 0;
+}
+.ts-attachment p {
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #070a08f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  outline: none;
+  overscroll-behavior: contain;
+}
+.image-viewer > img {
+  max-width: 96%;
+  max-height: 88dvh;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+.viewer-close {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  top: max(16px, env(safe-area-inset-top));
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #30392d;
+  color: white;
+  font-size: 28px;
+}
+.viewer-hint {
+  position: absolute;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  font-size: 11px;
+  text-align: center;
+  padding: 0 15px;
+  color: #c2ccb9;
+  pointer-events: none;
+}
+.image-compose {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.composer > .image-file-input {
+  display: none;
+}
+.composer > .attach-image {
+  left: 6px;
+  right: auto;
+  font-size: 19px;
+  background: transparent;
+}
+.composer > input:not(.image-file-input) {
+  min-width: 0;
+  width: 100%;
+  padding-left: 50px;
+}
+.pending-image {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0 34px 12px;
+  padding: 10px;
+  border: 1px solid #48543e;
+  border-radius: 10px;
+  background: #242c20;
+  font-size: 12px;
+}
+.pending-image img {
+  max-height: 100px;
+  max-width: 45%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.pending-image span {
+  display: block;
+  margin: 5px 0;
+  font-size: 11px;
+  color: #bbc5b3;
+}
+.pending-image button {
+  text-decoration: underline;
+  padding: 8px 0;
+  color: #d2e7bc;
+}
+.upload-error {
+  margin: 0 34px 10px;
+  color: #ffb3a9;
+  font-size: 12px;
+}
+.drop-hint {
+  position: absolute;
+  inset: 10px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #c0e5a0;
+  background: #20261cee;
+  border-radius: 12px;
+  pointer-events: none;
+}
+@media (max-width: 760px) {
+  .pending-image {
+    margin: 0 16px 12px;
+  }
+  .upload-error {
+    margin: 0 16px 10px;
+  }
+}
+
+.composer > .send-image {
+  width: auto;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.composer:has(.send-image) > input:not(.image-file-input) {
+  padding-right: 90px;
+
+}

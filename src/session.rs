@@ -383,7 +383,12 @@ fn identity_slot(key: String) -> Arc<IdentitySlot> {
     slot
 }
 
-pub async fn run(ws: WebSocket, allowed: &[String], mut shutdown: watch::Receiver<bool>) {
+pub async fn run(
+    ws: WebSocket,
+    allowed: &[String],
+    mut shutdown: watch::Receiver<bool>,
+    uploads: Arc<crate::upload::Sessions>,
+) {
     let (mut sink, input) = ws.split();
     let (control, mut controls) = mpsc::channel(256);
     let (audio, mut frames) = mpsc::channel(8);
@@ -409,7 +414,7 @@ pub async fn run(ws: WebSocket, allowed: &[String], mut shutdown: watch::Receive
         pending_mute: None,
     };
     if !*shutdown.borrow()
-        && let Err(message) = session(&mut ws, allowed, &mut shutdown).await
+        && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads).await
     {
         let _ = json_send(&mut ws, error_message(&message, true)).await;
     }
@@ -426,6 +431,7 @@ async fn session(
     ws: &mut Socket,
     allowed: &[String],
     shutdown: &mut watch::Receiver<bool>,
+    uploads: &Arc<crate::upload::Sessions>,
 ) -> Result<(), String> {
     let first = timeout(Duration::from_secs(15), ws.recv())
         .await
@@ -581,6 +587,8 @@ async fn session(
         }
     }
     let initial_mute = ws.pending_mute.take().or(initial_mute);
+    let upload_lease = uploads.grant();
+    json_send(ws, json!({"type":"upload_token", "token":upload_lease.token})).await?;
     connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio).await
       } => result,
     };
