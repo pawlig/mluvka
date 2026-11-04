@@ -1529,3 +1529,232 @@ textarea {
   color: #879578;
   line-height: 1;
 }
+
+/* Mobilní hovory: bezpečné okraje, dotyk a klávesnice. */
+.topbar,
+.in-room .topbar {
+  padding-top: env(safe-area-inset-top);
+  height: calc(76px + env(safe-area-inset-top));
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+}
+.voice-bar {
+  padding-bottom: max(15px, env(safe-area-inset-bottom));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  flex-shrink: 0;
+}
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+.ptt-button,
+.client-row {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ptt-button {
+  touch-action: none;
+}
+.reconnect-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  background: #384326;
+  color: var(--accent);
+  font-size: 12px;
+}
+.install-card {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.install-card > button {
+  width: 100%;
+}
+.install-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.install-hint button {
+  font-size: 24px;
+  margin-left: auto;
+}
+.connecting-card {
+  padding: 12px 0;
+  color: var(--accent);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.audio-unlock {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: #101710ed;
+  backdrop-filter: blur(12px);
+  text-align: center;
+}
+.audio-unlock .primary {
+  font-size: 18px;
+  min-height: 64px;
+  padding: 20px 28px;
+}
+.audio-unlock p {
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (pointer: coarse), (max-width: 699px) {
+  button,
+  summary,
+  .check {
+    min-height: 44px;
+  }
+  button {
+    min-width: 44px;
+  }
+  input[type="range"] {
+    height: 44px;
+  }
+  .channel-panel,
+  .chat-panel,
+  .self-card,
+  .voice-controls,
+  .room-title,
+  .room-title > div {
+    min-width: 0;
+  }
+  .channel-tree {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .channel-button,
+  .client-name {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .client-name,
+  .room-title h1 {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .voice-bar {
+    column-gap: 0;
+  }
+  .bar-actions {
+    margin-left: 0;
+    padding-left: 0;
+  }
+  .control-button {
+    padding: 8px;
+  }
+  .self-card strong {
+    max-width: 90px;
+  }
+  .modal-backdrop:has(.peer-modal) {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .peer-modal {
+    width: 100%;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    touch-action: pan-y;
+  }
+  .peer-modal::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 4px;
+    margin: -10px auto 24px;
+    background: #6e7b60;
+  }
+  .composer {
+    margin-bottom: 12px;
+  }
+}
+@media (max-height: 500px) and (pointer: coarse) {
+  .in-room .topbar {
+    height: calc(48px + env(safe-area-inset-top));
+  }
+  .server-heading {
+    padding: 8px 16px;
+  }
+  .panel-label,
+  .channel-hint {
+    display: none;
+  }
+  .voice-bar {
+    padding-top: 6px;
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+  .self-card {
+    display: none;
+  }
+  .voice-controls {
+    margin-left: auto;
+  }
+  .ptt-button {
+    min-height: 44px;
+  }
+}
+
+.in-room {
+  height: min(100dvh, var(--app-height, 100dvh));
+}
+.composer > input,
+.mode-select select,
+.modal input:not([type="checkbox"]):not([type="range"]),
+.modal select,
+textarea {
+  font-size: 16px;
+}
+@media (pointer: coarse) {
+  .composer > input {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  .composer > button {
+    top: 5px;
+    right: 5px;
+    width: 44px;
+    height: 44px;
+  }
+  .chat-tabs {
+    flex-shrink: 0;
+  }
+}
+@media (max-height: 500px) and (max-width: 699px) and (pointer: coarse) {
+  .voice-bar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    row-gap: 0;
+  }
+  .ptt-button {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 8px;
+  }
+}
+
+@media (pointer: coarse), (max-width: 699px) {
+  .composer > span {
+    display: none;
+  }
+}

@@ -13,6 +13,7 @@ export interface Settings {
   input: string;
   output: string;
   beep: boolean;
+  wakeLock: boolean;
 }
 export const defaultSettings: Settings = {
   mode: "ptt",
@@ -28,6 +29,7 @@ export const defaultSettings: Settings = {
   input: "",
   output: "",
   beep: true,
+  wakeLock: false,
 };
 export interface Channel {
   id: number;
@@ -73,6 +75,7 @@ export interface Login {
   channel_password: string;
   remember: boolean;
   passwords: boolean;
+  auto: boolean;
 }
 export function load<T>(key: string, fallback: T): T {
   try {

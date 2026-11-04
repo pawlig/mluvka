@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
+import { Install, useServiceWorker } from "./pwa";
 import {
   defaultSettings,
   load,
@@ -21,7 +22,8 @@ const blankLogin: Login = {
   channel: "",
   channel_password: "",
   remember: true,
-  passwords: false,
+  passwords: true,
+  auto: true,
 };
 const modeNames = {
   ptt: "Push-to-talk",
@@ -104,6 +106,29 @@ export function App() {
   const [room, setRoom] = useState<RoomState>();
   const roomRef = useRef<RoomState | undefined>(undefined);
   const [error, setError] = useState("");
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [autoStarting, setAutoStarting] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const phase = useRef("idle");
+  const wanted = useRef(false);
+  const lastLogin = useRef(login);
+  const generation = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const retryCount = useRef(0);
+  const lastMessage = useRef(0);
+  const closeStale = useRef<(() => void) | undefined>(undefined);
+  const pendingMove = useRef<{ channel: number; password: string } | undefined>(
+    undefined,
+  );
+  const focusField = useRef("");
+  const form = useRef<HTMLFormElement>(null);
+  const longPress = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const touchStart = useRef<{ x: number; y: number } | undefined>(undefined);
+  const sheetStart = useRef<number | undefined>(undefined);
   const [notice, setNotice] = useState("");
   const [talking, setTalking] = useState<Set<number>>(new Set());
   const [level, setLevel] = useState(0);
@@ -162,6 +187,8 @@ export function App() {
   const me = room?.clients.find((c) => c.id === room.self);
   const currentChannel = room?.channels.find((c) => c.id === me?.channel);
   const connected = status === "connected";
+  useServiceWorker(status !== "idle" || retryAttempt > 0);
+  audio.onBlocked = setAudioBlocked;
   const currentThread =
     thread === "channel" ? `channel:${me?.channel}` : thread;
   const visibleMessages = messages.filter((m) => m.thread === currentThread);
@@ -181,7 +208,11 @@ export function App() {
         "devicechange",
         refreshDevices,
       );
+      wanted.current = false;
+      ++generation.current;
       ws.current?.close();
+      clearTimeout(retryTimer.current);
+      clearTimeout(longPress.current);
       clearTimeout(peerTimer.current);
       void audio.close();
     };
@@ -208,6 +239,21 @@ export function App() {
     peersRef.current = peers;
     save("peers", peers);
   }, [peers]);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const resize = () =>
+      document.documentElement.style.setProperty(
+        "--app-height",
+        `${viewport.height}px`,
+      );
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => {
+      viewport.removeEventListener("resize", resize);
+      document.documentElement.style.removeProperty("--app-height");
+    };
+  }, []);
   useEffect(() => {
     chatEnd.current?.scrollIntoView({ block: "nearest" });
   }, [messages, thread]);
@@ -255,52 +301,126 @@ export function App() {
     };
   }, [captureKey]);
 
-  async function connect(e?: FormEvent) {
+  function updateStatus(next: "idle" | "connecting" | "connected") {
+    phase.current = next;
+    setStatus(next);
+  }
+  function persistLogin(value: Login) {
+    if (value.remember)
+      save("login", {
+        ...value,
+        password: value.passwords ? value.password : "",
+        channel_password: value.passwords ? value.channel_password : "",
+      });
+    else localStorage.removeItem("mluvka.login");
+  }
+  useEffect(() => {
+    persistLogin(login);
+  }, [login]);
+  function scheduleRetry() {
+    if (!wanted.current) return;
+    clearTimeout(retryTimer.current);
+    const attempt = ++retryCount.current;
+    setRetryAttempt(attempt);
+    if (document.visibilityState === "hidden") return;
+    retryTimer.current = setTimeout(
+      () => void openConnection(lastLogin.current),
+      [1000, 2000, 4000, 8000, 15000][Math.min(attempt - 1, 4)],
+    );
+  }
+  function tryNow() {
+    if (
+      !wanted.current ||
+      document.visibilityState === "hidden" ||
+      phase.current !== "idle"
+    )
+      return;
+    clearTimeout(retryTimer.current);
+    void openConnection(lastLogin.current);
+  }
+  function connect(e?: FormEvent) {
     e?.preventDefault();
-    if (status === "connecting") return;
+    if (phase.current !== "idle") return;
+    wanted.current = true;
+    setAutoStarting(false);
+    try {
+      sessionStorage.removeItem("mluvka.manual-disconnect");
+    } catch {
+      /* Úložiště může být zakázané. */
+    }
+    retryCount.current = 0;
+    setRetryAttempt(0);
+    lastLogin.current = login;
+    persistLogin(login);
+    void openConnection(login);
+  }
+  async function openConnection(credentials: Login) {
+    if (
+      !wanted.current ||
+      phase.current !== "idle" ||
+      document.visibilityState === "hidden"
+    )
+      return;
+    const token = ++generation.current;
     audio.ready = false;
+    audio.ptt = false;
     setError("");
     setNotice("");
-    setStatus("connecting");
+    updateStatus("connecting");
     setMessages([]);
     setTalking(new Set());
     setTesting(false);
     audio.test(false);
-    if (login.remember)
-      save("login", {
-        ...login,
-        password: login.passwords ? login.password : "",
-        channel_password: login.passwords ? login.channel_password : "",
+    // resume() bez gesta může zůstat pending. TS připojení na něj nečeká.
+    void audio
+      .start()
+      .then(refreshDevices)
+      .catch(() => {
+        if (token === generation.current && wanted.current)
+          setError(
+            "Mikrofon není dostupný. Povolte přístup nebo ho zapněte klepnutím na zvuk.",
+          );
       });
-    else localStorage.removeItem("mluvka.login");
-    try {
-      await audio.start();
-      await refreshDevices();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Mikrofon nelze otevřít: ${err.message}`
-          : "Mikrofon není dostupný.",
-      );
-      setStatus("idle");
-      await audio.close();
-      return;
-    }
     const socket = new WebSocket(
       `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`,
     );
     ws.current = socket;
     socket.binaryType = "arraybuffer";
-    socket.onopen = () =>
+    lastMessage.current = Date.now();
+    const opened = Date.now();
+    let lastPing = 0;
+    const heartbeat = setInterval(() => {
+      if (ws.current !== socket) return;
+      if (
+        socket.readyState === WebSocket.OPEN &&
+        phase.current === "connected" &&
+        Date.now() - lastPing >= 10000
+      ) {
+        socket.send(JSON.stringify({ type: "ping" }));
+        lastPing = Date.now();
+      }
+      if (
+        Date.now() - lastMessage.current >= 20000 ||
+        (phase.current === "connecting" && Date.now() - opened > 40000)
+      ) {
+        socket.close();
+        // close event při mrtvé síti nemusí dorazit; relaci zneplatníme hned.
+        closed();
+      }
+    }, 1000);
+    socket.onopen = () => {
+      if (ws.current !== socket) return;
       socket.send(
         JSON.stringify({
           type: "connect",
-          ...login,
+          ...credentials,
           identity: load<string | null>("identity", null),
         }),
       );
+    };
     socket.onmessage = ({ data }) => {
       if (ws.current !== socket) return;
+      lastMessage.current = Date.now();
       if (data instanceof ArrayBuffer) {
         audio.receive(data);
         return;
@@ -317,8 +437,36 @@ export function App() {
         save("identity", msg.identity);
         window.__mluvkaStats.uid = msg.uid;
       }
-      if (msg.type === "error") setError(msg.message);
-      if (msg.type === "notice") setNotice(msg.message);
+      if (msg.type === "error") {
+        setError(msg.message);
+        if (
+          msg.fatal !== false &&
+          ["bad_password", "banned", "not_allowed", "invalid"].includes(
+            msg.code,
+          )
+        ) {
+          wanted.current = false;
+          clearTimeout(retryTimer.current);
+          setRetryAttempt(0);
+          focusField.current = [
+            "password",
+            "channel_password",
+            "nickname",
+            "server",
+          ].includes(msg.field)
+            ? msg.field
+            : "server";
+        }
+        if (msg.fatal === false) pendingMove.current = undefined;
+      }
+      if (msg.type === "notice") {
+        setNotice(msg.message);
+        if (msg.code === "session_replaced") {
+          wanted.current = false;
+          clearTimeout(retryTimer.current);
+          setRetryAttempt(0);
+        }
+      }
       if (msg.type === "state") {
         audio.ready = true;
         const next = msg as RoomState;
@@ -349,9 +497,46 @@ export function App() {
           for (const [uid, p] of Object.entries(peersRef.current))
             send({ type: "peer", uid, ...p });
         }
+        const self = next.clients.find((c) => c.id === next.self);
+        const previousChannel = prev?.clients.find(
+          (c) => c.id === prev.self,
+        )?.channel;
+        if (self && (!prev || previousChannel !== self.channel)) {
+          const path: string[] = [];
+          let id = self.channel;
+          const seen = new Set<number>();
+          while (id && !seen.has(id)) {
+            seen.add(id);
+            const channel = next.channels.find((c) => c.id === id);
+            if (!channel) break;
+            path.unshift(channel.name);
+            id = channel.parent;
+          }
+          const channelPath = path.join("/");
+          const password =
+            pendingMove.current?.channel === self.channel
+              ? pendingMove.current.password
+              : channelPath === credentials.channel
+                ? credentials.channel_password
+                : channelPath === lastLogin.current.channel
+                  ? lastLogin.current.channel_password
+                  : "";
+          lastLogin.current = {
+            ...lastLogin.current,
+            channel: channelPath,
+            channel_password: password,
+          };
+          setLogin(lastLogin.current);
+          persistLogin(lastLogin.current);
+          pendingMove.current = undefined;
+        }
         roomRef.current = next;
         setRoom(next);
-        setStatus("connected");
+        updateStatus("connected");
+        retryCount.current = 0;
+        setRetryAttempt(0);
+        setError("");
+        audio.checkState();
       }
       if (msg.type === "talking")
         setTalking((old) => {
@@ -398,26 +583,158 @@ export function App() {
         });
       }
     };
-    socket.onerror = () =>
-      setError(
-        "Webové spojení se nepodařilo otevřít. Server může mít naplněný limit relací.",
-      );
-    socket.onclose = () => {
+    socket.onerror = () => {
+      /* onclose řídí opakování; neduplikuje chyby konzole. */
+    };
+    function closed() {
+      clearInterval(heartbeat);
       if (ws.current !== socket) return;
       ws.current = undefined;
-      setStatus("idle");
+      audio.ready = false;
+      audio.ptt = false;
+      audio.node?.port.postMessage({ flush: true });
+      updateStatus("idle");
       setRoom(undefined);
       roomRef.current = undefined;
       setSelfTalking(false);
-      void audio.close();
+      if (wanted.current) scheduleRetry();
+      else {
+        setAutoStarting(false);
+        void audio.close();
+        if (focusField.current)
+          setTimeout(() => {
+            const field = form.current?.querySelector<HTMLInputElement>(
+              `[name="${focusField.current}"]`,
+            );
+            const details = field?.closest("details");
+            if (details) details.open = true;
+            field?.focus();
+          }, 0);
+      }
+    }
+    socket.onclose = closed;
+    closeStale.current = () => {
+      socket.close();
+      closed();
     };
   }
   function disconnect() {
+    wanted.current = false;
+    setAutoStarting(false);
+    ++generation.current;
+    clearTimeout(retryTimer.current);
+    retryCount.current = 0;
+    setRetryAttempt(0);
+    try {
+      sessionStorage.setItem("mluvka.manual-disconnect", "1");
+    } catch {
+      /* Úložiště může být zakázané. */
+    }
     send({ type: "disconnect" });
+    const socket = ws.current;
+    ws.current = undefined;
+    socket?.close();
     audio.ready = false;
-    ws.current?.close();
+    void audio.close();
+    updateStatus("idle");
+    setRoom(undefined);
+    roomRef.current = undefined;
+    setSelfTalking(false);
     setNotice("Byli jste odpojeni. Můžete se připojit znovu.");
   }
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      let suppressed = false;
+      try {
+        suppressed = sessionStorage.getItem("mluvka.manual-disconnect") === "1";
+      } catch {
+        /* Bez úložiště. */
+      }
+      if (
+        login.remember &&
+        login.auto &&
+        login.server &&
+        login.nickname &&
+        !suppressed
+      ) {
+        wanted.current = true;
+        setAutoStarting(true);
+        void openConnection(login);
+      }
+    }, 0);
+    const visible = () => {
+      if (document.visibilityState !== "visible") return;
+      void audio.recover();
+      if (
+        wanted.current &&
+        ws.current &&
+        Date.now() - lastMessage.current >= 20000
+      ) {
+        closeStale.current?.();
+      }
+      tryNow();
+    };
+    const online = () => {
+      if (!wanted.current) return;
+      if (ws.current) closeStale.current?.();
+      tryNow();
+    };
+    document.addEventListener("visibilitychange", visible);
+    window.addEventListener("online", online);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visible);
+      window.removeEventListener("online", online);
+    };
+  }, []);
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !connected) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: `Mluvka — ${currentChannel?.name || "kanál"}`,
+      artist: "Mluvka",
+      artwork: [{ src: "/icons/512.png", sizes: "512x512", type: "image/png" }],
+    });
+    navigator.mediaSession.playbackState = settings.microphone
+      ? "paused"
+      : "playing";
+    navigator.mediaSession.setActionHandler("play", () =>
+      change("microphone", false),
+    );
+    navigator.mediaSession.setActionHandler("pause", () =>
+      change("microphone", true),
+    );
+    return () => {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = "none";
+      navigator.mediaSession.setActionHandler("play", null);
+      navigator.mediaSession.setActionHandler("pause", null);
+    };
+  }, [connected, currentChannel?.name, settings.microphone]);
+  useEffect(() => {
+    if (!settings.wakeLock || !connected || !("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | undefined;
+    let disposed = false;
+    const acquire = async () => {
+      if (document.visibilityState !== "visible" || (lock && !lock.released))
+        return;
+      try {
+        const next = await navigator.wakeLock.request("screen");
+        if (disposed) await next.release();
+        else lock = next;
+      } catch {
+        setNotice(
+          "Displej nelze udržet zapnutý. Zkontrolujte úsporný režim zařízení.",
+        );
+      }
+    };
+    void acquire();
+    document.addEventListener("visibilitychange", acquire);
+    return () => {
+      disposed = true;
+      void lock?.release();
+      document.removeEventListener("visibilitychange", acquire);
+    };
+  }, [connected, settings.wakeLock]);
   function change<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings((s) => ({ ...s, [key]: value }));
   }
@@ -443,7 +760,14 @@ export function App() {
     if (channel.password) {
       setMove(channel);
       setMovePassword("");
-    } else send({ type: "move", channel: channel.id, password: "" });
+    } else moveTo(channel.id, "");
+  }
+  function moveTo(channel: number, password: string) {
+    pendingMove.current = { channel, password };
+    send({ type: "move", channel, password });
+  }
+  function stopLongPress() {
+    clearTimeout(longPress.current);
   }
   function sendChat(e: FormEvent) {
     e.preventDefault();
@@ -560,6 +884,27 @@ export function App() {
                     key={p.id}
                     data-client={p.id}
                     className={`client-row ${(p.id === me?.id ? selfTalking : talking.has(p.id)) ? "talking" : ""}`}
+                    onPointerDown={(e) => {
+                      if (e.pointerType === "mouse") return;
+                      touchStart.current = { x: e.clientX, y: e.clientY };
+                      stopLongPress();
+                      longPress.current = setTimeout(
+                        () => setPeerClient(p),
+                        500,
+                      );
+                    }}
+                    onPointerMove={(e) => {
+                      const start = touchStart.current;
+                      if (
+                        start &&
+                        Math.hypot(e.clientX - start.x, e.clientY - start.y) >
+                          10
+                      )
+                        stopLongPress();
+                    }}
+                    onPointerUp={stopLongPress}
+                    onPointerCancel={stopLongPress}
+                    onLostPointerCapture={stopLongPress}
                     onClick={() => setPeerClient(p)}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -617,6 +962,19 @@ export function App() {
               : "Připraveno k hovoru"}
         </div>
       </header>
+      {retryAttempt > 0 && (
+        <div className="reconnect-banner" role="status">
+          <span>
+            Spojení ztraceno — připojuji znovu (pokus {retryAttempt})…
+          </span>
+          <button className="secondary" onClick={tryNow}>
+            Zkusit hned
+          </button>
+          <button className="secondary" onClick={disconnect}>
+            Zrušit
+          </button>
+        </div>
+      )}
       {(error || notice) && (
         <div
           className={`toast ${error ? "error" : ""}`}
@@ -673,10 +1031,27 @@ export function App() {
             </div>
             <h2>Pojďte za ostatními.</h2>
             <p className="muted">Stačí adresa serveru a vaše přezdívka.</p>
-            <form onSubmit={connect}>
+            {status === "connecting" && (
+              <div className="connecting-card" role="status">
+                <p>
+                  Připojuji k {lastLogin.current.server} jako{" "}
+                  {lastLogin.current.nickname}…
+                </p>
+                <button className="secondary" onClick={disconnect}>
+                  Zrušit
+                </button>
+              </div>
+            )}
+            <form
+              ref={form}
+              hidden={autoStarting && status === "connecting"}
+              onSubmit={connect}
+              aria-busy={status === "connecting"}
+            >
               <label>
                 Přezdívka
                 <input
+                  name="nickname"
                   autoComplete="nickname"
                   required
                   maxLength={30}
@@ -690,6 +1065,7 @@ export function App() {
               <label>
                 Adresa serveru
                 <input
+                  name="server"
                   required
                   autoCapitalize="off"
                   autoCorrect="off"
@@ -704,6 +1080,7 @@ export function App() {
               <label>
                 Heslo serveru <span className="optional">volitelné</span>
                 <input
+                  name="password"
                   type="password"
                   autoComplete="off"
                   value={login.password}
@@ -731,6 +1108,7 @@ export function App() {
                   <label>
                     Heslo kanálu
                     <input
+                      name="channel_password"
                       type="password"
                       autoComplete="off"
                       value={login.channel_password}
@@ -749,6 +1127,7 @@ export function App() {
                     setLogin({
                       ...login,
                       remember: e.target.checked,
+                      auto: e.target.checked && login.auto,
                       passwords: e.target.checked && login.passwords,
                     })
                   }
@@ -767,6 +1146,18 @@ export function App() {
                   Zapamatovat i hesla na tomto zařízení
                 </label>
               )}
+              {login.remember && (
+                <label className="check subtle">
+                  <input
+                    type="checkbox"
+                    checked={login.auto}
+                    onChange={(e) =>
+                      setLogin({ ...login, auto: e.target.checked })
+                    }
+                  />
+                  Připojit automaticky po spuštění
+                </label>
+              )}
               <button
                 className="primary connect-button"
                 disabled={status === "connecting"}
@@ -774,7 +1165,7 @@ export function App() {
               >
                 {status === "connecting"
                   ? "Navazuji spojení…"
-                  : load("login", null)
+                  : load<Login | null>("login", null)?.server
                     ? "Připojit se znovu"
                     : "Připojit se"}
                 <Icon name="chevron" size={19} />
@@ -808,6 +1199,7 @@ export function App() {
                 </div>
               )}
             </form>
+            <Install />
             <div className="login-tools">
               <button onClick={() => setShowSettings(true)}>
                 <Icon name="settings" size={15} />
@@ -1086,7 +1478,9 @@ export function App() {
                 onPointerDown={(e) => {
                   e.currentTarget.setPointerCapture(e.pointerId);
                   audio.ptt = true;
+                  navigator.vibrate?.(10);
                 }}
+                onContextMenu={(e) => e.preventDefault()}
                 onPointerUp={() => (audio.ptt = false)}
                 onPointerCancel={() => (audio.ptt = false)}
                 onLostPointerCapture={() => (audio.ptt = false)}
@@ -1102,6 +1496,24 @@ export function App() {
         </>
       )}
 
+      {connected && audioBlocked && (
+        <div
+          className="audio-unlock"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Zapnutí zvuku"
+        >
+          <button
+            className="primary"
+            onClick={() => {
+              void audio.recover(true);
+            }}
+          >
+            Klepni pro zapnutí zvuku
+          </button>
+          <p>Spojení běží. Zvuk potřebuje vaše klepnutí.</p>
+        </div>
+      )}
       {showSettings && (
         <div
           className="modal-backdrop"
@@ -1265,6 +1677,7 @@ export function App() {
                   ["noise", "Potlačení šumu"],
                   ["autoGain", "Automatické zesílení"],
                   ["beep", "Pípnutí při příchodu a odchodu"],
+                  ["wakeLock", "Nezhasínat displej"],
                 ] as const
               ).map(([key, label]) => (
                 <label className="check" key={key}>
@@ -1380,7 +1793,7 @@ export function App() {
             aria-label="Heslo kanálu"
             onSubmit={(e) => {
               e.preventDefault();
-              send({ type: "move", channel: move.id, password: movePassword });
+              moveTo(move.id, movePassword);
               setMove(undefined);
             }}
           >
@@ -1419,6 +1832,18 @@ export function App() {
         >
           <section
             className="modal peer-modal"
+            onPointerDown={(e) => {
+              sheetStart.current = e.clientY;
+            }}
+            onPointerUp={(e) => {
+              if (
+                sheetStart.current !== undefined &&
+                e.clientY - sheetStart.current > 90 &&
+                !(e.target as HTMLElement).closest("input,button")
+              )
+                setPeerClient(undefined);
+              sheetStart.current = undefined;
+            }}
             role="dialog"
             aria-modal="true"
             aria-label={`Uživatel ${peerClient.name}`}
