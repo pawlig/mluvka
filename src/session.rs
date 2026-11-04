@@ -204,12 +204,25 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
         .connect()
         .map_err(|e| ts_error(&e))?;
     let mut renamed = false;
+    let mut initial_mute = None;
     let deadline = Instant::now() + Duration::from_secs(25);
     loop {
         let event = tokio::select! {
             event = next_event(&mut con) => event,
             msg = ws.recv() => {
-                match msg { Some(Ok(Message::Ping(p))) => { send(ws, Message::Pong(p)).await?; continue; }, _ => return Ok(()) }
+                match msg {
+                    Some(Ok(Message::Ping(p))) => send(ws, Message::Pong(p)).await?,
+                    Some(Ok(Message::Text(s))) => match serde_json::from_str::<Control>(&s) {
+                        Ok(Control::Mute { microphone, deafen }) => initial_mute = Some((microphone, deafen)),
+                        Ok(Control::Disconnect) => return Ok(()),
+                        _ => {},
+                    },
+                    // Během navazování nemá audio ani ostatní řízení příjemce.
+                    Some(Ok(Message::Binary(_) | Message::Pong(_))) => {},
+                    Some(Ok(Message::Close(_))) | None => return Ok(()),
+                    Some(Err(_)) => return Err("Neplatné webové spojení.".into()),
+                }
+                continue;
             }
             _ = tokio::time::sleep_until(deadline.into()) => return Err("Vypršel čas připojení. Server neodpovídá.".into()),
         };
@@ -242,7 +255,7 @@ async fn session(ws: &mut WebSocket, allowed: &[String]) -> Result<(), String> {
             _ => {}
         }
     }
-    let result = connected(ws, &mut con).await;
+    let result = connected(ws, &mut con, initial_mute).await;
     // I při chybě WS je nutné dokončit UDP odpojení a zahodit identitu v paměti.
     let _ = con.disconnect(DisconnectOptions::new());
     let _ = timeout(Duration::from_secs(2), async {
@@ -261,7 +274,23 @@ fn snapshot(con: &Connection) -> Result<Value, String> {
     )
 }
 
-async fn connected(ws: &mut WebSocket, con: &mut Connection) -> Result<(), String> {
+async fn connected(
+    ws: &mut WebSocket,
+    con: &mut Connection,
+    initial_mute: Option<(bool, bool)>,
+) -> Result<(), String> {
+    let (mut microphone, mut deafen) = initial_mute.unwrap_or_default();
+    if initial_mute.is_some() {
+        command(
+            "clientupdate",
+            &[
+                ("client_input_muted", u8::from(microphone).to_string()),
+                ("client_output_muted", u8::from(deafen).to_string()),
+            ],
+        )
+        .send_with_result(con)
+        .map_err(|e| ts_error(&e))?;
+    }
     command("channelsubscribeall", &[])
         .send_with_result(con)
         .map_err(|e| ts_error(&e))?;
@@ -271,8 +300,6 @@ async fn connected(ws: &mut WebSocket, con: &mut Connection) -> Result<(), Strin
         .map_err(|_| "Opus enkodér nelze spustit.")?;
     let mut peers: HashMap<String, (f32, bool)> = HashMap::new();
     let mut talking: HashMap<ClientId, Instant> = HashMap::new();
-    let mut deafen = false;
-    let mut microphone = false;
     let mut was_sending = false;
     let mut last_up = Instant::now();
     let mut tick = interval(Duration::from_millis(20));

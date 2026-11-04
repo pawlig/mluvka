@@ -122,6 +122,188 @@ async function moveToProtected(page) {
 async function rms(page) {
   return page.evaluate(() => window.__mluvkaStats.rms);
 }
+async function voiceFlags(clientId) {
+  const list = await query.cmd("clientlist -voice");
+  const client = list
+    .split("|")
+    .find((part) => new RegExp(`\\bclid=${clientId}\\b`).test(part));
+  return {
+    microphone: client?.includes("client_input_muted=1") || false,
+    deafen: client?.includes("client_output_muted=1") || false,
+  };
+}
+async function earlyBackendMessages() {
+  const probe = new WebSocket(base.replace(/^http/, "ws") + "/ws");
+  try {
+    const clientId = await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(Error("TS nepřijal předčasné WS zprávy")),
+        30000,
+      );
+      const fail = () => {
+        clearTimeout(timer);
+        reject(Error("Předčasné audio nebo mute ukončilo WS"));
+      };
+      probe.onerror = fail;
+      probe.onclose = fail;
+      probe.onopen = () => {
+        probe.send(
+          JSON.stringify({
+            type: "connect",
+            nickname: "Časné zprávy",
+            server: "127.0.0.1:9987",
+            password,
+          }),
+        );
+        const frame = new Uint8Array(1921);
+        frame[0] = 1;
+        probe.send(frame);
+        probe.send(
+          JSON.stringify({ type: "mute", microphone: false, deafen: false }),
+        );
+        probe.send(frame);
+        probe.send(
+          JSON.stringify({ type: "mute", microphone: true, deafen: true }),
+        );
+      };
+      probe.onmessage = ({ data }) => {
+        if (typeof data !== "string") return;
+        const msg = JSON.parse(data);
+        if (msg.type === "error") {
+          fail();
+          return;
+        }
+        if (msg.type !== "state") return;
+        clearTimeout(timer);
+        resolve(msg.self);
+      };
+    });
+    await expect
+      .poll(() => voiceFlags(clientId))
+      .toEqual({ microphone: true, deafen: true });
+    ok("Backend zahodí audio během navazování a použije poslední mute/deafen");
+  } finally {
+    probe.close();
+  }
+}
+async function restoredTransmission(mode, muteWhileConnecting) {
+  const context = await browser.newContext({ permissions: ["microphone"] });
+  const page = await context.newPage();
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  try {
+    await page.goto(base);
+    await page.evaluate(
+      ({ mode }) =>
+        localStorage.setItem(
+          "mluvka.settings",
+          JSON.stringify({
+            mode,
+            threshold: 0.005,
+            echo: false,
+            noise: false,
+            autoGain: false,
+          }),
+        ),
+      { mode },
+    );
+    await page.reload();
+    let releaseConnect;
+    let stateReceived = false;
+    let closed = false;
+    const premature = [],
+      controls = [];
+    let connectSent;
+    const connectQueued = new Promise((resolve) => (connectSent = resolve));
+    // Pozdržíme jen connect, aby i rychlý lokální TS zaručil otevřené WS bez state.
+    await page.routeWebSocket("**/ws", (route) => {
+      const upstream = route.connectToServer();
+      route.onMessage((message) => {
+        const control =
+          typeof message === "string" ? JSON.parse(message) : null;
+        if (control?.type === "connect") {
+          releaseConnect = () => upstream.send(message);
+          connectSent();
+          return;
+        }
+        if (!stateReceived) premature.push(control?.type || "audio");
+        if (control) controls.push(control);
+        upstream.send(message);
+      });
+      upstream.onMessage((message) => {
+        if (typeof message === "string" && JSON.parse(message).type === "state")
+          stateReceived = true;
+        route.send(message);
+      });
+    });
+    page.on("websocket", (socket) => socket.on("close", () => (closed = true)));
+    await fillLogin(page, "Obnovený hlas");
+    await connectQueued;
+    await expect(page.locator(".connection-status")).toHaveText("Připojuji…");
+    await expect
+      .poll(() => page.evaluate(() => window.__mluvkaStats.micRms))
+      .toBeGreaterThan(0.02);
+    if (muteWhileConnecting) {
+      await page
+        .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
+        .click();
+      await expect(
+        page.getByRole("button", { name: "Ztlumit mikrofon", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
+      await page
+        .getByRole("button", { name: "Ztlumit zvuk", exact: true })
+        .click();
+    }
+    await wait(300);
+    expect(premature).toEqual([]);
+    expect(await page.evaluate(() => window.__mluvkaStats.sentFrames)).toBe(0);
+    releaseConnect();
+    await connected(page);
+    await expect(
+      page.locator(".channel-button").filter({ hasText: "Lobby" }),
+    ).toBeVisible();
+    await expect(page.locator(".self-card strong")).toHaveText("Obnovený hlas");
+    await expect
+      .poll(() => controls[0])
+      .toEqual({
+        type: "mute",
+        microphone: muteWhileConnecting,
+        deafen: muteWhileConnecting,
+      });
+    if (muteWhileConnecting) {
+      const clientId = await page
+        .locator(".client-row")
+        .filter({ hasText: "Obnovený hlas" })
+        .getAttribute("data-client");
+      await expect
+        .poll(() => voiceFlags(clientId))
+        .toEqual({ microphone: true, deafen: true });
+      expect(await page.evaluate(() => window.__mluvkaStats.sentFrames)).toBe(
+        0,
+      );
+      await page
+        .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
+        .click();
+      await page
+        .getByRole("button", { name: "Ztlumit zvuk", exact: true })
+        .click();
+    }
+    await expect
+      .poll(() => page.evaluate(() => window.__mluvkaStats.sentFrames))
+      .toBeGreaterThan(20);
+    expect(closed).toBe(false);
+    await connected(page);
+    ok(
+      muteWhileConnecting
+        ? "Klik na mute/deafen během připojování přežije a stav se přenese do TS"
+        : `Obnovený režim ${mode}: žádné zprávy před state, připojení a hlas pokračují`,
+    );
+  } finally {
+    await context.close();
+  }
+}
 async function uiCheck(page, name) {
   expect(
     await page.evaluate(
@@ -222,6 +404,7 @@ try {
   expect((await fetch(base)).status).toBe(200);
   ok("HTTP frontend a /healthz → 200 ok");
   await securityChecks(base, ok);
+  await earlyBackendMessages();
   const samples = 48000 * 2,
     wav = Buffer.alloc(44 + samples * 2);
   wav.write("RIFF");
@@ -258,6 +441,9 @@ try {
       "--disable-features=HttpsFirstBalancedModeAutoEnable",
     ],
   });
+  await restoredTransmission("always", false);
+  await restoredTransmission("vad", false);
+  await restoredTransmission("always", true);
   const aContext = await browser.newContext({
       permissions: ["microphone"],
       viewport: { width: 1440, height: 900 },

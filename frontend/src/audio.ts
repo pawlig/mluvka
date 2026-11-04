@@ -9,6 +9,7 @@ export class AudioEngine {
   settings: Settings;
   ptt = false;
   testing = false;
+  ready = false;
   lastVoice = 0;
   transmitting = false;
   inputRequest = 0;
@@ -61,6 +62,7 @@ export class AudioEngine {
         const now = performance.now();
         if (data.rms >= s.threshold) this.lastVoice = now;
         const active =
+          this.ready &&
           !s.microphone &&
           !s.deafen &&
           !this.testing &&
@@ -168,6 +170,7 @@ export class AudioEngine {
     osc.stop(t + 0.15);
   }
   async close() {
+    this.ready = false;
     ++this.inputRequest;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.source?.disconnect();

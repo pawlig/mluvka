@@ -134,7 +134,7 @@ export function App() {
   );
   const peerSentAt = useRef(0);
   const send = (data: unknown) => {
-    if (ws.current?.readyState === WebSocket.OPEN)
+    if (engine.current?.ready && ws.current?.readyState === WebSocket.OPEN)
       ws.current.send(JSON.stringify(data));
   };
   if (!engine.current)
@@ -149,6 +149,7 @@ export function App() {
       },
       (data) => {
         if (
+          engine.current?.ready &&
           ws.current?.readyState === WebSocket.OPEN &&
           ws.current.bufferedAmount < 1921 * 5
         ) {
@@ -257,6 +258,7 @@ export function App() {
   async function connect(e?: FormEvent) {
     e?.preventDefault();
     if (status === "connecting") return;
+    audio.ready = false;
     setError("");
     setNotice("");
     setStatus("connecting");
@@ -298,6 +300,7 @@ export function App() {
         }),
       );
     socket.onmessage = ({ data }) => {
+      if (ws.current !== socket) return;
       if (data instanceof ArrayBuffer) {
         audio.receive(data);
         return;
@@ -317,6 +320,7 @@ export function App() {
       if (msg.type === "error") setError(msg.message);
       if (msg.type === "notice") setNotice(msg.message);
       if (msg.type === "state") {
+        audio.ready = true;
         const next = msg as RoomState;
         const prev = roomRef.current;
         if (prev) {
@@ -410,6 +414,7 @@ export function App() {
   }
   function disconnect() {
     send({ type: "disconnect" });
+    audio.ready = false;
     ws.current?.close();
     setNotice("Byli jste odpojeni. Můžete se připojit znovu.");
   }
@@ -774,6 +779,34 @@ export function App() {
                     : "Připojit se"}
                 <Icon name="chevron" size={19} />
               </button>
+              {status === "connecting" && (
+                <div
+                  className="voice-controls"
+                  role="group"
+                  aria-label="Zvuk při připojování"
+                >
+                  <button
+                    type="button"
+                    className="control-button"
+                    aria-label="Ztlumit mikrofon"
+                    aria-pressed={settings.microphone}
+                    onClick={() => change("microphone", !settings.microphone)}
+                  >
+                    <Icon name={settings.microphone ? "micOff" : "mic"} />
+                    <span>Mikrofon</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="control-button"
+                    aria-label="Ztlumit zvuk"
+                    aria-pressed={settings.deafen}
+                    onClick={() => change("deafen", !settings.deafen)}
+                  >
+                    <Icon name={settings.deafen ? "deaf" : "headphones"} />
+                    <span>Zvuk</span>
+                  </button>
+                </div>
+              )}
             </form>
             <div className="login-tools">
               <button onClick={() => setShowSettings(true)}>
