@@ -404,7 +404,7 @@ async function restartBackend() {
   expect(remaining).not.toContain("client_type=0");
   const leaving = query.leaves.slice(leftBefore);
   expect(leaving.length).toBeGreaterThan(0);
-  expect(leaving.every((client) => client.reason === 8)).toBe(true);
+  expect(leaving.map((client) => client.reason)).toEqual(leaving.map(() => 8));
   ok(
     "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
     {
@@ -731,7 +731,7 @@ try {
       "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       audible,
     );
-    await toneCheck(a, b, ok, process.env.E2E_CODEC || "opus");
+    await toneCheck(a, b, ok, process.env.E2E_CODEC || "opus", networkProfile);
     await networkCheck(
       browser,
       a,

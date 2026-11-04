@@ -619,11 +619,15 @@ async fn session(
     // její další poll by panikoval. UDP disconnect potřebuje jen navázaná TS relace.
     if con.get_state().is_ok()
         && con
-            .disconnect(DisconnectOptions::new().message(if *shutdown.borrow() {
-                "Mluvka se aktualizuje"
-            } else {
-                "Odpojení z Mluvky"
-            }))
+            .disconnect(
+                DisconnectOptions::new()
+                    .reason(tsclientlib::Reason::Clientdisconnect)
+                    .message(if *shutdown.borrow() {
+                        "Mluvka se aktualizuje"
+                    } else {
+                        "Odpojení z Mluvky"
+                    }),
+            )
             .is_ok()
     {
         let _ = timeout(Duration::from_secs(2), async {

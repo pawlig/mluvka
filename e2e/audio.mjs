@@ -113,6 +113,21 @@ export function jitterChecks(ok) {
 
 export async function installAudioProbe(context) {
   await context.addInitScript(() => {
+    const NativeSocket = window.WebSocket;
+    window.WebSocket = class extends NativeSocket {
+      constructor(...args) {
+        super(...args);
+        this.addEventListener("message", ({ data }) => {
+          if (typeof data === "string") return;
+          const now = performance.now();
+          window.testBinaryGapMs = Math.max(
+            window.testBinaryGapMs || 0,
+            now - (window.testBinaryAt || now),
+          );
+          window.testBinaryAt = now;
+        });
+      }
+    };
     const NativeNode = window.AudioWorkletNode;
     window.AudioWorkletNode = class extends NativeNode {
       constructor(...args) {
@@ -146,7 +161,7 @@ export async function installAudioProbe(context) {
     };
   });
 }
-export async function toneCheck(a, b, ok, codec) {
+export async function toneCheck(a, b, ok, codec, profile) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // Změna captureru a otevření kodeku nesmějí vstoupit do měření ustáleného hovoru.
   await b.waitForTimeout(5000);
@@ -165,8 +180,12 @@ export async function toneCheck(a, b, ok, codec) {
     window.__mluvkaStats.droppedFrames = 0;
     window.__mluvkaStats.plcFrames = 0;
     window.__mluvkaStats.lostFrames = 0;
+    window.testBinaryGapMs = 0;
+    window.testBinaryAt = performance.now();
     node.port.postMessage({ resetMetrics: true });
   });
+  profile.inputGapMs = profile.outputGapMs = 0;
+  profile.inputAt = profile.outputAt = Date.now();
   let min = Infinity,
     max = 0,
     maxDown = 0;
@@ -207,6 +226,7 @@ export async function toneCheck(a, b, ok, codec) {
     return {
       samples: [...samples],
       rate: window.testAudioNode.context.sampleRate,
+      binaryGapMs: window.testBinaryGapMs,
       stats: { ...window.__mluvkaStats, uid: undefined },
     };
   });
@@ -230,10 +250,15 @@ export async function toneCheck(a, b, ok, codec) {
       max,
       maxDown,
     });
+  const timing = {
+    binaryGapMs: measurement.binaryGapMs,
+    inputGapMs: profile.inputGapMs,
+    outputGapMs: profile.outputGapMs,
+  };
   expect(measurement.stats.codec).toBe(codec);
   {
-    expect(measurement.stats.plcFrames, JSON.stringify(measurement.stats)).toBe(0);
-    expect(measurement.stats.underruns).toBe(0);
+    expect(measurement.stats.plcFrames, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
+    expect(measurement.stats.underruns, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
     expect(max).toBeLessThanOrEqual(120);
@@ -250,6 +275,7 @@ export async function toneCheck(a, b, ok, codec) {
       underruns: measurement.stats.underruns,
       plcFrames: measurement.stats.plcFrames,
       lostFrames: measurement.stats.lostFrames,
+      ...timing,
       maxJump: measurement.stats.maxJump,
       minBufferMs: min,
       maxBufferMs: max,

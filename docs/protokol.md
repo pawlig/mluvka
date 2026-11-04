@@ -157,7 +157,8 @@ TS odmítnutí (heslo/ban) se na jiné IP neopakuje. Loguje se jen název varian
 číselný TS kód, bez adresy, textu serveru, identity, přezdívky nebo hesla.
 
 SIGINT i SIGTERM rozešlou `notice` s `code: "server_restart"`, poté UDP
-`clientdisconnect` s důvodem „Mluvka se aktualizuje“. Na dokončení se čeká nejvýše
+`clientdisconnect` s explicitním `reasonid=8` (`Reason::Clientdisconnect`) a zprávou „Mluvka se aktualizuje“.
+Stejný explicitní důvod se používá i při běžném odpojení nebo chybě WS; bez něj knihovna důvod neposílá. Na dokončení se čeká nejvýše
 3 s. Klient obnovuje stejnou identitu, přezdívku a kanál po 3 → 6 → 12 → 15 s;
 aktualizace se nepočítá jako trvalá chyba. Čekání na WS zápis nikdy neblokuje pollování
 TS událostí ani ping/ACK.
