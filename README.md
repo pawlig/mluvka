@@ -15,7 +15,48 @@ lokální test mikrofonu, serverový, kanálový a soukromý chat, upozornění 
 pípnutí při příchodu/odchodu z kanálu. Mobil má záložky kanálů a chatu.
 
 TS identita (úroveň ≥8) zůstává v prohlížeči, lze ji exportovat/importovat jako text. Údaje
-připojení se pamatují volitelně; hesla pouze se samostatným souhlasem.
+připojení i hesla se pamatují podle voleb na formuláři (výchozí zapnuté).
+
+## Na mobilu / instalace na plochu
+
+- **iPhone:** otevřete Mluvku v **Safari → Sdílet → Přidat na plochu**. Nápovědu na přihlášení
+  lze zavřít; zavření se pamatuje. Ikona spouští samostatné okno bez adresního řádku.
+- **Android:** otevřete v **Chrome → Nainstalovat aplikaci** nebo použijte **Přidat na plochu**
+  na přihlášení, jakmile Chrome nabídne instalaci. Vyžaduje HTTPS (lokálně stačí localhost).
+- Po spuštění se Mluvka připojí na uložený server a do posledního úspěšně navštíveného kanálu.
+  Připojování lze zrušit. **Připojit automaticky po spuštění** vypnete na přihlašovacím formuláři;
+  změna se ukládá hned. Po ručním **Odpojit** se tentýž tab nepřipojí ani po reloadu, nové okno ano.
+- **Zapamatovat připojení**, **Zapamatovat i hesla na tomto zařízení** a automatické připojení
+  jsou ve výchozím stavu zapnuté. V `localStorage` tohoto zařízení a originu jsou údaje serveru,
+  přezdívka, cesta posledního kanálu, volby, nastavení zvuku, hlasitosti lidí a TS identita (stejné UID).
+  Heslo serveru i kanálu se ukládá **jen při zapnuté volbě hesel**. Vypnutí zapamatování uložené
+  přihlášení odstraní; identitu zachová. Hesla nejsou šifrovaná. Na sdíleném zařízení volby vypněte.
+  Příznak ručního odpojení je v `sessionStorage`; vypnutá hesla zůstávají pouze v paměti probíhajícího
+  spuštění, aby bylo možné obnovit výpadek. Chat se neukládá.
+- Při ztrátě sítě se opakují pokusy po 1, 2, 4, 8 a dále 15 sekundách, pouze v popředí.
+  Návrat do aplikace nebo připojení sítě vyvolá okamžitý pokus. Špatné heslo, ban, nepovolený server
+  a neplatné údaje vrátí formulář bez dalších automatických pokusů. Po tvrdém pádu backendu může
+  obnovení čekat na timeout starého klienta na TS serveru; identita ani přezdívka se tím nemění.
+- **Klepni pro zapnutí zvuku** odblokuje zvuk po automatickém připojení nebo po přerušení hovorem.
+  TS spojení běží i při zablokovaném zvuku. Odpojený mikrofon aplikace zkusí znovu otevřít;
+  při zmizení sluchátek použije výchozí vstup. Potlačení ozvěny je zapnuté.
+- Držte **Drž a mluv** pro PTT; puštění či zrušení dotyku vysílání zastaví. Podržení člověka
+  půl sekundy otevře spodní panel s hlasitostí, lokálním ztlumením a zprávou. Zavře ho klepnutí mimo,
+  křížek nebo tažení panelu dolů. V Nastavení lze zapnout **Nezhasínat displej** (výchozí vypnuto).
+- Na mobilu vede poslech přes `<audio>` a `MediaStreamAudioDestinationNode`; Media Session ukazuje
+  kanál a play/pause zapne/ztlumí mikrofon. Desktop používá přímý výstup kvůli latenci. Pokud mobilní
+  přehrávač cestu odmítne jako nepodporovanou, použije se také přímý výstup. Zákaz autoplay vyžaduje
+  klepnutí. Vliv na latenci konkrétních sluchátek není změřený.
+- **iOS při zamčeném displeji / na pozadí může uspat webovou aplikaci:** zvuk se přeruší,
+  po návratu Mluvka obnoví zvuk a sama se připojí. Android může omezit běh úsporným režimem.
+  Screen Wake Lock ani Media Session nezaručují nepřerušený hovor. **Fyzický iPhone/Android nebyl ověřen**;
+  E2E používá Chromium s emulací iPhonu a Pixelu, nikoli skutečný Safari/OS, Bluetooth, Siri nebo telefonní hovor.
+
+Skořápka aplikace je dostupná offline; TS hovor potřebuje síť. Index se načítá nejdřív ze sítě,
+verzované assety z cache. Aktualizace SW čeká na odpojení všech otevřených oken, neobnovuje stránku během hovoru.
+Ikony vznikají z `frontend/public/favicon.svg`: `node scripts/ikony.mjs` (Playwright Chromium/Chrome,
+volitelně `CHROME_PATH`). PNG včetně neprůhledné Apple ikony jsou součástí repa; motiv maskable je uvnitř
+bezpečné středové oblasti 80 %.
 
 ## Lokální spuštění
 
@@ -118,7 +159,7 @@ unzip -q tmp-ts3/server.zip -d tmp-ts3
 TS3 je x86_64 a na Apple Silicon vyžaduje Rosettu. Skript spustí TS3 s přijatou licencí,
 backend i prohlížeč a na konci je ukončí. Potřebuje volné porty 9987/UDP, 10011/TCP,
 30033/TCP a 3000/TCP. `TS3_DIR` může ukazovat i na rozbalený Linux TS3 server.
-`E2E_URL` dovoluje testovat již běžící backend.
+`E2E_URL` dovoluje připojit již běžící backend; úplná sada včetně restartu vyžaduje lokální backend bez této volby.
 
 **Používejte jen vyhrazený testovací TS server:** skript přenastaví jeho jméno a heslo,
 odstraní ostatní kanály a vytvoří testovací strom. Nepouštějte ho nad osobním TS serverem.
@@ -127,6 +168,9 @@ Testy ověřují také seznam povolených serverů, limit relací/zpráv, kontro
 přezdívku a živé změny kanálů. Pokrývají chybná hesla, dvě relace, přesun s heslem, všechny tři chaty, nenulové audio,
 lokální mute (RMS ~0), mikrofon/deafen, test mikrofonu, PTT, hlasovou aktivaci, stejné UID po
 obnovení a TS odpojení po zavření prohlížeče. Výsledky: `docs/e2e-vysledky.json`.
+Nové kontroly pokrývají PWA/HTTP cache, instalovatelnost CDP, offline skořápku, automatické připojení,
+trvalou chybu bez opakování, sessionStorage, výpadek sítě/restart a dotyk iPhone/Pixel. Skutečný audio tok
+běží také při AudioContext 44,1 kHz; `node e2e/resampling.mjs` samostatně ověří délky rámců workletu.
 Screenshoty připojeného klienta: `docs/screenshots/`. Audio statistiky: `window.__mluvkaStats`.
 
 ## Proč takhle
@@ -150,7 +194,7 @@ Záložní C# varianta nebyla potřeba. [Úplný WS protokol](docs/protokol.md).
   Opus; aplikace kodek cizího kanálu nemění.
 - Pohyb, odběr všech kanálů a serverový chat podléhají TS oprávněním. Nepřístupní klienti
   nemusí být vidět, odmítnutí se zobrazí česky.
-- Po síťovém výpadku se připojte znovu. Údaje se nabídnou z úložiště; neuložená hesla doplňte.
+- Po síťovém výpadku se spojení obnovuje automaticky. Po novém spuštění bez uložených hesel je nutné hesla doplnit.
 - Identita a případně zapamatovaná hesla jsou v localStorage daného originu. Export obsahuje
   privátní klíč. Zálohujte ho soukromě; vymazání dat webu bez zálohy znamená novou identitu.
 - Testováno proti TS3 3.13.7. Konkrétní TS6 server a fyzická zvuková zařízení závisí na konfiguraci.

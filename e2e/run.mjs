@@ -1,5 +1,7 @@
 // Skutečný TS3 + dvě izolované relace Chrome. Testovací hesla vznikají jen v paměti.
 import { chromium, expect } from "@playwright/test";
+import { mobileChecks, pwaChecks } from "./mobil.mjs";
+import { resamplingChecks } from "./resampling.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { spawn } from "node:child_process";
 import { connect as tcpConnect } from "node:net";
@@ -107,6 +109,8 @@ async function connected(page) {
   });
 }
 async function moveToProtected(page) {
+  if ((await page.locator(".room-title h1").textContent()) === "Večerní parta")
+    return;
   await page
     .getByRole("button", { name: "Vstoupit do Večerní parta", exact: true })
     .click();
@@ -329,6 +333,32 @@ async function uiCheck(page, name) {
   ok(name);
 }
 
+function startBackend() {
+  backend = spawn(resolve(root, "target/release/mluvka"), [], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PORT: "3000",
+      ALLOWED_SERVERS: "127.0.0.1",
+      MAX_SESSIONS: "6",
+    },
+    stdio: process.env.E2E_DEBUG ? ["ignore", "inherit", "inherit"] : "ignore",
+  });
+  backend.on("error", () => {});
+}
+async function restartBackend() {
+  if (process.env.E2E_URL)
+    throw Error("Restart vyžaduje lokální backend, bez E2E_URL.");
+  await new Promise((resolve) => {
+    backend.once("exit", resolve);
+    backend.kill("SIGKILL");
+  });
+  startBackend();
+  await eventually(async () =>
+    expect((await fetch(`${base}/healthz`)).status).toBe(200),
+  );
+}
+
 try {
   mkdirSync(temp, { recursive: true });
   mkdirSync(resolve(root, "docs/screenshots"), { recursive: true });
@@ -385,17 +415,7 @@ try {
   );
   ok("Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál");
   if (!process.env.E2E_URL) {
-    backend = spawn(resolve(root, "target/release/mluvka"), [], {
-      cwd: root,
-      env: {
-        ...process.env,
-        PORT: "3000",
-        ALLOWED_SERVERS: "127.0.0.1",
-        MAX_SESSIONS: "6",
-      },
-      stdio: "ignore",
-    });
-    backend.on("error", () => {});
+    startBackend();
   }
   await eventually(async () => {
     const response = await fetch(`${base}/healthz`);
@@ -441,6 +461,8 @@ try {
       "--disable-features=HttpsFirstBalancedModeAutoEnable",
     ],
   });
+  resamplingChecks(ok);
+  await pwaChecks({ browser, base, root, ok });
   await restoredTransmission("always", false);
   await restoredTransmission("vad", false);
   await restoredTransmission("always", true);
@@ -452,10 +474,32 @@ try {
       permissions: ["microphone"],
       viewport: { width: 1440, height: 900 },
     });
+  await aContext.addInitScript(() => {
+    const get = navigator.mediaDevices.getUserMedia.bind(
+      navigator.mediaDevices,
+    );
+    window.testMicTracks = [];
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      const stream = await get(constraints);
+      window.testMicTracks.push(...stream.getAudioTracks());
+      return stream;
+    };
+  });
   const a = await aContext.newPage(),
     b = await bContext.newPage();
   pages = [a, b];
   for (const p of [a, b]) {
+    if (process.env.E2E_DEBUG)
+      p.on("websocket", (socket) => {
+        console.log("WS opened", p === a ? "A" : "B");
+        socket.on("framereceived", ({ payload }) => {
+          if (typeof payload === "string") {
+            const { type, code, fatal } = JSON.parse(payload);
+            console.log("WS reply", { type, code, fatal });
+          }
+        });
+        socket.on("close", () => console.log("WS closed", p === a ? "A" : "B"));
+      });
     p.on("pageerror", (e) => errors.push(e.message));
     p.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
@@ -471,6 +515,7 @@ try {
   ok("Špatné heslo → česká chyba");
   await fillLogin(a, "Adam");
   await connected(a);
+  await b.getByLabel("Zapamatovat i hesla na tomto zařízení").uncheck();
   await fillLogin(b, "Bára");
   await connected(b);
   await expect(
@@ -538,6 +583,26 @@ try {
     "Automatické zesílení",
   ])
     await a.getByLabel(label, { exact: true }).uncheck();
+  await expect
+    .poll(() =>
+      a.evaluate(() => {
+        const track = window.testMicTracks.findLast(
+          (track) => track.readyState === "live",
+        );
+        if (!track) return null;
+        const { echoCancellation, noiseSuppression, autoGainControl } =
+          track.getSettings();
+        return { echoCancellation, noiseSuppression, autoGainControl };
+      }),
+    )
+    .toEqual({
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    });
+  ok(
+    "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
+  );
   await a.getByRole("button", { name: "Hotovo", exact: true }).click();
   await a.getByLabel("Režim vysílání", { exact: true }).selectOption("always");
   await expect(
@@ -595,6 +660,27 @@ try {
   expect(await rms(b)).toBeLessThan(0.001);
   await a.keyboard.up("Space");
   await a.locator(".room-title h1").click();
+  if (process.env.E2E_DEBUG)
+    console.log(
+      "Mikrofon PTT",
+      await a.evaluate(() =>
+        window.testMicTracks.map((track) => {
+          const {
+            echoCancellation,
+            noiseSuppression,
+            autoGainControl,
+            sampleRate,
+          } = track.getSettings();
+          return {
+            state: track.readyState,
+            echoCancellation,
+            noiseSuppression,
+            autoGainControl,
+            sampleRate,
+          };
+        }),
+      ),
+    );
   await a.keyboard.down("Space");
   await expect.poll(() => rms(b)).toBeGreaterThan(0.02);
   await a.keyboard.up("Space");
@@ -616,6 +702,8 @@ try {
   expect(
     await b.getByLabel("Heslo serveru", { exact: false }).inputValue(),
   ).toBe("");
+  await b.locator("details").evaluate((el) => (el.open = true));
+  await b.getByLabel("Heslo kanálu", { exact: true }).fill(channelPassword);
   await fillLogin(b, "Bára");
   await connected(b);
   expect(await b.evaluate(() => window.__mluvkaStats.uid)).toBe(beforeUid);
@@ -651,6 +739,17 @@ try {
     })
     .toBe(false);
   ok("Zavření prohlížeče odpojí jeho TS klienta");
+  await bContext.close();
+  await mobileChecks({
+    browser,
+    base,
+    root,
+    password,
+    channelPassword,
+    query,
+    ok,
+    restartBackend,
+  });
   expect(errors).toEqual([]);
   ok("Žádné JS výjimky ani chyby konzole v obou relacích");
   writeFileSync(
@@ -669,6 +768,8 @@ try {
         await page.evaluate(() => ({
           stats: { ...window.__mluvkaStats, uid: undefined },
           error: document.querySelector(".toast")?.textContent,
+          status: document.querySelector(".connection-status")?.textContent,
+          visibility: document.visibilityState,
           mode: document.querySelector(".mode-select select")?.value,
         })),
       );

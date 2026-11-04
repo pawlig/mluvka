@@ -15,6 +15,7 @@ Všechny zprávy jsou objekt s polem `type`:
 | `chat` | `target: "channel" \| "server" \| "private"`, `client?: number`, `text: string` | Soukromý chat vyžaduje `client`. Text má 1–4000 bajtů UTF-8. |
 | `mute` | `microphone: boolean`, `deafen: boolean` | Nastavení obou TS příznaků. Deafen potlačí příjem i vysílání. |
 | `peer` | `uid: string`, `volume: number`, `muted: boolean` | Lokální příjem jednoho UID, hlasitost 0–2. Ztlumený hlas se nevloží do mixovací fronty; stará fronta se odstraní. |
+| `ping` | — | Aplikační heartbeat každých 10 s po připojení; backend odpoví JSON `pong`. |
 | `disconnect` | — | Ukončení TS i WS. |
 
 ```json
@@ -35,7 +36,8 @@ Checkboxy zapamatování jsou klientské; dodatečná pole backend ignoruje.
 | `chat` | `target: "channel" \| "server" \| "private"`, `client: number \| null`, `from: number`, `name: string`, `text: string` | `from` je odesílatel, `client` příjemce soukromé zprávy. Vlastní odeslanou zprávu přidává UI ihned, TS ji nemusí vrátit. |
 | `poke` | `target: "poke"`, `client: number`, `from: number`, `name: string`, `text: string` | Výrazné upozornění na šťouchnutí. |
 | `notice` | `message: string` | Česká informace, například pokus s přezdívkou doplněnou o `1`. |
-| `error` | `message: string` | Česká chyba. Odmítnutí příkazu nechá spojení otevřené; chyba připojení, protokolu, limitu nebo výpadek vede k uzavření WS. |
+| `pong` | — | Odpověď na JSON `ping`, také každých 10 s spolu s WS pingem. |
+| `error` | `code: string`, `message: string`, `fatal: boolean`, `field: string` | Česká chyba. Odmítnutí příkazu nechá spojení otevřené; chyba připojení, protokolu, limitu nebo výpadek vede k uzavření WS. |
 
 `Channel`: `{id: number, parent: number, order: number, name: string, password: boolean, topic: string | null}`.
 `parent: 0` = kořen; `order` = ID předchozího sourozence (0 = první), nikoli pořadové číslo.
@@ -53,7 +55,8 @@ Přesně **1921 bajtů**, v obou směrech:
 | 0 | 1 B | `0x01` mikrofon → backend; `0x02` backend → reproduktory |
 | 1 | 1920 B | 960 vzorků signed Int16 LE, mono, 48 000 Hz, 20 ms |
 
-AudioWorklet snímá 48 kHz; jiná frekvence se odmítne. Vstupní zesílení se omezí do −1 až 1.
+AudioWorklet převzorkuje frekvenci AudioContextu na 48 kHz a příjem zpět na frekvenci kontextu.
+Streaming lineární interpolace zachovává fázi mezi render kvanty; rámce na drátu mají vždy 960 vzorků. Vstupní zesílení se omezí do −1 až 1.
 PTT/VAD/always brána běží v klientovi, VAD drží 300 ms po překročení prahu. Test mikrofonu
 přehrává lokální vstup a po dobu testu nic nevysílá. Backend ještě kontroluje mute/deafen
 a TS oprávnění k vysílání.
@@ -73,8 +76,46 @@ skutečného audio toku, nikoli generátor testovacích dat.
 - Nejvýše 40 řídicích a 100 audio zpráv/s/relaci; překročení ukončí spojení.
 - `MAX_SESSIONS` (20) zahrnuje čekající WS; vyčerpání → HTTP 503.
 - Neshodný `Origin` a `Host` → HTTP 403. Vite proxy origin přepisuje.
-- WS ping po 10 s, bez pong déle než 30 s konec. Browser pong posílá sám.
+- WS ping a JSON pong po 10 s; bez WS pong / JSON ping alespoň 20 s konec při následujícím heartbeat ticku
+  (záložní limit 25 s kontroluje audio tick, UDP disconnect nejvýše další 2 s).
+  Browser WS pong posílá sám. Frontend navíc po 20 s bez jakékoli serverové zprávy
+  zneplatní WS a obnovuje připojení.
 - DNS 5 s, připojení TS 25 s, potvrzení příkazu 10 s, WS zápis 2 s.
 - `ALLOWED_SERVERS` se porovnává po normalizaci hostu/portu. Poté se předá pevná IP;
   TS nickname a SRV přesměrování se nepoužívá.
 - Identity a hesla se neukládají na backendu; TS paketové logování je vypnuté i při `RUST_LOG=trace`.
+
+## Chyby a obnovení
+
+`code` je strojový kód, text `message` je český a neobsahuje původní text TS paketu.
+`field` určuje vstup formuláře (`server`, `password`, `channel_password`, `nickname`) pro fokus.
+`fatal: true` znamená ukončení relace; `fatal: false` odmítnutý příkaz v běžícím spojení.
+
+| `code` | Význam | Opakování připojení po ukončení |
+| --- | --- | --- |
+| `bad_password` | Heslo serveru nebo kanálu | ne |
+| `banned` | Zákaz přístupu | ne |
+| `not_allowed` | Nepovolený server / oprávnění | ne |
+| `invalid` | Neplatné údaje či protokol | ne |
+| `nickname` | Obsazená či odmítnutá přezdívka | ano |
+| `unreachable` | Nedostupný server / transport | ano |
+| `timeout` | Vypršel čas | ano |
+| `kicked` | Vyhození ze serveru | ano |
+| `server_closed` | TS server ukončil spojení | ano |
+| `full` | Plný server | ano |
+
+Po nečekaném ukončení frontend používá prodlevy 1 → 2 → 4 → 8 → 15 s, dále 15 s.
+Na pozadí nové pokusy nespouští; při `online` a návratu do popředí pokus uspíší.
+Ruční odpojení/zrušení vypne opakování i auto-start po reloadu stejného tabu (`sessionStorage`).
+Trvalá chyba připojení vrátí formulář. Odmítnutí přesunu/chatového příkazu běžící hovor neruší.
+
+`mluvka.login` drží volby `remember`, `passwords`, `auto`, přezdívku, server a cestu posledního
+kanálu (jména od kořene oddělená `/`). Přesun se ukládá až po potvrzení v `state`;
+heslo pouze při `passwords`, v paměti aktuálního spuštění se zachová i pro reconnect.
+
+Nová relace stejného UID a normalizovaného serveru zruší starou a počká na její UDP disconnect.
+Předchozí okno dostane `notice` s `code: "session_replaced"` a přestane se samo připojovat,
+aby se dvě viditelná okna nepřetahovala o stejné UID. Registr žije jen v paměti procesu a uchovává slabé odkazy.
+Po pádu celého backendu se může starý klient dočasně držet na TS; odmítne-li TS duplicitní UID,
+reconnect vyčká na jeho timeout. Při obsazené přezdívce se použije přípona `1` a každých 10 s se po
+uvolnění původního jména zkusí přejmenovat zpět. Nová identita se kvůli výpadku nevytváří.
