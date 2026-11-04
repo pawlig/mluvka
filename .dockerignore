@@ -1,0 +1,11 @@
+.git
+.github
+.idea
+node_modules
+target
+dist
+tmp-ts3
+e2e
+docs/screenshots
+.env
+*.log

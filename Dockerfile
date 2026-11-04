@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+FROM node:26-bookworm-slim AS frontend
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend ./frontend
+RUN npm run build
+
+FROM rust:1.99-bookworm AS backend
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends cmake pkg-config libopus-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends libopus0 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 mluvka && useradd --uid 10001 --gid 10001 --no-create-home mluvka
+WORKDIR /app
+COPY --from=backend /app/target/release/mluvka /app/mluvka
+COPY --from=frontend /app/dist /app/dist
+ENV PORT=3000 RUST_LOG=mluvka=info
+USER 10001:10001
+EXPOSE 3000
+CMD ["/app/mluvka"]
