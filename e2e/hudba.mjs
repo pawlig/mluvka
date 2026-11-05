@@ -272,6 +272,8 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     expect(barBox.y + barBox.height).toBeLessThanOrEqual(voiceBox.y + 1);
     ok("Hudba: kompaktní lišta na mobilu nepřekrývá ovládání hovoru");
 
+    // Na mobilu je vstup chatu jen na záložce Chat.
+    await b.getByRole("button", { name: "Chat", exact: true }).click();
     await mobileBar.getByRole("button", { name: "Fronta a přidání skladby" }).click();
     const mobilePanel = b.getByRole("dialog", { name: "Fronta hudby" });
     await expect(mobilePanel).toBeVisible();
