@@ -79,6 +79,8 @@ export function editable(
     return false;
   if (text.trimStart().startsWith("{") && text.includes('"msg_type"'))
     return false;
+  // Automatické oznámení sdílení obrazovky není ruční zpráva.
+  if (/^🖥 .* sdílí obrazovku v Mluvce — sledovat: /u.test(text)) return false;
   for (const m of text.matchAll(/(?:https?|ts3file):\/\/[^\s<>[\]]+/gi))
     if (imageUrl.test(m[0]) || isFileUrl(m[0])) return false;
   return true;

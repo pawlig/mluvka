@@ -512,6 +512,9 @@ export async function chatChecks({
   await expect(
     a.getByRole("button", { name: "Uložit úpravu", exact: true }),
   ).toBeVisible();
+  await a.screenshot({
+    path: resolve(root, "docs/screenshots/uprava-desktop.png"),
+  });
   await field(a).fill("Ahoj všem");
   await field(a).press("Enter");
   await expect.poll(delivered(correction), { timeout: 15000 }).toBe(1);
@@ -529,6 +532,15 @@ export async function chatChecks({
   await expect
     .poll(() => query.messages.includes(correction), { timeout: 15000 })
     .toBe(true);
+  await b.setViewportSize({ width: 390, height: 844 });
+  await b.locator(".messages").evaluate((el) => {
+    el.style.scrollBehavior = "auto";
+    el.scrollTop = el.scrollHeight;
+  });
+  await b.screenshot({
+    path: resolve(root, "docs/screenshots/uprava-mobil.png"),
+  });
+  await b.setViewportSize({ width: 1440, height: 900 });
   // Zprávy s obrázkem tužku nemají, textové vlastní ano.
   await expect(
     edited(a, "Fotka bez polohy").getByRole("button", { name: "Upravit zprávu" }),

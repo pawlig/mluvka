@@ -133,6 +133,10 @@ test("editable: přílohy a obrázky ne", () => {
   assert.equal(editable("https://example.org/a.png", f), false);
   assert.equal(editable("[IMG]https://x/y[/IMG]", f), false);
   assert.equal(editable("📎 a.zip (1 kB)\nhttps://x/f/y", f), false);
+  assert.equal(
+    editable("🖥 Adam sdílí obrazovku v Mluvce — sledovat: https://example.org/#pozvanka=abc", f),
+    false,
+  );
   assert.equal(editable("ts3file://x", f), false);
   assert.equal(editable('{"msg_type":"ts.file.myts"}', f), false);
 });
