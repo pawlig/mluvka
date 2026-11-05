@@ -212,11 +212,11 @@ impl Lease {
         }
         let me = &members[&self.id];
         if kind == "share_start" {
-            members.get_mut(&self.id).unwrap().sharing = true;
             emit(
                 &members[&self.id],
                 json!({"type":"share_started","v":1,"request":msg["request"]}),
             )?;
+            members.get_mut(&self.id).unwrap().sharing = true;
         } else if kind == "share_stop" {
             // Zastavení vlastního vysílání neruší sledování jiného člověka.
             members.get_mut(&self.id).unwrap().sharing = false;
@@ -356,6 +356,29 @@ mod tests {
     }
     fn signal(lease: &Lease, kind: &str, to: &str) -> Result<(), &'static str> {
         lease.handle(&json!({"type":kind,"v":1,"kind":"screen","to":to}), 100)
+    }
+    #[test]
+    fn failed_start_ack_does_not_publish_an_orphaned_share() {
+        let registry = Arc::new(Registry::default());
+        let (a, mut a_rx) = join(&registry, "example.org:9987", 1, 1);
+        let (_b, mut b_rx) = join(&registry, "example.org:9987", 2, 1);
+        let tx = registry.0.lock().unwrap()[&a.id].tx.clone();
+        while tx.try_send(Message::Text("occupied".into())).is_ok() {}
+        let start = json!({"type":"share_start","v":1,"kind":"screen","request":"first"});
+        assert!(a.handle(&start, 100).is_err());
+        assert!(!registry.0.lock().unwrap()[&a.id].sharing);
+        assert!(b_rx.try_recv().is_err());
+        while a_rx.try_recv().is_ok() {}
+        let mut start = start;
+        start["request"] = json!("second");
+        a.handle(&start, 100).unwrap();
+        let Message::Text(ack) = a_rx.try_recv().unwrap() else {
+            panic!("start ack");
+        };
+        let ack: Value = serde_json::from_str(&ack).unwrap();
+        assert_eq!(ack["type"], "share_started");
+        assert_eq!(ack["request"], "second");
+        assert!(registry.0.lock().unwrap()[&a.id].sharing);
     }
     #[test]
     fn state_flood_is_limited_scoped_and_unchanged_lists_are_suppressed() {
