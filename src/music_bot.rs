@@ -281,6 +281,17 @@ pub fn command_text(action: &str, arg: Option<&str>) -> Result<String, &'static 
 
 // ----------------------------------------------------------- fronta příkazů
 
+/// Stejný filtr jako plugin bota: první slovo (bez ohledu na velikost) musí
+/// být známý příkaz, jinak bot zprávu ignoruje a neodpoví.
+pub fn is_bot_command(text: &str) -> bool {
+    const COMMANDS: [&str; 14] = [
+        "/play", "/playnow", "/resume", "/pause", "/stop", "/skip", "/next", "/previous", "/prev", "/now",
+        "/upnext", "/queue", "/volume", "/help",
+    ];
+    let word = text.split([' ', '\t', '\r', '\n']).next().unwrap_or("");
+    COMMANDS.iter().any(|c| c.eq_ignore_ascii_case(word))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Expect {
     /// Odpověď na příkaz Mluvky — do chatu nepatří.
@@ -320,7 +331,12 @@ impl Commander {
         true
     }
 
-    pub fn manual_sent(&mut self, now: Instant) {
+    /// Ruční zpráva botovi. Odpověď čekáme jen na příkaz, který plugin bota
+    /// přijme; na „ahoj" bot mlčí a nic se nepáruje.
+    pub fn manual_sent(&mut self, text: &str, now: Instant) {
+        if !is_bot_command(text) {
+            return;
+        }
         self.last_sent = Some(now);
         self.outstanding.push_back((Expect::Manual, now));
     }
@@ -454,9 +470,9 @@ impl MusicBot {
         }
     }
 
-    pub fn manual_sent(&mut self, client: u16, now: Instant) {
+    pub fn manual_sent(&mut self, client: u16, text: &str, now: Instant) {
         if self.bot().is_some_and(|b| b.0 == client) {
-            self.commander.manual_sent(now);
+            self.commander.manual_sent(text, now);
         }
     }
 
@@ -677,13 +693,47 @@ mod tests {
     fn manual_messages_stay_in_chat() {
         let start = Instant::now();
         let mut c = Commander::default();
-        c.manual_sent(start);
+        c.manual_sent("/help", start);
         c.push("/now".into());
         assert_eq!(c.next_send(start + Duration::from_millis(500)), None);
         let t1 = start + Duration::from_millis(1100);
         assert_eq!(c.next_send(t1).as_deref(), Some("/now"));
         assert_eq!(c.on_reply("Help text", t1), Paired::NotOurs);
         assert!(matches!(c.on_reply("Now: X — Y", t1), Paired::Ours(Some(_))));
+    }
+
+    #[test]
+    fn plugin_command_filter() {
+        assert!(is_bot_command("/now"));
+        assert!(is_bot_command("/PLAY daft punk"));
+        assert!(is_bot_command("/previous"));
+        assert!(!is_bot_command("ahoj"));
+        assert!(!is_bot_command(" /now"));
+        assert!(!is_bot_command("/nowx"));
+        assert!(!is_bot_command("/foo bar"));
+    }
+
+    #[test]
+    fn manual_chat_does_not_steal_reply() {
+        // Ruční „ahoj" botovi → automatický `/now` → odpověď je naše a skrytá.
+        let start = Instant::now();
+        let (own, bot) = (ClientId(1), ClientId(5));
+        let mut m = MusicBot { bot: Some((bot, "Spotify Bot".into())), commander: Commander::default() };
+        m.manual_sent(bot.0, "ahoj", start);
+        assert!(m.request("now", None).is_none());
+        let (send, events) = m.tick(start);
+        assert!(events.is_empty());
+        assert_eq!(send, Some((bot, "/now".to_string())));
+        // Ozvěna ručního „ahoj" zůstává v chatu, ozvěna `/now` ne.
+        assert!(m.on_message(false, Some(bot.0), own, own, "ahoj", start).show_in_chat);
+        assert!(!m.on_message(false, Some(bot.0), own, own, "/now", start).show_in_chat);
+        let reply = m.on_message(false, Some(own.0), bot, own, "Now: S — A", start + Duration::from_millis(200));
+        assert!(!reply.show_in_chat);
+        let event = reply.event.expect("událost přehrávače");
+        assert_eq!(event["command"], "/now");
+        assert_eq!(event["reply"]["kind"], "now");
+        // Po vypršení se „ahoj" nehlásí jako nezodpovězený příkaz.
+        assert!(m.tick(start + Duration::from_secs(9)).1.is_empty());
     }
 
     #[test]

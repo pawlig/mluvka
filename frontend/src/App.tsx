@@ -4,7 +4,7 @@ import { ImageComposer } from "./ImageComposer";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
-import { HudebniLista, receiveMusic } from "./hudba/HudebniLista";
+import { HudebniLista, receiveMusic, resetMusic } from "./hudba/HudebniLista";
 import {
   InviteDialog,
   InvitationDetails,
@@ -569,7 +569,10 @@ export function App() {
         socket.close();
         return;
       }
-      if (msg.type === "hello") audio.negotiate(msg.audio?.codec);
+      if (msg.type === "hello") {
+        audio.negotiate(msg.audio?.codec);
+        resetMusic();
+      }
       if (msg.type === "upload_token") setUploadToken(msg.token);
       if (msg.type === "music") receiveMusic(msg);
 

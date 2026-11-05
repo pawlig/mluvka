@@ -3,7 +3,14 @@
 // (`{type:"music", event:"bot"|"reply"|"timeout"|"error"}`).
 // Bot neříká, jestli hraje, kde ve skladbě je ani aktuální hlasitost —
 // stav odvozujeme z posledního potvrzeného příkazu a oznámení v kanálu.
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import "./hudba.css";
 
 type Track = { title: string; artist: string };
@@ -44,10 +51,82 @@ type Action =
   | "now" | "queue" | "upnext" | "pause" | "resume" | "next" | "prev"
   | "seek" | "volume" | "play" | "playnow";
 
-// Zprávy z WS přicházejí v App.tsx; lišta je odebírá přes jednoduchou sběrnici.
+type NowState = {
+  track: Track | null;
+  requestedBy: string | null;
+  lastQueued: string | null;
+};
+type QueueReply = Extract<Reply, { kind: "queue" }>;
+/** Poslední známý stav bota. Drží ho sběrnice, ne lišta: lišta se připojuje
+ *  až po `state`, a událost „bot přítomen" může přijít ještě před ní. */
+type Snapshot = {
+  bot: { client: number; name: string } | null;
+  now: NowState | null;
+  upnext: { track: Track | null; pending: boolean } | null;
+  queue: QueueReply | null;
+  volume: number | null;
+  /** `null` = bot stav nehlásí a žádný příkaz ho nepotvrdil. */
+  playing: boolean | null;
+};
+const EMPTY: Snapshot = {
+  bot: null,
+  now: null,
+  upnext: null,
+  queue: null,
+  volume: null,
+  playing: null,
+};
+
+function reduce(s: Snapshot, m: MusicMessage): Snapshot {
+  if (m.event === "bot") {
+    if (!m.present) return EMPTY;
+    const bot = { client: m.client!, name: m.name || "Hudba" };
+    return s.bot?.client === bot.client ? { ...s, bot } : { ...EMPTY, bot };
+  }
+  if (m.event !== "reply" || !s.bot) return s;
+  const r = m.reply;
+  switch (r.kind) {
+    case "now":
+      // Titul neznamená, že hraje — i pozastavená skladba je „Now".
+      return {
+        ...s,
+        now: { track: r.track, requestedBy: r.requested_by, lastQueued: r.last_queued },
+        playing: r.track ? s.playing : null,
+      };
+    case "announce":
+      return {
+        ...s,
+        now: { track: r.track, requestedBy: r.requested_by, lastQueued: s.now?.lastQueued ?? null },
+        upnext: r.next ? { track: r.next, pending: false } : s.upnext,
+        playing: true,
+      };
+    case "upnext":
+      return { ...s, upnext: { track: r.track, pending: r.pending } };
+    case "queue":
+      return { ...s, queue: r };
+    case "volume":
+      return { ...s, volume: r.volume };
+    case "ack":
+      if (r.action === "pause") return { ...s, playing: false };
+      if (r.action === "resume") return { ...s, playing: true };
+      // Po přeskočení pauzy nevíme, jestli Spotify hraje; posun stav nemění.
+      if (r.action !== "seek" && s.playing === false) return { ...s, playing: null };
+      return s;
+    default:
+      return s;
+  }
+}
+
+// Zprávy z WS přicházejí v App.tsx; lišta je odebírá přes sběrnici se stavem.
+let snapshot: Snapshot = EMPTY;
 const listeners = new Set<(m: MusicMessage) => void>();
 export function receiveMusic(message: MusicMessage) {
+  snapshot = reduce(snapshot, message);
   for (const l of listeners) l(message);
+}
+/** Nové spojení s TS: stav z minulého spojení neplatí. */
+export function resetMusic() {
+  receiveMusic({ type: "music", event: "bot", present: false });
 }
 
 const ERRORS: Record<string, string> = {
@@ -97,6 +176,7 @@ const paths: Record<string, string> = {
   next: "M16 5h2v14h-2zM4 5v14l11-7z",
   play: "M7 4v16l13-8z",
   pause: "M6 4h4v16H6zM14 4h4v16h-4z",
+  playpause: "M3 5v14l9-7zM14 5h3v14h-3zM19 5h3v14h-3z",
   queue: "M4 6h12v2H4zm0 5h12v2H4zm0 5h8v2H4zm14-3v6l5-3z",
   note: "M9 17a3 3 0 1 1-2-2.8V5l12-2v11a3 3 0 1 1-2-2.8V6.4L9 7.7z",
   volume: "M4 9h4l5-4v14l-5-4H4zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z",
@@ -120,26 +200,20 @@ export function HudebniLista({
   send: Send;
   active: boolean;
 }) {
-  const [bot, setBot] = useState<{ client: number; name: string } | null>(null);
-  const [now, setNow] = useState<{
-    track: Track | null;
-    requestedBy: string | null;
-    lastQueued: string | null;
-  } | null>(null);
-  const [upnext, setUpnext] = useState<{ track: Track | null; pending: boolean } | null>(null);
-  const [queue, setQueue] = useState<Extract<Reply, { kind: "queue" }> | null>(null);
-  const [playing, setPlaying] = useState<boolean | null>(null);
+  const [snap, setSnap] = useState(snapshot);
+  const { bot, now, upnext, queue, volume, playing } = snap;
   const [waiting, setWaiting] = useState(false);
-  const [volume, setVolume] = useState<number | null>(null);
-  const [slider, setSlider] = useState(50);
+  const [slider, setSlider] = useState(snapshot.volume ?? 50);
   const [panel, setPanel] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [playNow, setPlayNow] = useState(false);
-  const [visible, setVisible] = useState(!document.hidden);
+  const [visible, setVisible] = useState(document.visibilityState === "visible");
   const sendRef = useRef(send);
   sendRef.current = send;
+  const barRef = useRef<HTMLElement>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const volumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -150,8 +224,14 @@ export function HudebniLista({
       action,
       ...(arg === undefined ? {} : { arg: String(arg) }),
     });
+  // Odložený dotaz se pošle, jen když je stránka vidět a bot pořád v kanálu.
+  const allowed = () => document.visibilityState === "visible" && !!snapshot.bot;
   const later = (ms: number, fn: () => void) =>
-    timers.current.push(setTimeout(fn, ms));
+    timers.current.push(
+      setTimeout(() => {
+        if (allowed()) fn();
+      }, ms),
+    );
   const notify = (text: string) => {
     setToast(text);
     clearTimeout(toastTimer.current);
@@ -160,14 +240,9 @@ export function HudebniLista({
 
   useEffect(() => {
     const listener = (m: MusicMessage) => {
+      setSnap(snapshot);
       if (m.event === "bot") {
-        setBot(m.present ? { client: m.client!, name: m.name || "Hudba" } : null);
         if (!m.present) {
-          setNow(null);
-          setQueue(null);
-          setUpnext(null);
-          setPlaying(null);
-          setVolume(null);
           setWaiting(false);
           setSearch("");
           setPanel(false);
@@ -189,36 +264,13 @@ export function HudebniLista({
       const r = m.reply;
       const poll = m.command !== null && POLL.has(m.command);
       if (!poll && r.kind !== "search") setWaiting(false);
+      // Stav (skladba, fronta, hlasitost, hraje/pauza) už spočítal `reduce`.
       switch (r.kind) {
         case "now":
-          setNow({ track: r.track, requestedBy: r.requested_by, lastQueued: r.last_queued });
-          if (!r.track) setPlaying(null);
-          else setPlaying((p) => (p === null ? true : p));
           setSearch("");
           break;
-        case "announce":
-          setNow((old) => ({
-            track: r.track,
-            requestedBy: r.requested_by,
-            lastQueued: old?.lastQueued ?? null,
-          }));
-          if (r.next) setUpnext({ track: r.next, pending: false });
-          setPlaying(true);
-          break;
-        case "upnext":
-          setUpnext({ track: r.track, pending: r.pending });
-          break;
-        case "queue":
-          setQueue(r);
-          break;
         case "volume":
-          setVolume(r.volume);
           setSlider(r.volume);
-          break;
-        case "ack":
-          // Posun stav přehrávání nemění; ostatní akce znamenají „hraje".
-          if (r.action === "pause") setPlaying(false);
-          else if (r.action !== "seek") setPlaying(true);
           break;
         case "search":
           setSearch(r.link ? "Otevírám odkaz…" : `Hledám: ${r.query ?? ""}`);
@@ -234,22 +286,57 @@ export function HudebniLista({
       }
     };
     listeners.add(listener);
-    const onVisible = () => setVisible(!document.hidden);
+    // Co přišlo před registrací posluchače, převezmeme hned ze sběrnice.
+    setSnap(snapshot);
+    if (snapshot.volume !== null) setSlider(snapshot.volume);
+    const onVisible = () => setVisible(document.visibilityState === "visible");
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       listeners.delete(listener);
       document.removeEventListener("visibilitychange", onVisible);
       for (const t of timers.current) clearTimeout(t);
+      timers.current = [];
       clearTimeout(volumeTimer.current);
       clearTimeout(toastTimer.current);
     };
   }, []);
 
-  useEffect(() => {
-    if (!active) setBot(null);
-  }, [active]);
-
   const shown = active && !!bot;
+  // Po skrytí stránky nebo odchodu bota se odložené dotazy zruší.
+  useEffect(() => {
+    if (shown && visible) return;
+    for (const t of timers.current) clearTimeout(t);
+    timers.current = [];
+    clearTimeout(volumeTimer.current);
+  }, [shown, visible]);
+
+  // Mobil: panel končí nad vstupem chatu, ať ho nezakrývá.
+  useLayoutEffect(() => {
+    if (!panel) return;
+    const composer = document.querySelector<HTMLElement>(".composer");
+    const place = () => {
+      const bar = barRef.current?.getBoundingClientRect();
+      const box = composer?.getBoundingClientRect();
+      const gap = 8;
+      if (!bar || !box || box.height === 0 || !window.matchMedia("(max-width: 699px)").matches) {
+        setPanelStyle({});
+        return;
+      }
+      setPanelStyle({
+        bottom: Math.max(bar.height + gap, bar.bottom - box.top + gap),
+        maxHeight: Math.max(120, Math.min(box.top - 2 * gap, window.innerHeight * 0.6)),
+      });
+    };
+    place();
+    window.addEventListener("resize", place);
+    const observer =
+      composer && typeof ResizeObserver !== "undefined" ? new ResizeObserver(place) : null;
+    if (composer) observer?.observe(composer);
+    return () => {
+      window.removeEventListener("resize", place);
+      observer?.disconnect();
+    };
+  }, [panel]);
   // `/now` ~15 s, dokud je lišta vidět; fronta ~30 s jen při otevřeném panelu.
   useEffect(() => {
     if (!shown || !visible) return;
@@ -280,10 +367,13 @@ export function HudebniLista({
     command(action, arg);
     later(2000, () => command("now"));
   };
+  // Neznámý stav: bot nejspíš hraje, takže ⏯ pozastaví (a stav se tím ujasní).
   const toggle = () => act(playing === false ? "resume" : "pause");
   const commitVolume = (value: number) => {
     clearTimeout(volumeTimer.current);
-    volumeTimer.current = setTimeout(() => command("volume", value), 400);
+    volumeTimer.current = setTimeout(() => {
+      if (allowed()) command("volume", value);
+    }, 400);
   };
   const add = (e: FormEvent) => {
     e.preventDefault();
@@ -298,10 +388,17 @@ export function HudebniLista({
     });
   };
   const track = now?.track;
-  const playLabel = waiting ? "Čekám na bota" : playing === false ? "Pustit" : "Pozastavit";
+  const playLabel = waiting
+    ? "Čekám na bota"
+    : playing === null
+      ? "Přehrávání (stav neznámý)"
+      : playing
+        ? "Pozastavit"
+        : "Pustit";
+  const playState = playing === null ? "unknown" : playing ? "playing" : "paused";
 
   return (
-    <section className="hudba" aria-label="Hudba">
+    <section className="hudba" aria-label="Hudba" ref={barRef}>
       <div className="hudba-info">
         <Cover title={track?.title || ""} />
         <div className="hudba-text">
@@ -328,9 +425,14 @@ export function HudebniLista({
           onClick={toggle}
           disabled={waiting}
           aria-label={playLabel}
-          title={playing === null ? "Stav přehrávání bot nehlásí" : playLabel}
+          data-state={waiting ? "waiting" : playState}
+          title={playing === null ? "Bot nehlásí, jestli hraje — kliknutím pozastavíte" : playLabel}
         >
-          {waiting ? "…" : <Glyph name={playing === false ? "play" : "pause"} />}
+          {waiting ? (
+            "…"
+          ) : (
+            <Glyph name={playing === null ? "playpause" : playing ? "pause" : "play"} />
+          )}
         </button>
         <button onClick={() => act("next")} aria-label="Další skladba">
           <Glyph name="next" />
@@ -366,7 +468,7 @@ export function HudebniLista({
         </button>
       </div>
       {panel && (
-        <div className="hudba-panel" role="dialog" aria-label="Fronta hudby">
+        <div className="hudba-panel" role="dialog" aria-label="Fronta hudby" style={panelStyle}>
           <form className="hudba-add" onSubmit={add}>
             <input
               value={query}

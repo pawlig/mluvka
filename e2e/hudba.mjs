@@ -4,6 +4,23 @@ import { expect } from "@playwright/test";
 import { resolve } from "node:path";
 
 const HELP = "Commands: /play, /playnow, /pause, /stop, /next, /prev, /now, /upnext, /queue, /volume 0-100";
+// Plugin bota předá ovladači jen zprávy, jejichž první slovo je známý příkaz;
+// na ostatní (i „ahoj" nebo „/neco") bot vůbec neodpoví.
+const COMMANDS = [
+  "/play", "/playnow", "/resume", "/pause", "/stop", "/skip", "/next",
+  "/previous", "/prev", "/now", "/upnext", "/queue", "/volume", "/help",
+];
+const isCommand = (text) => COMMANDS.includes(text.split(/[ \t\r\n]/)[0].toLowerCase());
+const ACTIONS = {
+  "/play": "Resume requested.",
+  "/resume": "Resume requested.",
+  "/pause": "Pause requested.",
+  "/stop": "Pause requested.",
+  "/skip": "Skip requested.",
+  "/next": "Skip requested.",
+  "/previous": "Previous track requested.",
+  "/prev": "Previous track requested.",
+};
 
 export async function startFakeMusicBot({ base, tsAddress, password, channel, channelPassword }) {
   const ws = new WebSocket(base.replace(/^http/, "ws") + "/ws");
@@ -15,7 +32,10 @@ export async function startFakeMusicBot({ base, tsAddress, password, channel, ch
       { title: "Třetí píseň", artist: "Kapela C", by: "Bára" },
     ],
     lastQueued: "",
+    /** Příkazy, které došly až k ovladači bota. */
     commands: [],
+    /** Všechny soukromé zprávy botovi (i ty, které plugin zahodí). */
+    received: [],
     last: new Map(),
   };
   let self = 0;
@@ -33,65 +53,70 @@ export async function startFakeMusicBot({ base, tsAddress, password, channel, ch
     if (state.queue[0]) text += "\nNext: " + label(state.queue[0]);
     say(text);
   };
+  // Texty a pořadí kontrol odpovídají ovladači skutečného bota.
   const handle = (from, name, message) => {
     const now = Date.now();
     if (now - (state.last.get(from) || 0) < 1000)
       return "Please wait a second between commands.";
     state.last.set(from, now);
-    const [command, ...args] = message.trim().split(/\s+/);
+    const [first, ...args] = message.trim().split(/\s+/);
+    const command = first.toLowerCase();
     const rest = message.trim().split(/\s+(.*)/s)[1];
     state.commands.push(message);
-    switch (command.toLowerCase()) {
-      case "/now": {
-        const tail = state.lastQueued ? " | Last queued: " + state.lastQueued : "";
-        if (!state.current) return "Spotify has no current track." + tail;
-        const by = state.current.by ? " | Requested by: " + state.current.by : "";
-        return "Now: " + state.current.title + " — " + state.current.artist + by + tail;
-      }
-      case "/play":
-      case "/playnow":
-        if (!args.length)
-          return command === "/play" ? "Resume requested." : "Usage: /playnow artist song OR /playnow Spotify-track-link";
-        {
-          const track = { title: rest, artist: "Hledaný interpret", by: name };
-          state.lastQueued = label(track);
-          if (command === "/playnow" || !state.current) {
-            state.current = track;
-            setTimeout(announce, 300);
-          } else state.queue.push(track);
-        }
-        return `Searching Spotify for: ${rest}. Use /now to check the result.`;
-      case "/pause":
-      case "/stop":
-        return "Pause requested.";
-      case "/skip":
-        if (args.length) {
-          const s = Number(args[0]);
-          return s > 0 ? `Forward seek requested: ${s} seconds.` : `Rewind requested: ${Math.abs(s)} seconds.`;
-        }
-      // falls through
-      case "/next":
-        state.current = state.queue.shift() || null;
-        if (state.current) setTimeout(announce, 300);
-        return "Skip requested.";
-      case "/prev":
-        return "Previous track requested.";
-      case "/upnext":
-        return state.queue[0] ? "Next: " + label(state.queue[0]) : "Next: nothing queued.";
-      case "/queue": {
-        if (!state.queue.length) return "Queue: no user requests.";
-        const parts = state.queue.slice(0, 5).map((t, i) => `${i + 1}. ${label(t)}`);
-        const more = state.queue.length - parts.length;
-        return `Queue (${state.queue.length} waiting):\n` + parts.join("\n") + (more ? `\n+${more} more` : "");
-      }
-      case "/volume":
-        if (args.length !== 1 || !/^\d+$/.test(args[0]) || Number(args[0]) > 100) return "Usage: /volume 0-100";
-        return `Bot output volume: ${Number(args[0])}%`;
-      case "/help":
-        return HELP;
-      default:
-        return "Unknown command. " + HELP;
+    if (command === "/help") return HELP;
+    if ((command === "/play" || command === "/playnow") && args.length) {
+      const link = /^(https?:\/\/|spotify:|\[url)/i.test(rest);
+      const track = {
+        title: link ? "Skladba z odkazu" : rest,
+        artist: "Hledaný interpret",
+        by: name,
+      };
+      state.lastQueued = label(track);
+      if (command === "/playnow" || !state.current) {
+        state.current = track;
+        setTimeout(announce, 300);
+      } else state.queue.push(track);
+      return link
+        ? "Opening Spotify link. Use /now to check the result."
+        : `Searching Spotify for: ${rest}. Use /now to check the result.`;
     }
+    if (command === "/playnow")
+      return "Usage: /playnow artist song OR /playnow Spotify-track-link";
+    let seek = null;
+    if (command === "/skip" && args.length) {
+      if (args.length !== 1 || !/^[+-]?[0-9]{1,5}$/.test(args[0]) || Math.abs(Number(args[0])) < 1 || Math.abs(Number(args[0])) > 86400)
+        return "Usage: /skip [seconds] (1-86400 forward, -1 to -86400 rewind; omit for next song).";
+      seek = Number(args[0]);
+    }
+    if (command !== "/volume" && args.length && seek === null)
+      return `Usage: ${command} (without arguments). Use /play artist song to search.`;
+    if (command === "/volume") {
+      if (args.length !== 1 || !/^\d+$/.test(args[0]) || Number(args[0]) > 100) return "Usage: /volume 0-100";
+      return `Bot output volume: ${Number(args[0])}%`;
+    }
+    if (command === "/upnext")
+      return state.queue[0] ? "Next: " + label(state.queue[0]) : "Next: nothing queued.";
+    if (command === "/queue") {
+      if (!state.queue.length) return "Queue: no user requests.";
+      const parts = state.queue.slice(0, 5).map((t, i) => `${i + 1}. ${label(t)}`);
+      const more = state.queue.length - parts.length;
+      return `Queue (${state.queue.length} waiting):\n` + parts.join("\n") + (more ? `\n+${more} more` : "");
+    }
+    if (seek !== null) {
+      const unit = Math.abs(seek) === 1 ? "second" : "seconds";
+      return `${seek > 0 ? "Forward seek" : "Rewind"} requested: ${Math.abs(seek)} ${unit}.`;
+    }
+    if (command === "/now") {
+      const tail = state.lastQueued ? " | Last queued: " + state.lastQueued : "";
+      if (!state.current) return "Spotify has no current track." + tail;
+      const by = state.current.by ? " | Requested by: " + state.current.by : "";
+      return "Now: " + label(state.current) + by + tail;
+    }
+    if (command === "/skip" || command === "/next") {
+      state.current = state.queue.shift() || null;
+      if (state.current) setTimeout(announce, 300);
+    }
+    return ACTIONS[command];
   };
   await new Promise((done, fail) => {
     const timer = setTimeout(() => fail(Error("Falešný bot se nepřipojil")), 30000);
@@ -116,8 +141,10 @@ export async function startFakeMusicBot({ base, tsAddress, password, channel, ch
         clearTimeout(timer);
         done();
       }
-      if (m.type === "chat" && m.target === "private" && m.from !== self)
-        say(handle(m.from, m.name, m.text), m.from);
+      if (m.type === "chat" && m.target === "private" && m.from !== self) {
+        state.received.push({ from: m.from, name: m.name, text: m.text, at: Date.now() });
+        if (isCommand(m.text)) say(handle(m.from, m.name, m.text), m.from);
+      }
     };
   });
   const ping = setInterval(() => {
@@ -131,6 +158,23 @@ export async function startFakeMusicBot({ base, tsAddress, password, channel, ch
       ws.close();
     },
   };
+}
+
+/** Zprávy, které bot dostal od klienta s přezdívkou `name` od indexu `from`. */
+const sentBy = (bot, name, from = 0) =>
+  bot.state.received.slice(from).filter((m) => m.name === name).map((m) => m.text);
+
+async function setHidden(page, hidden) {
+  await page.evaluate((hide) => {
+    if (hide) {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    } else {
+      delete document.visibilityState;
+      delete document.hidden;
+    }
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
 }
 
 export async function musicChecks({ a, b, base, tsAddress, password, channelPassword, root, ok }) {
@@ -150,10 +194,37 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     await expect(bar.locator(".hudba-by")).toHaveCount(0);
     ok("Hudba: bot v kanálu → lišta s aktuální skladbou");
 
-    await bar.getByRole("button", { name: "Pozastavit" }).click();
-    await expect(bar.getByRole("button", { name: "Pustit" })).toBeVisible({ timeout: 10000 });
-    await bar.getByRole("button", { name: "Pustit" }).click();
-    await expect(bar.getByRole("button", { name: "Pozastavit" })).toBeVisible({ timeout: 10000 });
+    // `/now` s titulem neříká, jestli hraje — ⏯ zůstává neutrální.
+    const play = bar.locator(".hudba-play");
+    await expect(play).toHaveAttribute("data-state", "unknown");
+    await expect(play).toHaveAttribute("aria-label", "Přehrávání (stav neznámý)");
+    ok("Hudba: po /now je stav přehrávání neznámý (neutrální ⏯)");
+
+    // Nové spojení rovnou do kanálu s botem: `state` i „bot přítomen" přijdou
+    // dřív, než se lišta stihne přihlásit na sběrnici.
+    const cContext = await a.context().browser().newContext({ permissions: ["microphone"] });
+    try {
+      const c = await cContext.newPage();
+      await c.goto(base);
+      await c.locator("details").evaluate((el) => (el.open = true));
+      await c.getByLabel("Název nebo cesta kanálu", { exact: true }).fill("Večerní parta");
+      await c.getByLabel("Heslo kanálu", { exact: true }).fill(channelPassword);
+      await c.getByLabel("Přezdívka", { exact: true }).fill("Cyril");
+      await c.getByLabel("Adresa serveru", { exact: true }).fill(tsAddress);
+      await c.getByLabel("Heslo serveru", { exact: false }).fill(password);
+      await c.getByRole("button", { name: /Připojit se/ }).click();
+      await expect(c.locator(".connection-status")).toHaveText("Připojeno", { timeout: 45000 });
+      await expect(c.locator(".hudba")).toBeVisible({ timeout: 5000 });
+      await expect(c.locator(".hudba-title")).toHaveText("Ranní káva", { timeout: 15000 });
+    } finally {
+      await cContext.close();
+    }
+    ok("Hudba: připojení do kanálu s už přítomným botem ukáže lištu");
+
+    await play.click();
+    await expect(bar.getByRole("button", { name: "Pustit", exact: true })).toBeVisible({ timeout: 10000 });
+    await bar.getByRole("button", { name: "Pustit", exact: true }).click();
+    await expect(bar.getByRole("button", { name: "Pozastavit", exact: true })).toBeVisible({ timeout: 10000 });
     ok("Hudba: pauza a pokračování podle potvrzení bota");
 
     await bar.getByRole("button", { name: "Další skladba" }).click();
@@ -176,7 +247,11 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     await expect(panel.locator(".hudba-list")).toContainText("Nová skladba", { timeout: 20000 });
     await expect(panel).toContainText("Naposledy přidáno: Nová skladba", { timeout: 15000 });
     expect(bot.state.commands).toContain("/play Nová skladba");
-    ok("Hudba: přidání skladby a fronta v panelu");
+    await panel.getByLabel("Přidat skladbu nebo odkaz Spotify").fill("spotify:track:e2e123");
+    await panel.getByRole("button", { name: "Přidat" }).click();
+    await expect(bar.locator(".hudba-artist")).toContainText("Otevírám odkaz", { timeout: 10000 });
+    await expect(panel.locator(".hudba-list")).toContainText("Skladba z odkazu", { timeout: 20000 });
+    ok("Hudba: přidání skladby i odkazu a fronta v panelu");
 
     // Příkazy Mluvky ani odpovědi bota se v chatu neukážou.
     await expect(a.locator(".private-tab")).toHaveCount(0);
@@ -195,9 +270,68 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     const barBox = await mobileBar.boundingBox();
     const voiceBox = await b.locator(".voice-bar").boundingBox();
     expect(barBox.y + barBox.height).toBeLessThanOrEqual(voiceBox.y + 1);
-    await b.screenshot({ path: resolve(root, "docs/screenshots/hudba-mobil.png") });
-    await b.setViewportSize({ width: 1440, height: 900 });
     ok("Hudba: kompaktní lišta na mobilu nepřekrývá ovládání hovoru");
+
+    await mobileBar.getByRole("button", { name: "Fronta a přidání skladby" }).click();
+    const mobilePanel = b.getByRole("dialog", { name: "Fronta hudby" });
+    await expect(mobilePanel).toBeVisible();
+    const composer = b.locator(".composer");
+    await expect(composer).toBeVisible();
+    const panelBox = await mobilePanel.boundingBox();
+    const composerBox = await composer.boundingBox();
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(composerBox.y + 1);
+    // Vstup chatu jde dál použít (nic ho nepřekrývá).
+    await b.getByLabel("Zpráva", { exact: true }).click({ trial: true });
+    await b.screenshot({ path: resolve(root, "docs/screenshots/hudba-mobil.png") });
+    await mobileBar.getByRole("button", { name: "Fronta a přidání skladby" }).click();
+    await b.setViewportSize({ width: 1440, height: 900 });
+    ok("Hudba: otevřený panel na mobilu končí nad vstupem chatu");
+
+    // Skrytá stránka: odložený `/now` po akci ani pravidelné dotazy se nepošlou.
+    // Počkáme na čerstvý `/now` (další je nejdřív za ~10 s), pak akce a skrytí.
+    const pollMark = bot.state.received.length;
+    await expect
+      .poll(() => sentBy(bot, "Adam", pollMark).includes("/now"), { timeout: 25000 })
+      .toBe(true);
+    const seekMark = bot.state.received.length;
+    await bar.getByRole("button", { name: "Vpřed o 30 sekund" }).click();
+    await expect
+      .poll(() => sentBy(bot, "Adam", seekMark).includes("/skip +30"), { timeout: 5000 })
+      .toBe(true);
+    await setHidden(a, true);
+    const hiddenMark = bot.state.received.length;
+    await a.waitForTimeout(6000);
+    expect(sentBy(bot, "Adam", hiddenMark)).toEqual([]);
+    await setHidden(a, false);
+    await expect
+      .poll(() => sentBy(bot, "Adam", hiddenMark).includes("/now"), { timeout: 10000 })
+      .toBe(true);
+    ok("Hudba: skrytá stránka botovi nic neposílá, po návratu se obnoví");
+
+    // Ruční „ahoj" botovi: bot mlčí, automatický `/now` zůstane skrytý.
+    await a.locator(".client-row").filter({ hasText: "Spotify Bot" }).click();
+    await a.getByRole("button", { name: "Napsat zprávu" }).click();
+    await a.getByLabel("Zpráva", { exact: true }).fill("ahoj");
+    const helloMark = bot.state.received.length;
+    await a.getByRole("button", { name: "Odeslat zprávu" }).click();
+    await expect
+      .poll(
+        () => {
+          const sent = sentBy(bot, "Adam", helloMark);
+          return sent.includes("ahoj") && sent.slice(sent.indexOf("ahoj") + 1).includes("/now");
+        },
+        { timeout: 25000 },
+      )
+      .toBe(true);
+    await a.waitForTimeout(1500); // odpověď bota na `/now` stihne dorazit
+    const privateLog = a.getByRole("log");
+    await expect(privateLog).toContainText("ahoj");
+    const privateText = await privateLog.textContent();
+    expect(privateText).not.toContain("/now");
+    expect(privateText).not.toContain("Now:");
+    await expect(a.locator(".hudba-toast")).toHaveCount(0);
+    await a.getByRole("button", { name: "Kanál", exact: true }).click();
+    ok("Hudba: ruční zpráva botovi zůstane v chatu, odpověď na /now ne");
   } finally {
     bot.close();
   }
