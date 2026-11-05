@@ -1,7 +1,7 @@
 # Navázání přejímky #1298 (3)
 
 Východisko: `8027840`; práce pouze ve worktree `mluvka-mobil`, větev `mobil`.
-Úplné ověření nového backendu zatím čeká na uvolnění TS3. Historické výsledky k východisku jsou v
+Cílený flood na novém release backendu prošel 6 kroky; celé E2E právě probíhá. Historické výsledky k východisku jsou v
 [overeni-mobil-1298.md](overeni-mobil-1298.md).
 
 ## Oprava příčin
@@ -32,6 +32,11 @@ spuštěn `cargo build --release` (exit 0); binárka obsahuje novou flood hláš
 a je novější než `src/session.rs`.
 
 
+- `E2E_REGRESSION_ONLY=1 E2E_FLOOD_ONLY=1 E2E_CODEC=opus node e2e/run.mjs`
+  pod TS3 zámkem na portech 3104/9104/10104/30104: **6/6**, exit 0.
+  Nativní handshake flood zachoval WS i `clid` obou živých klientů; po celou
+  pauzu se doručoval chat a přibývaly přehrané hlasové rámce s kladným RMS.
+  Další klient čekal na stejném WS s měnícím se odpočtem a po pauze se připojil.
 - `cargo test`: 14/14, `cargo clippy --all-targets -- -D warnings`: exit 0.
 - `npm run typecheck`, `npm run build`: exit 0.
 - Nové frontendové kontroly v cíleném běhu prošly: desktop s dotykem a jemným
