@@ -239,7 +239,8 @@ fn ts_error(err: &tsclientlib::Error) -> String {
     }
     match code {
         Some(T::ConnectFailedBanned) => "Server vás odmítl: zákaz přístupu (ban). Dobu vypršení server neuvedl.",
-        Some(T::BanFlooding | T::ClientIsFlooding) => "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.",
+        Some(T::ClientIsFlooding) => "Server omezuje počet zpráv. Odesílám pomaleji.",
+        Some(T::BanFlooding) => "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.",
         Some(T::ChannelInvalidPassword) => "Nesprávné heslo kanálu.",
         Some(T::ServerInvalidPassword | T::ClientInvalidPassword) => "Nesprávné heslo serveru.",
         Some(T::ClientNicknameInuse) => "Přezdívka je obsazená nebo není povolená.",
@@ -359,6 +360,16 @@ fn block_flood(addr: SocketAddr) {
 fn is_flood(error: &tsclientlib::Error) -> bool {
     ts_variant(error).0 != "CommandError"
         && ts_variant(error).1 == Some(tsproto_types::errors::Error::BanFlooding)
+}
+fn is_command_flood(error: &tsclientlib::Error) -> bool {
+    ts_variant(error).0 == "CommandError"
+        && ts_variant(error).1.is_some_and(|code| {
+            matches!(
+                code,
+                tsproto_types::errors::Error::ClientIsFlooding
+                    | tsproto_types::errors::Error::BanFlooding
+            )
+        })
 }
 fn slow_commands(addr: SocketAddr) {
     let mut all = budgets().lock().expect("budgets");
@@ -1011,7 +1022,7 @@ async fn connected(
                         let sent = pending.remove(&handle);
                         if let Err(e) = result {
                             let error = tsclientlib::Error::CommandError(e);
-                            if ts_variant(&error).1.is_some_and(|code| matches!(code, tsproto_types::errors::Error::ClientIsFlooding | tsproto_types::errors::Error::BanFlooding)) {
+                            if is_command_flood(&error) {
                                 let _ = ts_error(&error);
                                 slow_commands(addr);
                                 points.available = 0.0;
@@ -1028,7 +1039,21 @@ async fn connected(
                         tracing::warn!(ts_event = match reason { tsclientlib::TemporaryDisconnectReason::Timeout(_) => "Timeout", tsclientlib::TemporaryDisconnectReason::Serverstop => "Serverstop" }, "TS spojení přerušeno");
                         return Err(match reason { tsclientlib::TemporaryDisconnectReason::Serverstop => "TS server ukončil spojení.", _ => "Spojení s TS serverem se přerušilo. Připojte se znovu." }.into());
                     },
-                    Some(Err(e)) => { if is_flood(&e) { block_flood(addr); } return Err(ts_error(&e)); },
+                    Some(Err(e)) => {
+                        if is_command_flood(&e) {
+                            let _ = ts_error(&e);
+                            slow_commands(addr);
+                            points.available = 0.0;
+                            // TS někdy chybu vrátí bez return_code. Díky jednomu
+                            // čekajícímu potvrzení víme, který příkaz opakovat.
+                            if let Some((_, (_, cmd))) = pending.drain().next() { commands.push_front(cmd); }
+                            slowing = true;
+                            json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
+                        } else {
+                            if is_flood(&e) { block_flood(addr); ws.cooldown_until = flood_deadline(addr); }
+                            return Err(ts_error(&e));
+                        }
+                    },
                     None => return Err("TS server ukončil spojení.".into()),
                     _ => {}
                 }
@@ -1124,6 +1149,8 @@ mod tests {
             missing_permission: None,
         });
         assert!(!is_flood(&err));
+        assert!(is_command_flood(&err));
+        assert_ne!(error_code(&ts_error(&err)), "flood");
         let now = Instant::now();
         let mut points = CommandPoints::new(now);
         for _ in 0..6 {
@@ -1182,7 +1209,7 @@ mod tests {
         );
         assert_eq!(
             error_code(&ts_error(&E::ConnectTs(T::ClientIsFlooding))),
-            "flood"
+            "request_failed"
         );
         let nested = E::ConnectFailed {
             address: "ban".into(),
