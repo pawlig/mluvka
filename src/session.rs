@@ -814,7 +814,10 @@ async fn session(
     // její další poll by panikoval. UDP disconnect potřebuje jen navázaná TS relace.
     if let Ok(book) = con.get_state() {
         let client = book.own_client;
-        let _ = timeout(Duration::from_secs(2), async {
+        // Ruční odpojení musí přečkat i krátké zpomalení příkazů. Nová relace
+        // stejného UID stále čeká na gate; při shutdown platí společný 3s deadline.
+        let disconnect_deadline = Duration::from_secs(if *shutdown.borrow() { 2 } else { 10 });
+        let _ = timeout(disconnect_deadline, async {
             loop {
                 if server_paused(addr) {
                     return;
