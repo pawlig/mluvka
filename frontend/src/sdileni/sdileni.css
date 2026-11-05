@@ -201,23 +201,37 @@
     color: #919a8b;
   }
 }
-@media (min-width: 700px) {
-  .voice-bar:has(.share-controls) {
-    flex-wrap: wrap;
-  }
-  .voice-bar > .share-controls {
-    order: 10;
-    flex-basis: 100%;
-    padding-top: 10px;
-    border-top: 1px solid var(--line);
-  }
+/* Sdílení využívá stávající řádek .bar-actions; panel je mimo lištu. */
+.share-controls {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
 }
-@media (max-width: 699px) {
-  .voice-bar > .share-desktop-hint {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    text-align: center;
-  }
+.share-controls select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+.share-controls label {
+  font-size: 13px;
+}
+.share-audio-choice {
+  max-width: none;
+}
+.share-toggle.share-live {
+  color: var(--accent);
+}
+.share-desktop-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 4px;
+}
+.client-icons .share-tree-icon {
+  cursor: pointer;
+}
+.share-panel .share-live {
+  margin: 18px 0;
+  font-size: 14px;
 }
 @media (max-height: 500px) and (pointer: coarse) {
   .share-desktop-hint {

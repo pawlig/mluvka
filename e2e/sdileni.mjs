@@ -119,6 +119,21 @@ async function send(page, data) {
     data,
   );
 }
+async function startSharing(page, audio = false) {
+  await page
+    .getByRole("button", { name: "Sdílet obrazovku", exact: true })
+    .click();
+  if (audio) await page.getByLabel("Zvuk karty / systému").check();
+  await page
+    .getByRole("button", { name: "Spustit sdílení", exact: true })
+    .click();
+}
+async function stopSharing(page) {
+  await page.locator(".share-toggle").click();
+  await page
+    .getByRole("button", { name: "Ukončit sdílení", exact: true })
+    .click();
+}
 async function flowing(page, relay = false) {
   await expect
     .poll(() =>
@@ -232,9 +247,7 @@ export async function sharingChecks({
   await a.evaluate(() => {
     window.__e2eDelayStartAck = true;
   });
-  await a
-    .getByRole("button", { name: "Sdílet obrazovku", exact: true })
-    .click();
+  await startSharing(a);
   await expect
     .poll(() => a.evaluate(() => !!window.__e2eDelayedAck))
     .toBe(true);
@@ -268,7 +281,9 @@ export async function sharingChecks({
   await expect(
     b.locator('.share-tree-icon[title="Sdílí obrazovku"]'),
   ).toBeVisible();
-  const presence = b.locator('.client-row [title="Připojen přes Mluvku"]').first();
+  const presence = b
+    .locator('.client-row [title="Připojen přes Mluvku"]')
+    .first();
   await expect(presence.locator("svg")).toBeVisible();
   await expect(presence).toHaveText("");
   await b.locator(".client-row").filter({ hasText: "Adam" }).first().click();
@@ -290,6 +305,22 @@ export async function sharingChecks({
         () => document.documentElement.scrollWidth - innerWidth,
       ),
     ).toBeLessThanOrEqual(1);
+  const shareButton = await a.locator(".share-toggle").boundingBox();
+  const microphone = await a
+    .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
+    .boundingBox();
+  expect(
+    Math.abs(
+      shareButton.y +
+        shareButton.height / 2 -
+        microphone.y -
+        microphone.height / 2,
+    ),
+  ).toBeLessThan(2);
+  expect((await a.locator(".voice-bar").boundingBox()).height).toBeLessThan(
+    110,
+  );
+  ok("Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon");
   await a.screenshot({
     path: resolve(root, "docs/screenshots/sdileni-desktop-sdilejici.png"),
   });
@@ -331,13 +362,11 @@ export async function sharingChecks({
   ok("Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje");
 
   // Souběžné sdílení oběma směry musí mít dvě nezávislá PeerConnection.
-  await b
-    .getByRole("button", { name: "Sdílet obrazovku", exact: true })
-    .click();
+  await startSharing(b);
   await a.getByRole("button", { name: "Sledovat", exact: true }).click();
   await flowing(a);
   await a.getByRole("button", { name: "Zavřít sledování" }).click();
-  await b.getByRole("button", { name: "Ukončit sdílení" }).click();
+  await stopSharing(b);
   await expect(b.locator(".share-player video")).toBeVisible();
   ok(
     "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
@@ -427,7 +456,7 @@ export async function sharingChecks({
   await moveToProtected(b);
   await b.getByRole("button", { name: "Sledovat", exact: true }).click();
   await flowing(b);
-  await a.getByRole("button", { name: "Ukončit sdílení" }).click();
+  await stopSharing(a);
   await expect(b.locator(".share-card")).toHaveCount(0, { timeout: 2000 });
   await expect(b.locator(".share-player")).toHaveCount(0, { timeout: 2000 });
   ok("Ukončení sdílení odstraní kartu i video do 2 s");
@@ -453,10 +482,7 @@ export async function sharingChecks({
     await connected(s);
     await login(v, "TURN sleduje");
     await connected(v);
-    await s.getByLabel("Zvuk karty / systému").check();
-    await s
-      .getByRole("button", { name: "Sdílet obrazovku", exact: true })
-      .click();
+    await startSharing(s, true);
     await v.getByRole("button", { name: "Sledovat", exact: true }).click();
     ok(
       "Coturn TURN REST: vynucené relay, video i zvuková stopa",
@@ -541,6 +567,13 @@ export async function sharingChecks({
     await expect(
       s.getByRole("button", { name: "Sdílet obrazovku", exact: true }),
     ).toBeVisible();
+    await m.setViewportSize({ width: 393, height: 852 });
+    expect(
+      await m.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+    ).toBeLessThanOrEqual(1);
+    await m.screenshot({
+      path: resolve(root, "docs/screenshots/sdileni-mobil-lista.png"),
+    });
     ok("Systémové track.onended zastaví sdílení i všechny diváky");
   } finally {
     for (const context of contexts.reverse()) await context.close();
@@ -611,9 +644,7 @@ async function withoutTurn({
       })
     ).json();
     expect(config.iceServers).toEqual([]);
-    await s
-      .getByRole("button", { name: "Sdílet obrazovku", exact: true })
-      .click();
+    await startSharing(s);
     await v.getByRole("button", { name: "Sledovat", exact: true }).click();
     const stats = await flowing(v);
     expect(stats.candidate).toBe("host");

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { qualities, type Quality, type Sharing } from "./controller";
 import "./sdileni.css";
 
@@ -19,65 +20,158 @@ export function ScreenIcon() {
   );
 }
 export function MluvkaIcon() {
-  return <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M2 6v4m4-7v10m4-8v6m4-5v4" /></svg>;
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M2 6v4m4-7v10m4-8v6m4-5v4" />
+    </svg>
+  );
 }
 export function SharingControls({ controller }: { controller: Sharing }) {
   const [quality, setQuality] = useState<Quality>("720");
   const [audio, setAudio] = useState(false);
+  const [open, setOpen] = useState(false);
   const state = controller.state;
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [open]);
   const mobile =
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (mobile || !navigator.mediaDevices?.getDisplayMedia)
     return (
-      <span className="share-desktop-hint" title="Sdílet jde z počítače">
-        Sdílet jde z počítače
+      <span
+        className="share-desktop-hint"
+        title="Sdílet jde z počítače"
+        aria-label="Sdílet jde z počítače"
+      >
+        <ScreenIcon />
       </span>
     );
   return (
-    <div className="share-controls">
-      {state.sharing ? (
-        <>
-          <span className="share-live">
-            Sdílíte obrazovku · {state.viewers} diváků
-          </span>
-          <button className="share-stop" onClick={() => controller.stop()}>
-            Ukončit sdílení
-          </button>
-        </>
-      ) : (
-        <>
-          <select
-            aria-label="Kvalita sdílení"
-            value={quality}
-            disabled={state.starting}
-            onChange={(e) => setQuality(e.target.value as Quality)}
-          >
-            {Object.entries(qualities).map(([key, p]) => (
-              <option key={key} value={key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <label className="share-audio-choice">
-            <input
-              type="checkbox"
-              checked={audio}
-              onChange={(e) => setAudio(e.target.checked)}
-            />
-            Zvuk karty / systému
-          </label>
-          <button
-            className="share-start"
-            disabled={state.starting}
-            onClick={() => void controller.start(quality, audio)}
-          >
-            <ScreenIcon />
-            {state.starting ? "Spouštím…" : "Sdílet obrazovku"}
-          </button>
-        </>
-      )}
-    </div>
+    <>
+      <button
+        className={`control-button share-toggle ${state.sharing ? "share-live" : ""}`}
+        title={
+          state.sharing
+            ? `Sdílíte obrazovku · ${state.viewers} diváků`
+            : "Sdílet obrazovku"
+        }
+        onClick={() => setOpen(true)}
+      >
+        <ScreenIcon />
+        <span>
+          {state.sharing
+            ? `Sdílíte · ${state.viewers} diváků`
+            : state.starting
+              ? "Spouštím…"
+              : "Sdílet obrazovku"}
+        </span>
+      </button>
+      {open &&
+        createPortal(
+          <div className="modal-backdrop" onClick={() => setOpen(false)}>
+            <section
+              className="modal share-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Sdílení obrazovky"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header>
+                <h2>Sdílení obrazovky</h2>
+                <button
+                  autoFocus
+                  aria-label="Zavřít sdílení"
+                  onClick={() => setOpen(false)}
+                >
+                  ×
+                </button>
+              </header>
+              {state.sharing || state.starting ? (
+                <>
+                  <p className="share-live">
+                    {state.sharing
+                      ? `Sdílíte obrazovku · ${state.viewers} diváků`
+                      : "Čekám na potvrzení serveru…"}
+                  </p>
+                  <p className="help">
+                    {qualities[quality].label}
+                    {audio
+                      ? " · se zvukem, pokud jej prohlížeč poskytne"
+                      : " · bez zvuku"}
+                  </p>
+                  <button
+                    className="share-stop"
+                    onClick={() => {
+                      controller.stop();
+                      setOpen(false);
+                    }}
+                  >
+                    Ukončit sdílení
+                  </button>
+                </>
+              ) : (
+                <div className="share-controls">
+                  <label>
+                    Kvalita sdílení
+                    <select
+                      aria-label="Kvalita sdílení"
+                      value={quality}
+                      onChange={(event) =>
+                        setQuality(event.target.value as Quality)
+                      }
+                    >
+                      {Object.entries(qualities).map(([key, preset]) => (
+                        <option key={key} value={key}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="share-audio-choice">
+                    <input
+                      type="checkbox"
+                      checked={audio}
+                      onChange={(event) => setAudio(event.target.checked)}
+                    />
+                    Zvuk karty / systému
+                  </label>
+                  <button
+                    className="share-start"
+                    onClick={() =>
+                      void controller.start(quality, audio).then(() => {
+                        if (
+                          controller.state.starting ||
+                          controller.state.sharing
+                        )
+                          setOpen(false);
+                      })
+                    }
+                  >
+                    <ScreenIcon />
+                    Spustit sdílení
+                  </button>
+                </div>
+              )}
+            </section>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 export function SharingArea({

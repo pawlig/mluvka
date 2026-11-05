@@ -1611,7 +1611,6 @@ export function App() {
             </section>
           </main>
           <footer className="voice-bar">
-            <SharingControls controller={sharing.controller} />
             <div className="self-card">
               {me && <Avatar client={me} talking={selfTalking} />}
               <div>
@@ -1672,6 +1671,7 @@ export function App() {
               </label>
             </div>
             <div className="bar-actions">
+              <SharingControls controller={sharing.controller} />
               <button
                 className="control-button"
                 aria-label="Nastavení"
