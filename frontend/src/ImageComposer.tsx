@@ -63,6 +63,9 @@ export function ImageComposer({
   text,
   setText,
   send,
+  editing,
+  editLast,
+  cancelEdit,
   token,
   active,
   thread,
@@ -70,11 +73,15 @@ export function ImageComposer({
   text: string;
   setText: (text: string) => void;
   send: (text: string) => void;
+  editing: boolean;
+  editLast: () => void;
+  cancelEdit: () => void;
   token: string;
   active: boolean;
   thread: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<Pending[]>([]);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -96,6 +103,12 @@ export function ImageComposer({
   useEffect(() => {
     cancel();
   }, [token, thread, active]);
+  useEffect(() => {
+    if (editing) {
+      cancel();
+      field.current?.focus();
+    }
+  }, [editing]);
   useEffect(
     () => () => {
       ++revision.current;
@@ -113,7 +126,7 @@ export function ImageComposer({
     return () => URL.revokeObjectURL(url);
   }, [pending]);
   async function choose(files: File[]) {
-    if (!files.length || busyRef.current || !active) return;
+    if (!files.length || busyRef.current || !active || editing) return;
     const version = ++revision.current;
     setError("");
     setBusy(true);
@@ -256,7 +269,8 @@ export function ImageComposer({
     if (busyRef.current || !active || (!text.trim() && !pending.length)) return;
     setError("");
     if (
-      new TextEncoder().encode(text).length > (pending.length ? 2800 : 4000)
+      new TextEncoder().encode(text).length >
+      (pending.length ? 2800 : editing ? 3800 : 4000)
     ) {
       setError("Zpráva je příliš dlouhá. Zkrať text a zkus to znovu.");
       return;
@@ -338,6 +352,14 @@ export function ImageComposer({
             {error}
           </p>
         )}
+        {editing && (
+          <div className="edit-bar" role="status">
+            <span>Upravujete zprávu · Esc zrušit</span>
+            <button type="button" aria-label="Zrušit úpravu" onClick={cancelEdit}>
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+        )}
         <form
           className="composer"
           onSubmit={(e) => {
@@ -361,13 +383,29 @@ export function ImageComposer({
             className="attach-image"
             aria-label="Přidat soubor"
             title="Přidat soubor nebo obrázek"
-            disabled={busy || !active}
+            disabled={busy || !active || editing}
             onClick={() => input.current?.click()}
           >
             📎
           </button>
           <input
+            ref={field}
             aria-label="Zpráva"
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === "Escape" && editing) {
+                e.preventDefault();
+                cancelEdit();
+              } else if (
+                e.key === "ArrowUp" &&
+                !editing &&
+                !text &&
+                !pending.length
+              ) {
+                e.preventDefault();
+                editLast();
+              }
+            }}
             value={text}
             maxLength={2000}
             disabled={busy}
@@ -385,9 +423,11 @@ export function ImageComposer({
                 ? image
                   ? "Odeslat obrázek"
                   : "Odeslat soubory"
-                : "Odeslat zprávu"
+                : editing
+                  ? "Uložit úpravu"
+                  : "Odeslat zprávu"
             }
-            title="Odeslat"
+            title={editing ? "Uložit úpravu" : "Odeslat"}
             disabled={busy || !active || (!text.trim() && !pending.length)}
             type="submit"
           >

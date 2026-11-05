@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChatMessage as MessageBody } from "./ChatMessage";
 import { ImageComposer } from "./ImageComposer";
+import { isFileUrl } from "./files";
+import {
+  applyCorrection,
+  editable,
+  formatCorrection,
+  parseCorrection,
+} from "./oprava";
 import { useSharing } from "./sdileni/controller";
 import { SharingArea, SharingControls, ScreenIcon, MluvkaIcon } from "./sdileni/Sdileni";
 import { AudioEngine } from "./audio";
@@ -63,7 +70,7 @@ const modeNames = {
   vad: "Hlasová aktivace",
   always: "Pořád zapnuto",
 };
-type ThreadMessage = ChatMessage & { thread: string };
+type ThreadMessage = ChatMessage & { thread: string; edited?: boolean };
 function Range({
   label,
   value,
@@ -230,6 +237,16 @@ function AppContent({
   const [testing, setTesting] = useState(false);
   const [captureKey, setCaptureKey] = useState(false);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
+  const messagesRef = useRef<ThreadMessage[]>([]);
+  // Vlastní odeslané zprávy, jejichž ozvěnu ze serveru nezobrazujeme.
+  const pendingEchoes = useRef<{ thread: string; text: string; time: number }[]>(
+    [],
+  );
+  const [editing, setEditing] = useState<ThreadMessage>();
+  function updateMessages(change: (old: ThreadMessage[]) => ThreadMessage[]) {
+    messagesRef.current = change(messagesRef.current);
+    setMessages(messagesRef.current);
+  }
   const [thread, setThread] = useState("channel");
   const [privateTabs, setPrivateTabs] = useState<Record<number, string>>({});
   const [text, setText] = useState("");
@@ -288,6 +305,12 @@ function AppContent({
   const currentThread =
     thread === "channel" ? `channel:${me?.channel}` : thread;
   const visibleMessages = messages.filter((m) => m.thread === currentThread);
+  useEffect(() => {
+    if (editing && editing.thread !== currentThread) {
+      setEditing(undefined);
+      setText("");
+    }
+  }, [currentThread]);
 
   const notifications = useNotifications(audio, settings, {
     thread: currentThread,
@@ -547,7 +570,9 @@ function AppContent({
     setNotice("");
     updateStatus("connecting");
     audio.setCallActive(true);
-    setMessages([]);
+    updateMessages(() => []);
+    pendingEchoes.current = [];
+    setEditing(undefined);
     knownUsers.current.clear();
     setPrivateTabs({});
     setThread("channel");
@@ -825,7 +850,17 @@ function AppContent({
             : msg.target === "channel"
               ? `channel:${roomRef.current?.clients.find((c) => c.id === self)?.channel}`
               : "server";
-        if (msg.from !== self)
+        const uid = msg.uid || knownUsers.current.get(msg.from)?.uid;
+        const correction = parseCorrection(msg.text);
+        const corrected = correction
+          ? applyCorrection(
+              messagesRef.current,
+              correction,
+              { from: msg.from, uid },
+              key,
+            )
+          : null;
+        if (msg.from !== self && !corrected)
           receiveNotification.current(
             msg.target,
             {
@@ -851,28 +886,27 @@ function AppContent({
             [peer]:
               msg.from === self ? old[peer] || "Soukromá zpráva" : msg.name,
           }));
-        setMessages((old) => {
-          if (
-            msg.from === self &&
-            old.some(
-              (m) =>
-                m.from === self &&
-                m.text === msg.text &&
-                m.thread === key &&
-                Date.now() - m.time < 3000,
-            )
-          )
-            return old;
-          return [
-            ...old.slice(-499),
-            {
-              ...msg,
-              uid: msg.uid || knownUsers.current.get(msg.from)?.uid,
-              thread: key,
-              time: Date.now(),
-            },
-          ];
-        });
+        if (msg.from === self) {
+          const now = Date.now();
+          pendingEchoes.current = pendingEchoes.current.filter(
+            (e) => now - e.time < 60000,
+          );
+          const index = pendingEchoes.current.findIndex(
+            (e) => e.thread === key && e.text === msg.text,
+          );
+          if (index >= 0) {
+            pendingEchoes.current.splice(index, 1);
+            return;
+          }
+        }
+        if (corrected) {
+          updateMessages(() => corrected);
+          return;
+        }
+        updateMessages((old) => [
+          ...old.slice(-499),
+          { ...msg, uid, thread: key, time: Date.now() },
+        ]);
       }
     };
     socket.onerror = () => {
@@ -1074,8 +1108,7 @@ function AppContent({
   function stopLongPress() {
     clearTimeout(longPress.current);
   }
-  function sendChat(text: string) {
-    if (!text.trim() || !me) return;
+  function transmit(text: string) {
     const privateId = thread.startsWith("private:")
       ? Number(thread.split(":")[1])
       : undefined;
@@ -1085,7 +1118,52 @@ function AppContent({
       client: privateId,
       text,
     });
-    setMessages((old) => [
+    pendingEchoes.current.push({
+      thread: currentThread,
+      text,
+      time: Date.now(),
+    });
+  }
+  const sameMessage = (a: ThreadMessage, b: ThreadMessage) =>
+    a.time === b.time && a.from === b.from && a.thread === b.thread;
+  function startEdit(target?: ThreadMessage) {
+    if (
+      !target ||
+      target.from !== me?.id ||
+      target.thread !== currentThread ||
+      !editable(target.text, isFileUrl)
+    )
+      return;
+    setEditing(target);
+    setText(target.text);
+  }
+  function editLast() {
+    const last = [...visibleMessages]
+      .reverse()
+      .find((m) => m.from === me?.id && editable(m.text, isFileUrl));
+    startEdit(last);
+  }
+  function cancelEdit() {
+    setEditing(undefined);
+    setText("");
+  }
+  function sendChat(text: string) {
+    if (!text.trim() || !me) return;
+    if (editing) {
+      const current = messagesRef.current.find((m) => sameMessage(m, editing));
+      setEditing(undefined);
+      setText("");
+      if (!current || text === current.text) return;
+      transmit(formatCorrection(current.text, text));
+      updateMessages((old) =>
+        old.map((m) =>
+          sameMessage(m, editing) ? { ...m, text, edited: true } : m,
+        ),
+      );
+      return;
+    }
+    transmit(text);
+    updateMessages((old) => [
       ...old.slice(-499),
       {
         target: thread,
@@ -1730,6 +1808,21 @@ function AppContent({
                             minute: "2-digit",
                           })}
                         </time>
+                        {m.edited && (
+                          <small className="message-edited">upraveno</small>
+                        )}
+                        {m.from === me?.id &&
+                          editable(m.text, isFileUrl) && (
+                            <button
+                              type="button"
+                              className="message-edit"
+                              aria-label="Upravit zprávu"
+                              title="Upravit zprávu"
+                              onClick={() => startEdit(m)}
+                            >
+                              <Icon name="edit" size={13} />
+                            </button>
+                          )}
                       </div>
                       <MessageBody
                         text={m.text}
@@ -1751,7 +1844,12 @@ function AppContent({
                             ...old,
                             [m.from]: m.name,
                           }));
-                          setMessages((old) => [
+                          pendingEchoes.current.push({
+                            thread: `private:${m.from}`,
+                            text,
+                            time: Date.now(),
+                          });
+                          updateMessages((old) => [
                             ...old.slice(-499),
                             {
                               target: "private",
@@ -1773,6 +1871,9 @@ function AppContent({
                 text={text}
                 setText={setText}
                 send={sendChat}
+                editing={!!editing}
+                editLast={editLast}
+                cancelEdit={cancelEdit}
                 token={uploadToken}
                 active={connected}
                 thread={currentThread}
