@@ -1627,11 +1627,20 @@ async fn connected(
             scheduled = tick.tick() => {
                 // Hudební bot: příkaz bere z vlastní fronty, jen když ho relace odešle
                 // v tomto taktu (stejné omezení rychlosti jako ostatní příkazy).
-                let music_ready = commands.is_empty() && pending.is_empty() && points.ready(Instant::now(), "sendtextmessage");
-                let (music_send, music_events) = music.tick(Instant::now(), music_ready);
+                // Odejde hned, takže čekání bota na odpověď začíná skutečným odesláním.
+                let now = Instant::now();
+                let music_count = command_counts.get("sendtextmessage").copied().unwrap_or(0) + 1;
+                let music_ready = commands.is_empty() && pending.is_empty() && music.wants_send(now)
+                    && points.ready(now, "sendtextmessage") && command_slot(addr, "sendtextmessage", own_client, music_count);
+                let (music_send, music_events) = music.tick(now, music_ready);
                 for ev in music_events { json_send(ws, ev).await?; }
                 if let Some((bot, text)) = music_send {
-                    commands.push_back(con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text));
+                    points.spend("sendtextmessage");
+                    command_counts.insert("sendtextmessage".to_owned(), music_count);
+                    let cmd = con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text);
+                    let retry = OutCommand(cmd.0.clone());
+                    let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?;
+                    pending.insert(handle, (now, retry));
                 }
                 if pending.is_empty() && let Some(cmd) = commands.front() {
                     let name = String::from_utf8_lossy(cmd.0.content()).split(' ').next().unwrap_or("unknown").to_owned();

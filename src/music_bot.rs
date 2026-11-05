@@ -341,12 +341,17 @@ impl Commander {
         self.outstanding.push_back((Expect::Manual, now));
     }
 
+    /// Má příkaz, který by limit bota právě pustil (bez vyjmutí z fronty).
+    pub fn ready(&self, now: Instant) -> bool {
+        !self.queue.is_empty()
+            && !self.outstanding.iter().any(|(e, _)| matches!(e, Expect::Mluvka { .. }))
+            && !self.last_sent.is_some_and(|t| now < t + SEND_GAP)
+            && !self.not_before.is_some_and(|t| now < t)
+    }
+
     /// Další příkaz k odeslání, pokud to dovolí limit bota.
     pub fn next_send(&mut self, now: Instant) -> Option<String> {
-        if self.outstanding.iter().any(|(e, _)| matches!(e, Expect::Mluvka { .. }))
-            || self.last_sent.is_some_and(|t| now < t + SEND_GAP)
-            || self.not_before.is_some_and(|t| now < t)
-        {
+        if !self.ready(now) {
             return None;
         }
         let (text, retried) = self.queue.pop_front()?;
@@ -474,6 +479,11 @@ impl MusicBot {
         if self.bot().is_some_and(|b| b.0 == client) {
             self.commander.manual_sent(text, now);
         }
+    }
+
+    /// Relace by teď mohla poslat botovi příkaz.
+    pub fn wants_send(&self, now: Instant) -> bool {
+        self.bot().is_some() && self.commander.ready(now)
     }
 
     /// Takt relace: příkaz k odeslání a události vypršených odpovědí.

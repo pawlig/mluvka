@@ -273,6 +273,7 @@ export async function installAudioProbe(context) {
         if (window.testAudioProxy && new URL(args[0], location.href).pathname === "/ws")
           args[0] = window.testAudioProxy;
         super(...args);
+        (window.testSockets ||= []).push(this);
         this.addEventListener("message", ({ data }) => {
           if (typeof data === "string") return;
           const now = performance.now();
@@ -1108,8 +1109,11 @@ export async function mobileAudioCheck({ browser, base, login, ok, codec, privat
     await page.goto(base);
     await login(page, "Mobilní diagnostika");
     profile = await shapeSocket(page);
-    await page.evaluate(() => window.dispatchEvent(new Event("online")));
-    await expect.poll(() => profile.connections).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      window.testSockets?.at(-1)?.close();
+      window.dispatchEvent(new Event("online"));
+    });
+    await expect.poll(() => profile.connections, { timeout: 30000 }).toBeGreaterThan(0);
     await expect(page.locator(".connection-status")).toHaveText("Připojeno", { timeout: 45000 });
     const cdp = profile.cdp;
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });

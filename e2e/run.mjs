@@ -784,8 +784,12 @@ try {
     networkProfile = await shapeSocket(b);
     // Routing zachytí až nová WS. Čistý tón proto používá skutečnou přímou cestu.
     if (!process.env.E2E_NATIVE) {
-      await b.evaluate(() => window.dispatchEvent(new Event("online")));
-      await expect.poll(() => networkProfile.connections).toBeGreaterThan(0);
+      // „online“ zdravé WS neruší (méně TS připojení), proto ho test zavře sám.
+      await b.evaluate(() => {
+        window.testSockets?.at(-1)?.close();
+        window.dispatchEvent(new Event("online"));
+      });
+      await expect.poll(() => networkProfile.connections, { timeout: 30000 }).toBeGreaterThan(0);
       await connected(b);
       expect(await b.evaluate(() => window.__mluvkaStats.codec)).toBe(process.env.E2E_CODEC || "opus");
       ok("Síťový shaper se připojil až po měření nativního WS");
