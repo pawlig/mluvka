@@ -14,6 +14,16 @@ const results = [],
 // Jedna TS3 instance zůstává rezervovaná přes oba transporty; samostatné
 // pracovní stromy jinak mohou obsadit local accounting mezi dvěma průchody.
 try {
+  const controllerStatus = await new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [new URL("./sdileni-controller.mjs", import.meta.url).pathname],
+      { stdio: "inherit" },
+    );
+    child.on("error", reject);
+    child.on("exit", resolve);
+  });
+  if (controllerStatus !== 0) throw Error("Test řízení sdílení selhal.");
   const buildStatus = await new Promise((resolve, reject) => {
     const child = spawn("npm", ["run", "build"], {
       cwd: new URL("..", import.meta.url).pathname,
