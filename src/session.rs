@@ -990,12 +990,15 @@ async fn connected(
     let mut event_poll = TimingSamples::default();
     let mut uplink_work = TimingSamples::default();
     let mut ts_work = TimingSamples::default();
+    let mut event_work = TimingSamples::default();
+    let mut ws_work = TimingSamples::default();
     let mut source_report = Instant::now();
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count) = (0, 0);
     loop {
         tokio::select! {
             incoming = ws.recv() => {
+                let ws_start = Instant::now();
                 let msg = match incoming { Some(Ok(msg)) => msg, _ => return Ok(()) };
                 if rate_start.elapsed() >= Duration::from_secs(1) { rate_start = Instant::now(); control_count = 0; audio_count = 0; }
                 match msg {
@@ -1050,8 +1053,10 @@ async fn connected(
                     Message::Pong(_) => last_pong = Instant::now(),
                     Message::Close(_) => return Ok(()),
                 }
+                ws_work.duration(ws_start.elapsed());
             },
             event = timed_event(con, &mut event_poll) => {
+                let event_start = Instant::now();
                 match event {
                     Some(Ok(StreamItem::BookEvents(events))) => {
                         for e in events {
@@ -1087,6 +1092,7 @@ async fn connected(
                     None => return Err("TS server ukončil spojení.".into()),
                     _ => {}
                 }
+                event_work.duration(event_start.elapsed());
             },
             scheduled = tick.tick() => {
                 let mix_start = Instant::now();
@@ -1109,7 +1115,7 @@ async fn connected(
                     source_arrivals.retain(|_, at| at.elapsed() < Duration::from_secs(30));
                     let timing = json!({"stage":"source", "tsIncoming":source_gaps.take(), "sessionTick":mix_gaps.take(),
                         "tickDelay":tick_delays.take(), "sessionWork":mix_work.take(), "eventPoll":event_poll.take(),
-                        "uplinkWork":uplink_work.take(), "tsWork":ts_work.take()});
+                        "uplinkWork":uplink_work.take(), "tsWork":ts_work.take(), "eventWork":event_work.take(), "wsWork":ws_work.take()});
                     tracing::info!(audio_timing = %timing, "Příjem TS a práce relace za 30 s");
                     source_report = Instant::now();
                 }
