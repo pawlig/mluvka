@@ -234,11 +234,9 @@ Pro samostatnou diagnostiku souborů lze přidat `E2E_FOCUS=files` ke stejnému 
 příkazu `npm run e2e`. Projde oba transporty, přenosy, oprávnění i screenshoty; report má
 `scope: "files"`. Tento režim nenahrazuje celý regresní běh. Velké uploady jsou v úplném
 běhu až za měřením zvukové latence a mobilními testy, v čerstvých browserových relacích.
-Při souborové přejímce se selhání měření tónu, sítě a VAD zapisují do `knownAudioFailures`
-a jako `KNOWN_AUDIO_FAILURE` ve výsledcích; běh pokračuje chatem i soubory. Přísné nulové
-limity PLC/podtečení/zahozených rámců zůstávají zachované. `complete` znamená dokončení
-obou průchodů; samostatné zvukové vady jsou v reportu uvedené i při exit 0. Chyby chatu,
-souborů a JS konzole běh ukončí neúspěšně.
+Selhání přísných zvukových měření (tón, síť, mobil) se zapíše do reportu, běh pokračuje
+dalšími kroky (chat, soubory), ale skončí s exit 1. Chyby chatu, souborů a JS konzole běh
+ukončí neúspěšně.
 
 E2E vytváří dočasný `UPLOAD_DIR` a po skončení jej odstraní; výchozí `/data` nepoužívá.
 
