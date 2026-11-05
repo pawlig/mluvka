@@ -1625,6 +1625,14 @@ async fn connected(
                 event_work.duration(event_start.elapsed());
             },
             scheduled = tick.tick() => {
+                // Hudební bot: příkaz bere z vlastní fronty, jen když ho relace odešle
+                // v tomto taktu (stejné omezení rychlosti jako ostatní příkazy).
+                let music_ready = commands.is_empty() && pending.is_empty() && points.ready(Instant::now(), "sendtextmessage");
+                let (music_send, music_events) = music.tick(Instant::now(), music_ready);
+                for ev in music_events { json_send(ws, ev).await?; }
+                if let Some((bot, text)) = music_send {
+                    commands.push_back(con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text));
+                }
                 if pending.is_empty() && let Some(cmd) = commands.front() {
                     let name = String::from_utf8_lossy(cmd.0.content()).split(' ').next().unwrap_or("unknown").to_owned();
                     let count = command_counts.get(&name).copied().unwrap_or(0) + 1;
@@ -1664,13 +1672,6 @@ async fn connected(
                 }
                 // Při dohánění údržby relace necháme prostor WS writeru.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
-                let (music_send, music_events) = music.tick(Instant::now());
-                for ev in music_events { json_send(ws, ev).await?; }
-                if let Some((bot, text)) = music_send {
-                    // Přes stejnou frontu jako ostatní příkazy, aby platilo omezení rychlosti serveru.
-                    let cmd = con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text);
-                    if commands.len() < 128 { commands.push_back(cmd); }
-                }
                 if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { mute_unconfirmed |= pending.values().any(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")); pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {

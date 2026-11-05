@@ -477,7 +477,9 @@ impl MusicBot {
     }
 
     /// Takt relace: příkaz k odeslání a události vypršených odpovědí.
-    pub fn tick(&mut self, now: Instant) -> (Option<(ClientId, String)>, Vec<Value>) {
+    /// `can_send` = fronta příkazů relace je volná, příkaz odejde hned. Jinak
+    /// zůstane u bota, aby čekání na odpověď běželo od skutečného odeslání.
+    pub fn tick(&mut self, now: Instant, can_send: bool) -> (Option<(ClientId, String)>, Vec<Value>) {
         let events = self
             .commander
             .expire(now)
@@ -485,8 +487,8 @@ impl MusicBot {
             .map(|c| json!({"type":"music","event":"timeout","command":c}))
             .collect();
         let send = match self.bot() {
-            Some(id) => self.commander.next_send(now).map(|t| (id, t)),
-            None => None,
+            Some(id) if can_send => self.commander.next_send(now).map(|t| (id, t)),
+            _ => None,
         };
         (send, events)
     }
@@ -721,7 +723,7 @@ mod tests {
         let mut m = MusicBot { bot: Some((bot, "Spotify Bot".into())), commander: Commander::default() };
         m.manual_sent(bot.0, "ahoj", start);
         assert!(m.request("now", None).is_none());
-        let (send, events) = m.tick(start);
+        let (send, events) = m.tick(start, true);
         assert!(events.is_empty());
         assert_eq!(send, Some((bot, "/now".to_string())));
         // Ozvěna ručního „ahoj" zůstává v chatu, ozvěna `/now` ne.
@@ -733,7 +735,7 @@ mod tests {
         assert_eq!(event["command"], "/now");
         assert_eq!(event["reply"]["kind"], "now");
         // Po vypršení se „ahoj" nehlásí jako nezodpovězený příkaz.
-        assert!(m.tick(start + Duration::from_secs(9)).1.is_empty());
+        assert!(m.tick(start + Duration::from_secs(9), true).1.is_empty());
     }
 
     #[test]
