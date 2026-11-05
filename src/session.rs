@@ -130,6 +130,7 @@ struct Socket {
     pending_mute: Option<(bool, bool)>,
     ban_seconds: Option<u64>,
     cooldown_until: Option<Instant>,
+    ts_departed: bool,
 }
 impl Socket {
     async fn recv(&mut self) -> Option<Result<Message, axum::Error>> {
@@ -597,6 +598,7 @@ pub async fn run(
         pending_mute: None,
         ban_seconds: None,
         cooldown_until: None,
+        ts_departed: false,
     };
     if !*shutdown.borrow()
         && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads).await
@@ -816,7 +818,11 @@ async fn session(
     // I při chybě WS je nutné dokončit UDP odpojení a zahodit identitu v paměti.
     // Po odmítnutí handshake je spojovací future knihovny již dokončená;
     // její další poll by panikoval. UDP disconnect potřebuje jen navázaná TS relace.
-    if let Ok(book) = con.get_state() {
+    // Server už potvrdil odchod (kick/ban/ukončení); další disconnect by
+    // jen čekal na neexistujícího klienta a oddaloval oznámení chyby prohlížeči.
+    if !ws.ts_departed
+        && let Ok(book) = con.get_state()
+    {
         let client = book.own_client;
         // Ruční odpojení musí přečkat i krátké zpomalení příkazů. Nová relace
         // stejného UID stále čeká na gate; při shutdown platí společný 3s deadline.
@@ -1010,6 +1016,7 @@ async fn connected(
                         for e in events {
                             if let Event::PropertyRemoved { id: tsclientlib::events::PropertyId::Client(id), ref extra, .. } = e
                                 && id == own_client {
+                                ws.ts_departed = true;
                                 return Err(ts_departure(extra.reason).into());
                             }
                             if let Event::Message { target, invoker, message } = e {
