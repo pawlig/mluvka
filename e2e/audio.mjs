@@ -730,6 +730,7 @@ export async function codecRecoveryCheck(ok) {
     permissions: { query: async () => ({ state: "granted" }) },
     mediaDevices: {
       removeEventListener() {},
+      enumerateDevices: async () => [],
       getUserMedia: async () => {
         micCalls++;
         const track = {
@@ -774,14 +775,15 @@ export async function codecRecoveryCheck(ok) {
     58,
     "běžných 50 rámců/s musí pokračovat po zahození dávky",
   );
-  const attachContext = () => {
-    engine.context = {
+  const attachContext = (target = engine) => {
+    target.context = {
       state: "running",
       removeEventListener() {},
       close: async () => {},
+      resume: async () => {},
       createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
     };
-    engine.node = { disconnect() {} };
+    target.node = { disconnect() {} };
   };
   attachContext();
   await engine.changeInput();
@@ -802,6 +804,37 @@ export async function codecRecoveryCheck(ok) {
     "ztracené zařízení nebo ruční retry smí otevřít nový vstup",
   );
   assert.equal(stopped, 1);
+  // Uživatel může nechat výzvu otevřenou déle než dvousekundový recover.
+  // Zamítnutí pak nesmí odemknout další automaticky zařazenou žádost.
+  const blocked = new Engine(
+    {},
+    () => {},
+    () => {},
+  );
+  attachContext(blocked);
+  const originalGet = testNavigator.mediaDevices.getUserMedia;
+  let deny,
+    permissionRequests = 0;
+  testNavigator.mediaDevices.getUserMedia = () => {
+    permissionRequests++;
+    return new Promise((_, reject) => {
+      deny = reject;
+    });
+  };
+  const waitingPermission = blocked.changeInput();
+  await new Promise(setImmediate);
+  const automaticRecovery = blocked.recover();
+  deny(new DOMException("denied", "NotAllowedError"));
+  await waitingPermission;
+  await new Promise(setImmediate);
+  assert.equal(
+    permissionRequests,
+    1,
+    "recover nesmí zařadit další výzvu při čekání na oprávnění",
+  );
+  assert.equal(blocked.inputUnavailable, true);
+  await automaticRecovery;
+  testNavigator.mediaDevices.getUserMedia = originalGet;
   const stoppedBeforeHide = stopped;
   const cached = new Event("pagehide");
   Object.defineProperty(cached, "persisted", { value: true });

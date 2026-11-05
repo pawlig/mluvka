@@ -78,6 +78,7 @@ export class AudioEngine {
   transmitting = false;
   inputRequest = 0;
   private inputQueue: Promise<void> = Promise.resolve();
+  private inputBusy = 0;
   onLevel: (level: number, talking: boolean) => void;
   onFrame: (data: ArrayBuffer) => void;
   constructor(
@@ -385,6 +386,7 @@ export class AudioEngine {
     this.transmitting = false;
   }
   changeInput(reopen = false): Promise<void> {
+    ++this.inputBusy;
     const request = ++this.inputRequest;
     const context = this.context,
       node = this.node,
@@ -395,6 +397,9 @@ export class AudioEngine {
       .catch(() => {
         if (request === this.inputRequest && this.context === context)
           this.inputFailed();
+      })
+      .finally(() => {
+        --this.inputBusy;
       });
     this.inputQueue = pending;
     return pending;
@@ -577,7 +582,7 @@ export class AudioEngine {
     this.recovering = (async () => {
       if (!context || this.context !== context) return;
       void this.resume();
-      if (this.inputUnavailable) return; // Pouze ruční Zkusit znovu.
+      if (this.inputUnavailable || this.inputBusy > 0) return; // Neopakovat ani během čekající výzvy k oprávnění.
       const track = this.stream?.getAudioTracks()[0];
       const devices = await navigator.mediaDevices?.enumerateDevices();
       if (this.context !== context) return;
