@@ -13,6 +13,14 @@ export async function installSharingCapture(context, relay = false) {
       if (window.__e2eSharingInstalled) return;
       window.__e2eSharingInstalled = true;
       window.__e2eShareMessages = [];
+      window.__e2ePcs = [];
+      const OriginalPc = window.RTCPeerConnection;
+      window.RTCPeerConnection = class extends OriginalPc {
+        constructor(...args) {
+          super(...args);
+          window.__e2ePcs.push(this);
+        }
+      };
       const Original = window.WebSocket;
       window.WebSocket = class extends Original {
         constructor(...args) {
@@ -395,6 +403,61 @@ export async function sharingChecks({
   ).not.toBe(previousUfrag);
   await flowing(b);
   ok("Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje");
+
+  // Přepnutí zdroje: replaceTrack bez nového share_start a bez znovunavázání peeru.
+  const countStarts = () =>
+    a.evaluate(
+      () =>
+        window.__e2eShareMessages.filter((m) => m.type === "share_start")
+          .length,
+    );
+  const viewerPcs = await b.evaluate(() => window.__e2ePcs.length);
+  const viewerOffers = await b.evaluate(
+    () =>
+      window.__e2eShareMessages.filter((m) => m.type === "rtc_offer").length,
+  );
+  const oldStreamId = await a.evaluate(() => window.__e2eDisplayStream.id);
+  const startsBefore = await countStarts();
+  await a.locator(".share-toggle").click();
+  await a.getByRole("button", { name: "Přepnout zdroj", exact: true }).click();
+  await expect
+    .poll(() => a.evaluate(() => window.__e2eDisplayStream.id))
+    .not.toBe(oldStreamId);
+  await expect(
+    a.getByRole("button", { name: "Přepnout zdroj", exact: true }),
+  ).toBeEnabled();
+  if (
+    await a
+      .getByRole("button", { name: "Ukončit sdílení", exact: true })
+      .isVisible()
+  )
+    await a.locator(".share-toggle").click();
+  const video = b.locator(".share-player video");
+  const timeBefore = await video.evaluate((v) => v.currentTime);
+  await expect
+    .poll(() => video.evaluate((v) => v.currentTime))
+    .toBeGreaterThan(timeBefore + 1);
+  expect(await video.evaluate((v) => v.videoWidth)).toBeGreaterThan(0);
+  await flowing(b);
+  expect(await countStarts()).toBe(startsBefore);
+  expect(await b.evaluate(() => window.__e2ePcs.length)).toBe(viewerPcs);
+  expect(
+    await b.evaluate(
+      () =>
+        window.__e2eShareMessages.filter((m) => m.type === "rtc_offer").length,
+    ),
+  ).toBe(viewerOffers);
+  expect(
+    await b.evaluate(() =>
+      window.__e2ePcs
+        .filter((pc) => pc.connectionState !== "closed")
+        .map((pc) => pc.connectionState),
+    ),
+  ).toContain("connected");
+  await expect(a.locator(".share-live")).toContainText("1 diváků");
+  ok(
+    "Přepnout zdroj: divák dál přehrává, bez nového share_start i bez nového vyjednání peeru",
+  );
 
   // Souběžné sdílení oběma směry musí mít dvě nezávislá PeerConnection.
   await startSharing(b);
