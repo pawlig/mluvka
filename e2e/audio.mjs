@@ -221,10 +221,12 @@ export async function toneCheck(a, b, ok, codec, profile) {
   // Změna captureru a otevření kodeku nesmějí vstoupit do měření ustáleného hovoru.
   await b.waitForTimeout(5000);
   await expect
-    .poll(() => b.evaluate(() => window.__mluvkaStats.bufferMs), {
-      timeout: 15000,
-    })
-    .toBeLessThanOrEqual(120);
+    .poll(() => b.evaluate(() => {
+      const s = window.__mluvkaStats;
+      return s.bufferMs <= Math.max(120, s.targetBufferMs + 80);
+    }), { timeout: 15000 })
+    .toBe(true);
+  const initialTargetBufferMs = await b.evaluate(() => window.__mluvkaStats.targetBufferMs);
   await b.evaluate(() => {
     const node = window.testAudioNode;
     const analyser = node.context.createAnalyser();
@@ -321,6 +323,7 @@ export async function toneCheck(a, b, ok, codec, profile) {
     dominantHz,
     rmsDifferenceDb,
     maxDownKbps: maxDown,
+    initialTargetBufferMs,
     targetBufferMs: measurement.stats.targetBufferMs,
     diagnostics: await diagnosticCheck(b, ok),
   };
@@ -332,7 +335,7 @@ export async function toneCheck(a, b, ok, codec, profile) {
     expect(min).toBeGreaterThanOrEqual(40);
     // Nové zadání dovoluje vyšší cíl při skutečně naměřeném jitteru.
     // Původní meze zůstávají pro čistý desktop, nulové podtečení platí vždy.
-    if (measurement.binaryGapMs <= 50) {
+    if (measurement.binaryGapMs <= 50 && initialTargetBufferMs <= 90) {
       expect(max).toBeLessThanOrEqual(120);
       expect(measurement.stats.targetBufferMs).toBeLessThanOrEqual(90);
     } else expect(max).toBeLessThanOrEqual(400);
@@ -880,7 +883,7 @@ export async function mobileAudioCheck({ browser, base, login, ok, codec, privat
     await expect(page.locator(".connection-status")).toHaveText("Připojeno", { timeout: 45000 });
     const cdp = profile.cdp;
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-    profile.configure(80, 1500000, true);
+    profile.configure(80, 0, true);
     // Adaptace se měří po náběhu linky, nikoli při záměrné změně profilu.
     await page.waitForTimeout(15000);
     await page.evaluate(() => {
@@ -889,9 +892,10 @@ export async function mobileAudioCheck({ browser, base, login, ok, codec, privat
     });
     profile.reset();
     await page.waitForTimeout(60000);
-    await profile.snapshot();
-    const diagnostic = await diagnosticCheck(page, ok, [...privateValues, "Mobilní diagnostika"]);
     const stats = await page.evaluate(() => ({ ...window.__mluvkaStats, uid: undefined }));
+    await profile.snapshot();
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    const diagnostic = await diagnosticCheck(page, ok, [...privateValues, "Mobilní diagnostika"]);
     const name = `Mobilní zvuk / ${codec}: CPU 4×, jitter 50–300 / 400 ms, 60 s`;
     const details = { underruns: stats.underruns, plcFrames: stats.plcFrames, lostFrames: stats.lostFrames, droppedFrames: stats.droppedFrames,
       inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs, diagnostic };

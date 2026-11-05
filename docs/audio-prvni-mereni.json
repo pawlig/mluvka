@@ -1,0 +1,1318 @@
+{
+  "date": "2026-11-05T00:46:41.780Z",
+  "note": "První měření diagnostiky před opravou PI regulátoru. Mobilní shaper ještě neopakoval prodlevy při trvalé latenci, jeho mobilní výsledky nejsou přejímka požadovaného jitteru. Čistý tón a histogramy backendu jsou platné.",
+  "results": [
+    {
+      "test": "TS3 tón 440 Hz / opus, 30 s bez podtečení",
+      "result": "FAIL",
+      "underruns": 1,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "binaryGapMs": 120.19999980926514,
+      "path": "native",
+      "maxJump": 0.015198150649666786,
+      "minBufferMs": 70.73559460510054,
+      "maxBufferMs": 194.65768962836592,
+      "dominantHz": 439.453125,
+      "rmsDifferenceDb": -0.03444489630019877,
+      "maxDownKbps": 99.87602481408702,
+      "targetBufferMs": 162.66666666666666,
+      "diagnostics": {
+        "schema": 1,
+        "build": "46f36ab",
+        "capturedAt": "2026-11-05T00:35:36.925Z",
+        "codec": "opus",
+        "bufferMs": 170.35,
+        "targetBufferMs": 162.67,
+        "underruns": 1,
+        "underrunsLastMinute": 2,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 0,
+        "incomingGapP95Ms": 22.2,
+        "incomingGapMaxMs": 120.2,
+        "incomingGapSamples": 1500,
+        "incomingGapHistogram": [
+          {
+            "upToMs": 25,
+            "count": 1472
+          },
+          {
+            "upToMs": 50,
+            "count": 21
+          },
+          {
+            "upToMs": 100,
+            "count": 5
+          },
+          {
+            "upToMs": 200,
+            "count": 2
+          },
+          {
+            "upToMs": 300,
+            "count": 0
+          },
+          {
+            "upToMs": 400,
+            "count": 0
+          },
+          {
+            "upToMs": null,
+            "count": 0
+          }
+        ],
+        "mainThreadLongTasks": 0,
+        "mainThreadLongTaskMaxMs": 0,
+        "incomingGapWithLongTaskMaxMs": 0,
+        "decodeAverageMs": 0.14,
+        "decodeMaxMs": 7.1,
+        "sampleRate": 48000,
+        "baseLatency": 0.005333333333333333,
+        "outputLatency": 0.035,
+        "renderQuantum": 128,
+        "outputRoute": "přímo / AudioDestinationNode",
+        "websocketCompression": false,
+        "contextState": "running",
+        "effectiveType": "4g",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "upKbps": 0,
+        "downKbps": 99.88,
+        "driftPercent": 0.04,
+        "maxJump": 0.02
+      },
+      "runCodec": "opus"
+    },
+    {
+      "test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s",
+      "result": "FAIL",
+      "underruns": 1,
+      "downKbps": 86.53061227759937,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "inputGapMs": 180.48095900000044,
+      "outputGapMs": 118.35887499999808,
+      "comparisonOnly": false,
+      "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Mobilní zvuk / opus: CPU 4×, jitter 50–300 / 400 ms, 60 s",
+      "result": "FAIL",
+      "underruns": 1,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "droppedFrames": 0,
+      "inputGapMs": 381.91191699999763,
+      "outputGapMs": 329.5341660000013,
+      "diagnostic": {
+        "schema": 1,
+        "build": "46f36ab",
+        "capturedAt": "2026-11-05T00:37:49.608Z",
+        "codec": "opus",
+        "bufferMs": 147.99,
+        "targetBufferMs": 320,
+        "underruns": 1,
+        "underrunsLastMinute": 1,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 0,
+        "incomingGapP95Ms": 28.5,
+        "incomingGapMaxMs": 312,
+        "incomingGapSamples": 1500,
+        "incomingGapHistogram": [
+          {
+            "upToMs": 25,
+            "count": 1374
+          },
+          {
+            "upToMs": 50,
+            "count": 115
+          },
+          {
+            "upToMs": 100,
+            "count": 7
+          },
+          {
+            "upToMs": 200,
+            "count": 3
+          },
+          {
+            "upToMs": 300,
+            "count": 0
+          },
+          {
+            "upToMs": 400,
+            "count": 1
+          },
+          {
+            "upToMs": null,
+            "count": 0
+          }
+        ],
+        "mainThreadLongTasks": 1,
+        "mainThreadLongTaskMaxMs": 279,
+        "incomingGapWithLongTaskMaxMs": 312,
+        "decodeAverageMs": 0.13,
+        "decodeMaxMs": 5,
+        "sampleRate": 48000,
+        "baseLatency": 0.021333333333333333,
+        "outputLatency": 0.047,
+        "renderQuantum": 128,
+        "outputRoute": "<audio> / MediaStreamDestination",
+        "websocketCompression": false,
+        "contextState": "running",
+        "effectiveType": "4g",
+        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+        "upKbps": 0,
+        "downKbps": 83.55,
+        "driftPercent": 1.05,
+        "maxJump": 0.11
+      },
+      "runCodec": "opus"
+    },
+    {
+      "test": "Backend: histogram mezer mixu a WS writeru bez osobních údajů",
+      "result": "OK",
+      "timing": [
+        {
+          "averageFrameBytes": 89,
+          "producer": {
+            "histogram": [
+              1454,
+              34,
+              9,
+              2,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 173.62804200000002,
+            "p95Ms": 22.572917
+          },
+          "queueMaxMs": 26.857625,
+          "writer": {
+            "histogram": [
+              1452,
+              35,
+              9,
+              3,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 173.652375,
+            "p95Ms": 22.500958
+          }
+        },
+        {
+          "averageFrameBytes": 89,
+          "producer": {
+            "histogram": [
+              1322,
+              25,
+              7,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 82.69975000000001,
+            "p95Ms": 22.131416
+          },
+          "queueMaxMs": 6.544292,
+          "writer": {
+            "histogram": [
+              1325,
+              23,
+              5,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 112.564584,
+            "p95Ms": 22.283250000000002
+          }
+        },
+        {
+          "averageFrameBytes": 90,
+          "producer": {
+            "histogram": [
+              1492,
+              6,
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 147.09383400000002,
+            "p95Ms": 20.967958
+          },
+          "queueMaxMs": 5.729583,
+          "writer": {
+            "histogram": [
+              1491,
+              6,
+              4,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 147.126667,
+            "p95Ms": 20.999875000000003
+          }
+        },
+        {
+          "averageFrameBytes": 207,
+          "producer": {
+            "histogram": [
+              1485,
+              10,
+              4,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 120.10841699999999,
+            "p95Ms": 21.538125
+          },
+          "queueMaxMs": 16.348374999999997,
+          "writer": {
+            "histogram": [
+              1485,
+              10,
+              2,
+              3,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 120.07116599999999,
+            "p95Ms": 21.648084
+          }
+        },
+        {
+          "averageFrameBytes": 90,
+          "producer": {
+            "histogram": [
+              1482,
+              15,
+              2,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 103.492875,
+            "p95Ms": 21.621125000000003
+          },
+          "queueMaxMs": 2.127334,
+          "writer": {
+            "histogram": [
+              1481,
+              16,
+              2,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 103.47066600000001,
+            "p95Ms": 21.778917
+          }
+        },
+        {
+          "averageFrameBytes": 213,
+          "producer": {
+            "histogram": [
+              1458,
+              34,
+              4,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 116.870792,
+            "p95Ms": 23.023417000000002
+          },
+          "queueMaxMs": 1.717541,
+          "writer": {
+            "histogram": [
+              1458,
+              34,
+              4,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 116.93900000000001,
+            "p95Ms": 23.0685
+          }
+        },
+        {
+          "averageFrameBytes": 90,
+          "producer": {
+            "histogram": [
+              1458,
+              35,
+              6,
+              1,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 201.739,
+            "p95Ms": 21.79775
+          },
+          "queueMaxMs": 68.83699999999999,
+          "writer": {
+            "histogram": [
+              1456,
+              37,
+              5,
+              2,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 201.821709,
+            "p95Ms": 21.99425
+          }
+        },
+        {
+          "averageFrameBytes": 232,
+          "producer": {
+            "histogram": [
+              1476,
+              23,
+              0,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 198.856334,
+            "p95Ms": 21.604667000000003
+          },
+          "queueMaxMs": 7.0638749999999995,
+          "writer": {
+            "histogram": [
+              1477,
+              22,
+              0,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 198.924916,
+            "p95Ms": 21.68825
+          }
+        },
+        {
+          "averageFrameBytes": 90,
+          "producer": {
+            "histogram": [
+              1495,
+              6,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 42.901,
+            "p95Ms": 21.519875000000003
+          },
+          "queueMaxMs": 7.39675,
+          "writer": {
+            "histogram": [
+              1494,
+              7,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 42.911209,
+            "p95Ms": 21.587833
+          }
+        },
+        {
+          "averageFrameBytes": 215,
+          "producer": {
+            "histogram": [
+              1459,
+              23,
+              1,
+              3,
+              2,
+              0,
+              0
+            ],
+            "maxMs": 234.096,
+            "p95Ms": 21.444292
+          },
+          "queueMaxMs": 5.0809169999999995,
+          "writer": {
+            "histogram": [
+              1460,
+              22,
+              1,
+              3,
+              2,
+              0,
+              0
+            ],
+            "maxMs": 234.12708300000003,
+            "p95Ms": 21.588458000000003
+          }
+        },
+        {
+          "averageFrameBytes": 224,
+          "producer": {
+            "histogram": [
+              1463,
+              29,
+              4,
+              1,
+              1,
+              2,
+              0
+            ],
+            "maxMs": 397.092583,
+            "p95Ms": 22.598582999999998
+          },
+          "queueMaxMs": 0.8228340000000001,
+          "writer": {
+            "histogram": [
+              1463,
+              29,
+              4,
+              1,
+              1,
+              2,
+              0
+            ],
+            "maxMs": 396.743167,
+            "p95Ms": 22.512042
+          }
+        },
+        {
+          "averageFrameBytes": 90,
+          "producer": {
+            "histogram": [
+              1431,
+              56,
+              6,
+              6,
+              2,
+              0,
+              0
+            ],
+            "maxMs": 231.81674999999998,
+            "p95Ms": 24.428625
+          },
+          "queueMaxMs": 32.604084,
+          "writer": {
+            "histogram": [
+              1429,
+              59,
+              5,
+              7,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 238.88916700000001,
+            "p95Ms": 24.671625
+          }
+        },
+        {
+          "averageFrameBytes": 223,
+          "producer": {
+            "histogram": [
+              1430,
+              75,
+              4,
+              1,
+              0,
+              1,
+              0
+            ],
+            "maxMs": 390.665125,
+            "p95Ms": 25.331042
+          },
+          "queueMaxMs": 3.331709,
+          "writer": {
+            "histogram": [
+              1428,
+              77,
+              4,
+              1,
+              0,
+              1,
+              0
+            ],
+            "maxMs": 390.674167,
+            "p95Ms": 25.129959
+          }
+        },
+        {
+          "averageFrameBytes": 224,
+          "producer": {
+            "histogram": [
+              1438,
+              61,
+              1,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 173.703834,
+            "p95Ms": 24.2775
+          },
+          "queueMaxMs": 3.528625,
+          "writer": {
+            "histogram": [
+              1436,
+              63,
+              1,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 174.314833,
+            "p95Ms": 24.302083
+          }
+        },
+        {
+          "averageFrameBytes": 90,
+          "producer": {
+            "histogram": [
+              1422,
+              65,
+              9,
+              2,
+              1,
+              1,
+              0
+            ],
+            "maxMs": 302.866042,
+            "p95Ms": 25.5545
+          },
+          "queueMaxMs": 20.595917,
+          "writer": {
+            "histogram": [
+              1419,
+              67,
+              10,
+              2,
+              1,
+              1,
+              0
+            ],
+            "maxMs": 302.88654199999996,
+            "p95Ms": 25.6335
+          }
+        },
+        {
+          "averageFrameBytes": 89,
+          "producer": {
+            "histogram": [
+              1391,
+              87,
+              16,
+              3,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 133.72899999999998,
+            "p95Ms": 27.885666
+          },
+          "queueMaxMs": 33.097875,
+          "writer": {
+            "histogram": [
+              1390,
+              89,
+              12,
+              6,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 139.36779199999998,
+            "p95Ms": 28.124875
+          }
+        }
+      ],
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení",
+      "result": "OK",
+      "underruns": 0,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "binaryGapMs": 34.299999713897705,
+      "path": "native",
+      "maxJump": 0.0683616828173399,
+      "minBufferMs": 57.67768504517638,
+      "maxBufferMs": 58.48924903518006,
+      "dominantHz": 439.453125,
+      "rmsDifferenceDb": 0.0006469619913940639,
+      "maxDownKbps": 776.6230679232353,
+      "targetBufferMs": 61.33333333333333,
+      "diagnostics": {
+        "schema": 1,
+        "build": "46f36ab",
+        "capturedAt": "2026-11-05T00:42:32.321Z",
+        "codec": "pcm",
+        "bufferMs": 57.74,
+        "targetBufferMs": 61.33,
+        "underruns": 0,
+        "underrunsLastMinute": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 0,
+        "incomingGapP95Ms": 22,
+        "incomingGapMaxMs": 34.2,
+        "incomingGapSamples": 1499,
+        "incomingGapHistogram": [
+          {
+            "upToMs": 25,
+            "count": 1476
+          },
+          {
+            "upToMs": 50,
+            "count": 23
+          },
+          {
+            "upToMs": 100,
+            "count": 0
+          },
+          {
+            "upToMs": 200,
+            "count": 0
+          },
+          {
+            "upToMs": 300,
+            "count": 0
+          },
+          {
+            "upToMs": 400,
+            "count": 0
+          },
+          {
+            "upToMs": null,
+            "count": 0
+          }
+        ],
+        "mainThreadLongTasks": 0,
+        "mainThreadLongTaskMaxMs": 0,
+        "incomingGapWithLongTaskMaxMs": 0,
+        "decodeAverageMs": 0,
+        "decodeMaxMs": 0,
+        "sampleRate": 48000,
+        "baseLatency": 0.005333333333333333,
+        "outputLatency": 0.034,
+        "renderQuantum": 128,
+        "outputRoute": "přímo / AudioDestinationNode",
+        "websocketCompression": false,
+        "contextState": "running",
+        "effectiveType": "4g",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+        "upKbps": 0,
+        "downKbps": 761.09,
+        "driftPercent": 0,
+        "maxJump": 0.07
+      },
+      "runCodec": "pcm"
+    },
+    {
+      "test": "CDP síť 1,5 Mb/s / 80 ms, pcm, 30 s",
+      "result": "OK",
+      "underruns": 0,
+      "downKbps": 768.701451262028,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "inputGapMs": 199.59608299999854,
+      "outputGapMs": 132.7133329999997,
+      "comparisonOnly": true,
+      "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Mobilní zvuk / pcm: CPU 4×, jitter 50–300 / 400 ms, 60 s",
+      "result": "FAIL",
+      "underruns": 0,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "droppedFrames": 0,
+      "inputGapMs": 246.77508300000045,
+      "outputGapMs": 136.5673339999994,
+      "diagnostic": {
+        "schema": 1,
+        "build": "46f36ab",
+        "capturedAt": "2026-11-05T00:44:51.021Z",
+        "codec": "pcm",
+        "bufferMs": 318.39,
+        "targetBufferMs": 320,
+        "underruns": 0,
+        "underrunsLastMinute": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 0,
+        "incomingGapP95Ms": 28.2,
+        "incomingGapMaxMs": 99.3,
+        "incomingGapSamples": 1500,
+        "incomingGapHistogram": [
+          {
+            "upToMs": 25,
+            "count": 1384
+          },
+          {
+            "upToMs": 50,
+            "count": 106
+          },
+          {
+            "upToMs": 100,
+            "count": 10
+          },
+          {
+            "upToMs": 200,
+            "count": 0
+          },
+          {
+            "upToMs": 300,
+            "count": 0
+          },
+          {
+            "upToMs": 400,
+            "count": 0
+          },
+          {
+            "upToMs": null,
+            "count": 0
+          }
+        ],
+        "mainThreadLongTasks": 0,
+        "mainThreadLongTaskMaxMs": 0,
+        "incomingGapWithLongTaskMaxMs": 0,
+        "decodeAverageMs": 0,
+        "decodeMaxMs": 0,
+        "sampleRate": 48000,
+        "baseLatency": 0.021333333333333333,
+        "outputLatency": 0.047,
+        "renderQuantum": 128,
+        "outputRoute": "<audio> / MediaStreamDestination",
+        "websocketCompression": false,
+        "contextState": "running",
+        "effectiveType": "4g",
+        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+        "upKbps": 0,
+        "downKbps": 765.49,
+        "driftPercent": 0.03,
+        "maxJump": 0.22
+      },
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Backend: histogram mezer mixu a WS writeru bez osobních údajů",
+      "result": "OK",
+      "timing": [
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1475,
+              22,
+              2,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 55.022957999999996,
+            "p95Ms": 21.535249999999998
+          },
+          "queueMaxMs": 16.104166,
+          "writer": {
+            "histogram": [
+              1471,
+              25,
+              3,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 61.243333,
+            "p95Ms": 21.630709000000003
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1302,
+              9,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 45.600666999999994,
+            "p95Ms": 21.621208
+          },
+          "queueMaxMs": 16.563792,
+          "writer": {
+            "histogram": [
+              1294,
+              16,
+              1,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 62.179416,
+            "p95Ms": 21.828500000000002
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1492,
+              10,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 30.211417,
+            "p95Ms": 20.936583000000002
+          },
+          "queueMaxMs": 3.3592079999999997,
+          "writer": {
+            "histogram": [
+              1491,
+              11,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 30.145124999999997,
+            "p95Ms": 20.994125
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1488,
+              13,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 32.66875,
+            "p95Ms": 21.442625
+          },
+          "queueMaxMs": 0.465667,
+          "writer": {
+            "histogram": [
+              1488,
+              13,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 32.847833,
+            "p95Ms": 21.484125
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1441,
+              48,
+              7,
+              4,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 183.397,
+            "p95Ms": 24.364875
+          },
+          "queueMaxMs": 36.059167,
+          "writer": {
+            "histogram": [
+              1443,
+              44,
+              9,
+              4,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 183.43354200000002,
+            "p95Ms": 24.2865
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1429,
+              48,
+              11,
+              4,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 133.211041,
+            "p95Ms": 24.185833
+          },
+          "queueMaxMs": 16.691042,
+          "writer": {
+            "histogram": [
+              1429,
+              48,
+              11,
+              4,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 133.26,
+            "p95Ms": 24.191916
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1481,
+              15,
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 125.017625,
+            "p95Ms": 21.380916
+          },
+          "queueMaxMs": 9.744,
+          "writer": {
+            "histogram": [
+              1480,
+              16,
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 115.331542,
+            "p95Ms": 21.414666999999998
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1488,
+              9,
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 103.934792,
+            "p95Ms": 20.93375
+          },
+          "queueMaxMs": 12.063958,
+          "writer": {
+            "histogram": [
+              1487,
+              10,
+              4,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 99.670833,
+            "p95Ms": 20.98175
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1482,
+              15,
+              4,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 98.68054099999999,
+            "p95Ms": 21.197792
+          },
+          "queueMaxMs": 1.079583,
+          "writer": {
+            "histogram": [
+              1482,
+              15,
+              4,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 98.73920899999999,
+            "p95Ms": 21.207209000000002
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1500,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 23.9805,
+            "p95Ms": 20.809292
+          },
+          "queueMaxMs": 0.48404200000000003,
+          "writer": {
+            "histogram": [
+              1499,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 26.200042,
+            "p95Ms": 20.818834000000003
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1499,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 24.963625,
+            "p95Ms": 21.124917
+          },
+          "queueMaxMs": 1.370125,
+          "writer": {
+            "histogram": [
+              1499,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 24.968125,
+            "p95Ms": 21.111
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1494,
+              3,
+              1,
+              1,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 244.710541,
+            "p95Ms": 20.909209
+          },
+          "queueMaxMs": 3.306542,
+          "writer": {
+            "histogram": [
+              1494,
+              3,
+              1,
+              1,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 250.154541,
+            "p95Ms": 20.931541000000003
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1433,
+              59,
+              7,
+              1,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 233.964292,
+            "p95Ms": 24.261875
+          },
+          "queueMaxMs": 1.778417,
+          "writer": {
+            "histogram": [
+              1434,
+              59,
+              6,
+              1,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 233.95575,
+            "p95Ms": 24.091375000000003
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1429,
+              64,
+              6,
+              0,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 219.86658400000002,
+            "p95Ms": 24.637417000000003
+          },
+          "queueMaxMs": 2.40675,
+          "writer": {
+            "histogram": [
+              1429,
+              63,
+              7,
+              0,
+              1,
+              0,
+              0
+            ],
+            "maxMs": 219.880416,
+            "p95Ms": 24.664416000000003
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1427,
+              69,
+              5,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 53.996,
+            "p95Ms": 24.939959
+          },
+          "queueMaxMs": 25.43325,
+          "writer": {
+            "histogram": [
+              1428,
+              66,
+              7,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 64.29275,
+            "p95Ms": 24.792833
+          }
+        },
+        {
+          "averageFrameBytes": 1921,
+          "producer": {
+            "histogram": [
+              1462,
+              34,
+              2,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 103.78854199999999,
+            "p95Ms": 21.787792
+          },
+          "queueMaxMs": 2.3375000000000004,
+          "writer": {
+            "histogram": [
+              1464,
+              31,
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 103.803625,
+            "p95Ms": 21.856916000000002
+          }
+        }
+      ],
+      "runCodec": "pcm"
+    }
+  ]
+}

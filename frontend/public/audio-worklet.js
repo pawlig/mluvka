@@ -99,11 +99,11 @@ class MluvkaAudio extends AudioWorkletProcessor {
       if (data.flush) {
         this.read = this.write = 0;
         this.playing = this.started = false;
-        this.target = sampleRate * (this.mobile ? 0.32 : 0.06);
+        this.target = Math.max(this.target, sampleRate * (this.mobile ? 0.32 : 0.06));
         this.arrival = undefined;
         this.gaps = [];
         this.lastRisk = this.clock;
-        this.filtered = sampleRate * 0.05;
+        this.filtered = this.target;
         this.integral = this.correction = 0;
         this.playResampler = new Resampler(48000, sampleRate);
         this.tail = this.last;
@@ -154,6 +154,9 @@ class MluvkaAudio extends AudioWorkletProcessor {
       });
     if (!this.playing && this.write - this.read >= this.target) {
       this.playing = this.started = true;
+      // Rebufferování mění časovou základnu; stará obálka by rozkmitala PI.
+      this.filtered = this.target;
+      this.integral = this.correction = 0;
       this.fade = 0;
       this.tail = this.last;
     }
@@ -173,10 +176,10 @@ class MluvkaAudio extends AudioWorkletProcessor {
       (this.write - this.read - this.filtered) * (1 - Math.exp(-seconds));
     if (this.playing) {
       const error = (this.filtered - this.target) / sampleRate;
-      this.integral = Math.max(
-        -0.0105,
-        Math.min(0.0105, this.integral + error * seconds * 0.02),
-      );
+      const unsaturated = error * 0.4 + this.integral;
+      // Anti-windup: velká změna rezervy nesmí nabít integrátor na desítky sekund.
+      if (Math.abs(unsaturated) < 0.0105 || error * unsaturated < 0)
+        this.integral = Math.max(-0.0105, Math.min(0.0105, this.integral + error * seconds * 0.02));
       const desired = Math.max(
         -0.0105,
         Math.min(0.0105, error * 0.4 + this.integral),
@@ -204,7 +207,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
           this.tail = this.last;
           this.fade = 0;
           this.lastRisk = this.clock;
-          this.target = Math.min(sampleRate * 0.32, this.target + sampleRate * 0.06);
+          this.target = sampleRate * 0.32;
           this.port.postMessage({ underrun: true });
         }
         sample = this.tail * Math.max(0, 1 - ++this.fade / ramp);

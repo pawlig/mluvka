@@ -21,7 +21,7 @@ const server = net.createServer((client) => {
   client.setNoDelay(true);
   upstream.setNoDelay(true);
   let header = Buffer.alloc(0), ready = false, next = 0, nextWriteAt = 0, queued = 0;
-  let timer, blocked = false, ending = false, releasing = false;
+  let timer, blocked = false, ending = false, releasing = false, batchThrough;
   const queue = [];
   const close = () => {
     clearTimeout(timer);
@@ -35,10 +35,16 @@ const server = net.createServer((client) => {
     if (blocked || client.destroyed) return;
     if (queue.length && jitter && !releasing) {
       releasing = true;
-      timer = setTimeout(pump, jitterGap());
+      timer = setTimeout(() => { batchThrough = performance.now(); pump(); }, jitterGap());
       return;
     }
     while (queue.length) {
+      if (jitter && batchThrough !== undefined && queue[0].at > batchThrough) {
+        releasing = false;
+        batchThrough = undefined;
+        pump();
+        return;
+      }
       const delay = Math.max(queue[0].at, nextWriteAt) - performance.now();
       if (delay > 0.5) {
         timer = setTimeout(pump, delay);
@@ -57,6 +63,7 @@ const server = net.createServer((client) => {
       }
     }
     releasing = false;
+    batchThrough = undefined;
     if (ending) client.end();
   };
   client.on("drain", () => { blocked = false; pump(); });
