@@ -1,14 +1,14 @@
 {
-  "date": "2026-11-05T01:50:40.013Z",
-  "complete": true,
+  "date": "2026-11-05T04:56:10.273Z",
+  "complete": false,
   "runs": [
     {
       "codec": "opus",
-      "exitCode": 0
+      "exitCode": 1
     },
     {
       "codec": "pcm",
-      "exitCode": 0
+      "exitCode": 1
     }
   ],
   "results": [
@@ -43,7 +43,7 @@
       "runCodec": "opus"
     },
     {
-      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "test": "MAX_SESSIONS=12 odmítne třináctý současný WS",
       "result": "OK",
       "runCodec": "opus"
     },
@@ -55,8 +55,8 @@
     {
       "test": "TCP shaper 80 ms / 1,5 Mb/s: pořadí, rychlost a FIN bez ztráty",
       "result": "OK",
-      "latencyMs": 85.35108300000002,
-      "transferMs": 64.18537500000002,
+      "latencyMs": 83.32083299999977,
+      "transferMs": 64.4150840000002,
       "bytes": 12000,
       "runCodec": "opus"
     },
@@ -64,7 +64,7 @@
       "test": "TCP jitter: 300 celých WS rámců bez ztráty i při dělení těla, opakované prodlevy",
       "result": "OK",
       "frames": 300,
-      "maxGapMs": 400.362666,
+      "maxGapMs": 401.555792000001,
       "gapsOver390": 1,
       "runCodec": "opus"
     },
@@ -216,6 +216,115 @@
       "runCodec": "opus"
     },
     {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Opožděný share_list nezastaví capture; sdílení čeká na share_started a divák se připojí",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Klepnutí na jméno otevírá panel uživatele; jeho tlačítko spustí sledování",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 26,
+      "framesAfter": 172,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 173,
+      "candidate": "host",
+      "framesDecoded": 172,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 8,
+      "framesAfter": 156,
+      "width": 1280,
+      "height": 720,
+      "fps": 31,
+      "bitrate": 103,
+      "candidate": "relay",
+      "framesDecoded": 156,
+      "runCodec": "opus"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Bez TURN_URLS: skutečný backend bez ICE serverů přenáší video přímo přes host kandidáta",
+      "result": "OK",
+      "framesBefore": 14,
+      "framesAfter": 161,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 105,
+      "candidate": "host",
+      "framesDecoded": 161,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Bez TURN: chybějící offer skončí do 10 s českou chybou, uvolní místo a neopakuje watch",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
       "test": "3 zprávy → odznak Kanál, mobilní Chat, titulek a app badge = 3; jediný zvuk; přečtení vynuluje",
       "result": "OK",
       "runCodec": "opus"
@@ -281,6 +390,11 @@
       "runCodec": "opus"
     },
     {
+      "test": "Odchozí zprávy zachycené ServerQuery: holé URL bez IMG; fotografie JPEG, průhlednost a malá paleta PNG",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
       "test": "A → B GIF: zachované bajty animovaného souboru",
       "result": "OK",
       "runCodec": "opus"
@@ -306,878 +420,37 @@
       "runCodec": "opus"
     },
     {
-      "test": "Chat serveru A → B",
+      "test": "Hudba: bot v kanálu → lišta s aktuální skladbou",
       "result": "OK",
       "runCodec": "opus"
     },
     {
-      "test": "Soukromá zpráva A → B",
+      "test": "Hudba: po /now je stav přehrávání neznámý (neutrální ⏯)",
       "result": "OK",
       "runCodec": "opus"
     },
     {
-      "test": "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
+      "test": "Hudba: připojení do kanálu s už přítomným botem ukáže lištu",
       "result": "OK",
       "runCodec": "opus"
     },
     {
-      "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
-      "result": "OK",
-      "receivedFrames": 1578,
-      "sentFrames": 0,
-      "rms": 0.10911056335068046,
-      "micRms": 0.01961543784401603,
-      "underruns": 0,
-      "droppedFrames": 0,
-      "droppedCaptureFrames": 0,
-      "sampleRate": 48000,
-      "bufferMs": 62.48781933116213,
-      "targetBufferMs": 66.66666666666667,
-      "driftCorrection": 0.12314337643872812,
-      "maxJump": 0.000058567680753185414,
-      "outputRms": 0.000001996228024950987,
-      "upKbps": 0,
-      "downKbps": 35.63298029615317,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "codec": "opus",
-      "notifySounds": 7,
-      "notifyPokes": 1,
-      "workletVersion": "298f3ce00c5c",
-      "renderQuantum": 128,
-      "runCodec": "opus"
-    },
-    {
-      "test": "Diagnostika zvuku: panel, schránka, technická pole a soukromí",
-      "result": "OK",
-      "codec": "opus",
-      "outputRoute": "přímo / AudioDestinationNode",
-      "runCodec": "opus"
-    },
-    {
-      "test": "TS3 tón 440 Hz / opus, 30 s bez podtečení",
-      "result": "OK",
-      "underruns": 0,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "binaryGapMs": 31.90000009536743,
-      "path": "native",
-      "maxJump": 0.011634495109319687,
-      "minBufferMs": 56.27701836182678,
-      "maxBufferMs": 62.4148863825103,
-      "dominantHz": 439.453125,
-      "rmsDifferenceDb": 0.006671163095039094,
-      "maxDownKbps": 90.77227722772277,
-      "initialTargetBufferMs": 66.66666666666667,
-      "targetBufferMs": 61.33333333333333,
-      "diagnostics": {
-        "schema": 1,
-        "build": "0e5ae08",
-        "capturedAt": "2026-11-05T01:41:01.962Z",
-        "codec": "opus",
-        "workletVersion": "298f3ce00c5c",
-        "expectedWorkletVersion": "298f3ce00c5c",
-        "bufferMs": 56.42,
-        "targetBufferMs": 61.33,
-        "underruns": 0,
-        "underrunsLastMinute": 0,
-        "plcFrames": 0,
-        "lostFrames": 0,
-        "droppedFrames": 0,
-        "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 22,
-        "incomingGapMaxMs": 31.9,
-        "incomingGapSamples": 1500,
-        "incomingGapHistogram": [
-          {
-            "upToMs": 25,
-            "count": 1497
-          },
-          {
-            "upToMs": 50,
-            "count": 3
-          },
-          {
-            "upToMs": 100,
-            "count": 0
-          },
-          {
-            "upToMs": 200,
-            "count": 0
-          },
-          {
-            "upToMs": 300,
-            "count": 0
-          },
-          {
-            "upToMs": 400,
-            "count": 0
-          },
-          {
-            "upToMs": null,
-            "count": 0
-          }
-        ],
-        "mainThreadLongTasks": 0,
-        "mainThreadLongTaskMaxMs": 0,
-        "incomingGapWithLongTaskMaxMs": 0,
-        "decodeAverageMs": 0.16,
-        "decodeMaxMs": 1.2,
-        "sampleRate": 48000,
-        "baseLatency": 0.005333333333333333,
-        "outputLatency": 0.033,
-        "renderQuantum": 128,
-        "outputRoute": "přímo / AudioDestinationNode",
-        "websocketCompression": false,
-        "contextState": "running",
-        "effectiveType": "4g",
-        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
-        "upKbps": 0,
-        "downKbps": 89.22,
-        "driftPercent": -0.01,
-        "maxJump": 0.01
-      },
-      "runCodec": "opus"
-    },
-    {
-      "test": "Síťový shaper se připojil až po měření nativního WS",
+      "test": "Hudba: pauza a pokračování podle potvrzení bota",
       "result": "OK",
       "runCodec": "opus"
     },
     {
-      "test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s",
-      "result": "OK",
-      "underruns": 0,
-      "downKbps": 85.39730134932533,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "inputGapMs": 27.1384169999983,
-      "outputGapMs": 28.563459000000876,
-      "comparisonOnly": false,
-      "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Pomalý příjemce opus: Debugger.pause 20 s, A drží spojení a B obnoví zvuk",
-      "result": "OK",
-      "cleanReconnect": false,
-      "runCodec": "opus"
-    },
-    {
-      "test": "Diagnostika zvuku: panel, schránka, technická pole a soukromí",
-      "result": "OK",
-      "codec": "opus",
-      "outputRoute": "<audio> / MediaStreamDestination",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Mobilní zvuk / opus: CPU 4×, jitter 50–300 / 400 ms, 60 s",
-      "result": "OK",
-      "underruns": 0,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "droppedFrames": 0,
-      "inputGapMs": 160.41729199999827,
-      "outputGapMs": 403.0401669999992,
-      "diagnostic": {
-        "schema": 1,
-        "build": "0e5ae08",
-        "capturedAt": "2026-11-05T01:43:13.696Z",
-        "codec": "opus",
-        "workletVersion": "298f3ce00c5c",
-        "expectedWorkletVersion": "298f3ce00c5c",
-        "bufferMs": 35.26,
-        "targetBufferMs": 320,
-        "underruns": 0,
-        "underrunsLastMinute": 0,
-        "plcFrames": 0,
-        "lostFrames": 0,
-        "droppedFrames": 0,
-        "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 192,
-        "incomingGapMaxMs": 402.2,
-        "incomingGapSamples": 1511,
-        "incomingGapHistogram": [
-          {
-            "upToMs": 25,
-            "count": 1355
-          },
-          {
-            "upToMs": 50,
-            "count": 1
-          },
-          {
-            "upToMs": 100,
-            "count": 29
-          },
-          {
-            "upToMs": 200,
-            "count": 53
-          },
-          {
-            "upToMs": 300,
-            "count": 63
-          },
-          {
-            "upToMs": 400,
-            "count": 9
-          },
-          {
-            "upToMs": null,
-            "count": 1
-          }
-        ],
-        "mainThreadLongTasks": 0,
-        "mainThreadLongTaskMaxMs": 0,
-        "incomingGapWithLongTaskMaxMs": 0,
-        "decodeAverageMs": 0.07,
-        "decodeMaxMs": 0.6,
-        "sampleRate": 48000,
-        "baseLatency": 0.021333333333333333,
-        "outputLatency": 0.047,
-        "renderQuantum": 128,
-        "outputRoute": "<audio> / MediaStreamDestination",
-        "websocketCompression": false,
-        "contextState": "running",
-        "effectiveType": "4g",
-        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
-        "upKbps": 0,
-        "downKbps": 83.26,
-        "driftPercent": -0.16,
-        "maxJump": 0.01
-      },
-      "runCodec": "opus"
-    },
-    {
-      "test": "Lokální mute A u B → RMS < 0,001, A dál vysílá",
+      "test": "Hudba: další skladba, oznámení v kanálu zůstává v chatu",
       "result": "OK",
       "runCodec": "opus"
     },
     {
-      "test": "Mute mikrofonu se propíše do TS a zastaví hlas",
+      "test": "Hudba: hlasitost až po potvrzení bota",
       "result": "OK",
       "runCodec": "opus"
     },
     {
-      "test": "Deafen zastaví poslech a po vypnutí obnoví audio",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Test mikrofonu nic nevysílá na server",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "PTT reaguje na mezerník mimo textová pole",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Hlasová aktivace vysílá nad prahem",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Obnovení: stejné UID na TS, údaje uloženy bez hesel",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Desktop 1440×900: žádný přesah ani ovládání mimo okno",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Mobil 390×844: strom bez přesahu",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Mobil 390×844: chat bez přesahu",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Zavření prohlížeče odpojí jeho TS klienta",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "VAD / opus: ticho 3 s, předběh a vyrovnaný začátek",
-      "result": "OK",
-      "onsetDb": -0.1877132010314978,
-      "precursorMs": 80,
-      "lostOnsetMs": 0,
-      "firstRms": 0.12814478011900032,
-      "steadyRms": 0.1309442945493312,
-      "runCodec": "opus"
-    },
-    {
-      "test": "Migrace AGC proběhne jednou a pozdější výslovná volba přežije reload",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Selhání konstruktoru WASM Workeru: vyjedná se funkční PCM",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "PWA: stará cache neversionovaného workletu neovlivní nový přehrávač",
-      "result": "OK",
-      "workletVersion": "298f3ce00c5c",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Auto-připojení bez formuláře: heslo serveru i posledního kanálu, stejné UID a přezdívka",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Trvalá chyba bad_password: formulář, fokus hesla, právě 1 WS za 10 s",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Aktualizace SW čeká i při žádosti z jiného tabu; po odpojení aktivuje bez reloadu hovoru",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Ruční Odpojit + reload zůstane na formuláři; nový kontext automaticky připojí",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
-      "result": "OK",
-      "elapsed_ms": 97,
-      "runCodec": "opus"
-    },
-    {
-      "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
-      "result": "OK",
-      "elapsedMs": 52,
-      "disconnectedClients": 1,
-      "disconnectReasons": [
-        8
-      ],
-      "runCodec": "opus"
-    },
-    {
-      "test": "Restart backendu za hovoru: automatický návrat, původní UID a přezdívka",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "iPhone: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
-      "result": "OK",
-      "scale": 1,
-      "minFontPx": 16,
-      "runCodec": "opus"
-    },
-    {
-      "test": "iPhone touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Pixel: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
-      "result": "OK",
-      "scale": 1,
-      "minFontPx": 16,
-      "runCodec": "opus"
-    },
-    {
-      "test": "Pixel touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "AudioContext 44100 Hz: hlas A → B i B → A; suspend → překryv → gesto resume bez odpojení TS",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Ukončená/ztlumená mikrofonní stopa: nové getUserMedia, hlas pokračuje bez odpojení TS",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "devicechange bez vybraného vstupu: mikrofon se znovu otevře, TS zůstává připojený",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "iOS: instalace Sdílet → Přidat na plochu, zavření nápovědy se pamatuje",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "PWA a mobilní relace bez JS výjimek",
-      "result": "OK",
-      "runCodec": "opus"
-    },
-    {
-      "test": "Backend: histogram mezer mixu a WS writeru bez osobních údajů",
-      "result": "OK",
-      "timing": [
-        {
-          "averageFrameBytes": 89,
-          "producer": {
-            "histogram": [
-              1484,
-              15,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 29.429667,
-            "p95Ms": 22.62725
-          },
-          "queueMaxMs": 0.948791,
-          "writer": {
-            "histogram": [
-              1480,
-              19,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 29.4105,
-            "p95Ms": 22.740792
-          }
-        },
-        {
-          "averageFrameBytes": 89,
-          "producer": {
-            "histogram": [
-              1107,
-              10,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 31.154583,
-            "p95Ms": 22.206625
-          },
-          "queueMaxMs": 0.34099999999999997,
-          "writer": {
-            "histogram": [
-              1105,
-              12,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 31.161167,
-            "p95Ms": 22.274375
-          }
-        },
-        {
-          "averageFrameBytes": 90,
-          "producer": {
-            "histogram": [
-              1499,
-              3,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 37.805958000000004,
-            "p95Ms": 21.602041999999997
-          },
-          "queueMaxMs": 2.89075,
-          "writer": {
-            "histogram": [
-              1499,
-              3,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 37.812,
-            "p95Ms": 21.614792
-          }
-        },
-        {
-          "averageFrameBytes": 182,
-          "producer": {
-            "histogram": [
-              1498,
-              3,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 26.444792000000003,
-            "p95Ms": 21.808916
-          },
-          "queueMaxMs": 0.38675,
-          "writer": {
-            "histogram": [
-              1498,
-              3,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 44.33575,
-            "p95Ms": 21.852625
-          }
-        },
-        {
-          "averageFrameBytes": 90,
-          "producer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.519875000000003,
-            "p95Ms": 21.616291999999998
-          },
-          "queueMaxMs": 0.457583,
-          "writer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.514667,
-            "p95Ms": 21.62
-          }
-        },
-        {
-          "averageFrameBytes": 213,
-          "producer": {
-            "histogram": [
-              1498,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.430083,
-            "p95Ms": 20.984416999999997
-          },
-          "queueMaxMs": 0.336958,
-          "writer": {
-            "histogram": [
-              1498,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.421958,
-            "p95Ms": 20.983459
-          }
-        },
-        {
-          "averageFrameBytes": 90,
-          "producer": {
-            "histogram": [
-              1500,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 26.776999999999997,
-            "p95Ms": 21.532249999999998
-          },
-          "queueMaxMs": 0.616625,
-          "writer": {
-            "histogram": [
-              1500,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 26.73,
-            "p95Ms": 21.566542000000002
-          }
-        },
-        {
-          "averageFrameBytes": 213,
-          "producer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 23.86675,
-            "p95Ms": 20.986500000000003
-          },
-          "queueMaxMs": 0.380708,
-          "writer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 23.885707999999997,
-            "p95Ms": 20.986625
-          }
-        },
-        {
-          "averageFrameBytes": 90,
-          "producer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.411292,
-            "p95Ms": 21.459833
-          },
-          "queueMaxMs": 0.106375,
-          "writer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.406042,
-            "p95Ms": 21.458374999999997
-          }
-        },
-        {
-          "averageFrameBytes": 213,
-          "producer": {
-            "histogram": [
-              1499,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.694334,
-            "p95Ms": 21.814209
-          },
-          "queueMaxMs": 0.889208,
-          "writer": {
-            "histogram": [
-              1499,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.721999999999998,
-            "p95Ms": 21.815041
-          }
-        },
-        {
-          "averageFrameBytes": 215,
-          "producer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.268375,
-            "p95Ms": 20.849542
-          },
-          "queueMaxMs": 0.1315,
-          "writer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.295416,
-            "p95Ms": 20.854708
-          }
-        },
-        {
-          "averageFrameBytes": 90,
-          "producer": {
-            "histogram": [
-              1499,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 33.292500000000004,
-            "p95Ms": 21.384917
-          },
-          "queueMaxMs": 0.331125,
-          "writer": {
-            "histogram": [
-              1499,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 33.374208,
-            "p95Ms": 21.398416
-          }
-        },
-        {
-          "averageFrameBytes": 215,
-          "producer": {
-            "histogram": [
-              1492,
-              7,
-              0,
-              1,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 150.71450000000002,
-            "p95Ms": 22.063416999999998
-          },
-          "queueMaxMs": 0.538417,
-          "writer": {
-            "histogram": [
-              1492,
-              7,
-              0,
-              1,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 158.35525,
-            "p95Ms": 22.056625
-          }
-        },
-        {
-          "averageFrameBytes": 214,
-          "producer": {
-            "histogram": [
-              1495,
-              3,
-              1,
-              1,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 159.18654199999997,
-            "p95Ms": 21.044916999999998
-          },
-          "queueMaxMs": 0.585125,
-          "writer": {
-            "histogram": [
-              1495,
-              3,
-              1,
-              1,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 161.89108299999998,
-            "p95Ms": 21.064125
-          }
-        },
-        {
-          "averageFrameBytes": 89,
-          "producer": {
-            "histogram": [
-              1498,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 31.382125,
-            "p95Ms": 21.765208
-          },
-          "queueMaxMs": 0.6465000000000001,
-          "writer": {
-            "histogram": [
-              1498,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 31.393375000000002,
-            "p95Ms": 21.803957999999998
-          }
-        }
-      ],
-      "runCodec": "opus"
-    },
-    {
-      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "test": "Hudba: přidání skladby i odkazu a fronta v panelu",
       "result": "OK",
       "runCodec": "opus"
     },
@@ -1212,7 +485,7 @@
       "runCodec": "pcm"
     },
     {
-      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "test": "MAX_SESSIONS=12 odmítne třináctý současný WS",
       "result": "OK",
       "runCodec": "pcm"
     },
@@ -1224,8 +497,8 @@
     {
       "test": "TCP shaper 80 ms / 1,5 Mb/s: pořadí, rychlost a FIN bez ztráty",
       "result": "OK",
-      "latencyMs": 83.61970800000017,
-      "transferMs": 66.431959,
+      "latencyMs": 83.28658300000006,
+      "transferMs": 65.73295899999994,
       "bytes": 12000,
       "runCodec": "pcm"
     },
@@ -1233,7 +506,7 @@
       "test": "TCP jitter: 300 celých WS rámců bez ztráty i při dělení těla, opakované prodlevy",
       "result": "OK",
       "frames": 300,
-      "maxGapMs": 401.1203750000004,
+      "maxGapMs": 400.661333,
       "gapsOver390": 1,
       "runCodec": "pcm"
     },
@@ -1385,6 +658,115 @@
       "runCodec": "pcm"
     },
     {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Opožděný share_list nezastaví capture; sdílení čeká na share_started a divák se připojí",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Klepnutí na jméno otevírá panel uživatele; jeho tlačítko spustí sledování",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 34,
+      "framesAfter": 212,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 104,
+      "candidate": "host",
+      "framesDecoded": 212,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 8,
+      "framesAfter": 155,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 105,
+      "candidate": "relay",
+      "framesDecoded": 155,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Bez TURN_URLS: skutečný backend bez ICE serverů přenáší video přímo přes host kandidáta",
+      "result": "OK",
+      "framesBefore": 13,
+      "framesAfter": 160,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 105,
+      "candidate": "host",
+      "framesDecoded": 160,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Bez TURN: chybějící offer skončí do 10 s českou chybou, uvolní místo a neopakuje watch",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
       "test": "3 zprávy → odznak Kanál, mobilní Chat, titulek a app badge = 3; jediný zvuk; přečtení vynuluje",
       "result": "OK",
       "runCodec": "pcm"
@@ -1450,6 +832,11 @@
       "runCodec": "pcm"
     },
     {
+      "test": "Odchozí zprávy zachycené ServerQuery: holé URL bez IMG; fotografie JPEG, průhlednost a malá paleta PNG",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
       "test": "A → B GIF: zachované bajty animovaného souboru",
       "result": "OK",
       "runCodec": "pcm"
@@ -1475,878 +862,37 @@
       "runCodec": "pcm"
     },
     {
-      "test": "Chat serveru A → B",
+      "test": "Hudba: bot v kanálu → lišta s aktuální skladbou",
       "result": "OK",
       "runCodec": "pcm"
     },
     {
-      "test": "Soukromá zpráva A → B",
+      "test": "Hudba: po /now je stav přehrávání neznámý (neutrální ⏯)",
       "result": "OK",
       "runCodec": "pcm"
     },
     {
-      "test": "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
+      "test": "Hudba: připojení do kanálu s už přítomným botem ukáže lištu",
       "result": "OK",
       "runCodec": "pcm"
     },
     {
-      "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
-      "result": "OK",
-      "receivedFrames": 1515,
-      "sentFrames": 0,
-      "rms": 0.11153510865830812,
-      "micRms": 0.019792933061823784,
-      "underruns": 0,
-      "droppedFrames": 0,
-      "droppedCaptureFrames": 0,
-      "sampleRate": 48000,
-      "bufferMs": 80.69445159593973,
-      "targetBufferMs": 82.66666666666667,
-      "driftCorrection": 0.20925899040279214,
-      "maxJump": 0,
-      "outputRms": 0,
-      "upKbps": 0,
-      "downKbps": 768.7768513977439,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "codec": "pcm",
-      "notifySounds": 7,
-      "notifyPokes": 1,
-      "workletVersion": "298f3ce00c5c",
-      "renderQuantum": 128,
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Diagnostika zvuku: panel, schránka, technická pole a soukromí",
-      "result": "OK",
-      "codec": "pcm",
-      "outputRoute": "přímo / AudioDestinationNode",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení",
-      "result": "OK",
-      "underruns": 0,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "binaryGapMs": 27.299999713897705,
-      "path": "native",
-      "maxJump": 0.01791711524128914,
-      "minBufferMs": 56.841884152231316,
-      "maxBufferMs": 78.83385440665006,
-      "dominantHz": 439.453125,
-      "rmsDifferenceDb": 0.0015236857316630837,
-      "maxDownKbps": 776.6141885325559,
-      "initialTargetBufferMs": 82.66666666666667,
-      "targetBufferMs": 72.66666666666667,
-      "diagnostics": {
-        "schema": 1,
-        "build": "0e5ae08",
-        "capturedAt": "2026-11-05T01:46:39.542Z",
-        "codec": "pcm",
-        "workletVersion": "298f3ce00c5c",
-        "expectedWorkletVersion": "298f3ce00c5c",
-        "bufferMs": 72.65,
-        "targetBufferMs": 72.67,
-        "underruns": 0,
-        "underrunsLastMinute": 0,
-        "plcFrames": 0,
-        "lostFrames": 0,
-        "droppedFrames": 0,
-        "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 21.4,
-        "incomingGapMaxMs": 27.5,
-        "incomingGapSamples": 1500,
-        "incomingGapHistogram": [
-          {
-            "upToMs": 25,
-            "count": 1498
-          },
-          {
-            "upToMs": 50,
-            "count": 2
-          },
-          {
-            "upToMs": 100,
-            "count": 0
-          },
-          {
-            "upToMs": 200,
-            "count": 0
-          },
-          {
-            "upToMs": 300,
-            "count": 0
-          },
-          {
-            "upToMs": 400,
-            "count": 0
-          },
-          {
-            "upToMs": null,
-            "count": 0
-          }
-        ],
-        "mainThreadLongTasks": 0,
-        "mainThreadLongTaskMaxMs": 0,
-        "incomingGapWithLongTaskMaxMs": 0,
-        "decodeAverageMs": 0,
-        "decodeMaxMs": 0,
-        "sampleRate": 48000,
-        "baseLatency": 0.005333333333333333,
-        "outputLatency": 0.035,
-        "renderQuantum": 128,
-        "outputRoute": "přímo / AudioDestinationNode",
-        "websocketCompression": false,
-        "contextState": "running",
-        "effectiveType": "4g",
-        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
-        "upKbps": 0,
-        "downKbps": 760.79,
-        "driftPercent": 0.18,
-        "maxJump": 0.02
-      },
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Síťový shaper se připojil až po měření nativního WS",
+      "test": "Hudba: pauza a pokračování podle potvrzení bota",
       "result": "OK",
       "runCodec": "pcm"
     },
     {
-      "test": "CDP síť 1,5 Mb/s / 80 ms, pcm, 30 s",
-      "result": "OK",
-      "underruns": 0,
-      "downKbps": 768.2493630136561,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "inputGapMs": 26.461750000002212,
-      "outputGapMs": 20.124250000000757,
-      "comparisonOnly": true,
-      "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Pomalý příjemce pcm: Debugger.pause 20 s, A drží spojení a B obnoví zvuk",
-      "result": "OK",
-      "cleanReconnect": false,
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Diagnostika zvuku: panel, schránka, technická pole a soukromí",
-      "result": "OK",
-      "codec": "pcm",
-      "outputRoute": "<audio> / MediaStreamDestination",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Mobilní zvuk / pcm: CPU 4×, jitter 50–300 / 400 ms, 60 s",
-      "result": "OK",
-      "underruns": 0,
-      "plcFrames": 0,
-      "lostFrames": 0,
-      "droppedFrames": 0,
-      "inputGapMs": 23.006374999997206,
-      "outputGapMs": 402.5821670000005,
-      "diagnostic": {
-        "schema": 1,
-        "build": "0e5ae08",
-        "capturedAt": "2026-11-05T01:48:50.875Z",
-        "codec": "pcm",
-        "workletVersion": "298f3ce00c5c",
-        "expectedWorkletVersion": "298f3ce00c5c",
-        "bufferMs": 330.85,
-        "targetBufferMs": 320,
-        "underruns": 0,
-        "underrunsLastMinute": 0,
-        "plcFrames": 0,
-        "lostFrames": 0,
-        "droppedFrames": 0,
-        "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 192.7,
-        "incomingGapMaxMs": 399.3,
-        "incomingGapSamples": 1501,
-        "incomingGapHistogram": [
-          {
-            "upToMs": 25,
-            "count": 1345
-          },
-          {
-            "upToMs": 50,
-            "count": 1
-          },
-          {
-            "upToMs": 100,
-            "count": 29
-          },
-          {
-            "upToMs": 200,
-            "count": 54
-          },
-          {
-            "upToMs": 300,
-            "count": 63
-          },
-          {
-            "upToMs": 400,
-            "count": 9
-          },
-          {
-            "upToMs": null,
-            "count": 0
-          }
-        ],
-        "mainThreadLongTasks": 0,
-        "mainThreadLongTaskMaxMs": 0,
-        "incomingGapWithLongTaskMaxMs": 0,
-        "decodeAverageMs": 0,
-        "decodeMaxMs": 0,
-        "sampleRate": 48000,
-        "baseLatency": 0.021333333333333333,
-        "outputLatency": 0.047,
-        "renderQuantum": 128,
-        "outputRoute": "<audio> / MediaStreamDestination",
-        "websocketCompression": false,
-        "contextState": "running",
-        "effectiveType": "4g",
-        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
-        "upKbps": 0,
-        "downKbps": 880.77,
-        "driftPercent": -0.68,
-        "maxJump": 0.06
-      },
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Lokální mute A u B → RMS < 0,001, A dál vysílá",
+      "test": "Hudba: další skladba, oznámení v kanálu zůstává v chatu",
       "result": "OK",
       "runCodec": "pcm"
     },
     {
-      "test": "Mute mikrofonu se propíše do TS a zastaví hlas",
+      "test": "Hudba: hlasitost až po potvrzení bota",
       "result": "OK",
       "runCodec": "pcm"
     },
     {
-      "test": "Deafen zastaví poslech a po vypnutí obnoví audio",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Test mikrofonu nic nevysílá na server",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "PTT reaguje na mezerník mimo textová pole",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Hlasová aktivace vysílá nad prahem",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Obnovení: stejné UID na TS, údaje uloženy bez hesel",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Desktop 1440×900: žádný přesah ani ovládání mimo okno",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Mobil 390×844: strom bez přesahu",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Mobil 390×844: chat bez přesahu",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Zavření prohlížeče odpojí jeho TS klienta",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "VAD / pcm: ticho 3 s, předběh a vyrovnaný začátek",
-      "result": "OK",
-      "onsetDb": 0.0994229798617201,
-      "precursorMs": 80,
-      "lostOnsetMs": 0,
-      "firstRms": 0.13225279538622348,
-      "steadyRms": 0.13074759567857822,
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Migrace AGC proběhne jednou a pozdější výslovná volba přežije reload",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Selhání konstruktoru WASM Workeru: vyjedná se funkční PCM",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "PWA: stará cache neversionovaného workletu neovlivní nový přehrávač",
-      "result": "OK",
-      "workletVersion": "298f3ce00c5c",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Auto-připojení bez formuláře: heslo serveru i posledního kanálu, stejné UID a přezdívka",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Trvalá chyba bad_password: formulář, fokus hesla, právě 1 WS za 10 s",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Aktualizace SW čeká i při žádosti z jiného tabu; po odpojení aktivuje bez reloadu hovoru",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Ruční Odpojit + reload zůstane na formuláři; nový kontext automaticky připojí",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
-      "result": "OK",
-      "elapsed_ms": 31,
-      "runCodec": "pcm"
-    },
-    {
-      "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
-      "result": "OK",
-      "elapsedMs": 3,
-      "disconnectedClients": 1,
-      "disconnectReasons": [
-        8
-      ],
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Restart backendu za hovoru: automatický návrat, původní UID a přezdívka",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "iPhone: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
-      "result": "OK",
-      "scale": 1,
-      "minFontPx": 16,
-      "runCodec": "pcm"
-    },
-    {
-      "test": "iPhone touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Pixel: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
-      "result": "OK",
-      "scale": 1,
-      "minFontPx": 16,
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Pixel touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "AudioContext 44100 Hz: hlas A → B i B → A; suspend → překryv → gesto resume bez odpojení TS",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Ukončená/ztlumená mikrofonní stopa: nové getUserMedia, hlas pokračuje bez odpojení TS",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "devicechange bez vybraného vstupu: mikrofon se znovu otevře, TS zůstává připojený",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "iOS: instalace Sdílet → Přidat na plochu, zavření nápovědy se pamatuje",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "PWA a mobilní relace bez JS výjimek",
-      "result": "OK",
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Backend: histogram mezer mixu a WS writeru bez osobních údajů",
-      "result": "OK",
-      "timing": [
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1497,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 34.464124999999996,
-            "p95Ms": 21.710125
-          },
-          "queueMaxMs": 6.013916,
-          "writer": {
-            "histogram": [
-              1497,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 34.444417,
-            "p95Ms": 21.776209
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1099,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 34.502041999999996,
-            "p95Ms": 21.383292
-          },
-          "queueMaxMs": 4.7324589999999995,
-          "writer": {
-            "histogram": [
-              1096,
-              4,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 34.429042,
-            "p95Ms": 21.439
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1500,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 27.996707999999998,
-            "p95Ms": 21.432125
-          },
-          "queueMaxMs": 2.423917,
-          "writer": {
-            "histogram": [
-              1500,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 28.540458,
-            "p95Ms": 21.46725
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1498,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 27.101375,
-            "p95Ms": 21.261374999999997
-          },
-          "queueMaxMs": 0.8129580000000001,
-          "writer": {
-            "histogram": [
-              1498,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 27.97525,
-            "p95Ms": 21.277
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1498,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 36.420709,
-            "p95Ms": 21.5685
-          },
-          "queueMaxMs": 5.821792,
-          "writer": {
-            "histogram": [
-              1497,
-              3,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 36.124584,
-            "p95Ms": 21.632708
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1497,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.670375,
-            "p95Ms": 21.344333
-          },
-          "queueMaxMs": 2.8437089999999996,
-          "writer": {
-            "histogram": [
-              1495,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 25.495125,
-            "p95Ms": 21.365916
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.817334,
-            "p95Ms": 21.5515
-          },
-          "queueMaxMs": 5.2425,
-          "writer": {
-            "histogram": [
-              1500,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 25.934583,
-            "p95Ms": 21.603042
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1500,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 25.974625,
-            "p95Ms": 21.104584
-          },
-          "queueMaxMs": 10.070708,
-          "writer": {
-            "histogram": [
-              1499,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 30.918459,
-            "p95Ms": 21.135875
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1499,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 29.867666,
-            "p95Ms": 21.510792000000002
-          },
-          "queueMaxMs": 1.779041,
-          "writer": {
-            "histogram": [
-              1499,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 29.86825,
-            "p95Ms": 21.509334000000003
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1499,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.524875,
-            "p95Ms": 22.067583000000003
-          },
-          "queueMaxMs": 0.167791,
-          "writer": {
-            "histogram": [
-              1499,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.549292,
-            "p95Ms": 22.07725
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 23.157,
-            "p95Ms": 21.109584
-          },
-          "queueMaxMs": 0.12345800000000001,
-          "writer": {
-            "histogram": [
-              1501,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 23.182667000000002,
-            "p95Ms": 21.109333
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.468458000000002,
-            "p95Ms": 21.360209
-          },
-          "queueMaxMs": 0.079167,
-          "writer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.472417,
-            "p95Ms": 21.367583
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.514708000000002,
-            "p95Ms": 21.354125000000003
-          },
-          "queueMaxMs": 0.053084,
-          "writer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 22.504208000000002,
-            "p95Ms": 21.356417
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 21.678375,
-            "p95Ms": 21.069582999999998
-          },
-          "queueMaxMs": 0.114542,
-          "writer": {
-            "histogram": [
-              1500,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 21.682458,
-            "p95Ms": 21.060208
-          }
-        },
-        {
-          "averageFrameBytes": 1921,
-          "producer": {
-            "histogram": [
-              1499,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 24.544333,
-            "p95Ms": 21.966791
-          },
-          "queueMaxMs": 2.992917,
-          "writer": {
-            "histogram": [
-              1498,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 26.015166999999998,
-            "p95Ms": 22.105875
-          }
-        }
-      ],
-      "runCodec": "pcm"
-    },
-    {
-      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "test": "Hudba: přidání skladby i odkazu a fronta v panelu",
       "result": "OK",
       "runCodec": "pcm"
     }

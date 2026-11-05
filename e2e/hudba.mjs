@@ -254,7 +254,8 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     ok("Hudba: přidání skladby i odkazu a fronta v panelu");
 
     // Příkazy Mluvky ani odpovědi bota se v chatu neukážou.
-    await expect(a.locator(".private-tab")).toHaveCount(0);
+    // Jiné kroky (soubory, sdílení) mohou mít vlastní soukromé konverzace — hlídá se jen ta s botem.
+    await expect(a.locator(".private-tab").filter({ hasText: "Spotify Bot" })).toHaveCount(0);
     const log = await a.getByRole("log").textContent();
     expect(log).not.toContain("/now");
     expect(log).not.toContain("Bot output volume");
