@@ -1824,8 +1824,9 @@ function AppContent({
       {permissionHelp && (
         <div className="toast" role="status">
           <span>
-            Pro trvalý přístup k mikrofonu: iPhone — Nastavení → Safari →
-            Mikrofon → Povolit. Chrome na Androidu — zámek u adresy → Mikrofon →
+            Pro trvalý přístup k mikrofonu: iPhone — Nastavení → Aplikace →
+            Safari → Mikrofon → Povolit (starší iOS: Nastavení → Safari). Chrome
+            na Androidu — Nastavení → Nastavení webu → Mikrofon → vyberte web →
             Povolit.
           </span>
           <button onClick={() => setPermissionHelp(false)}>Rozumím</button>

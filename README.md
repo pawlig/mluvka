@@ -398,3 +398,8 @@ při zavření stránky se uvolní. Změna zařízení nebo parametrů zpracová
 vyžadovat nové otevření. Permissions API, kde je dostupné, ověří stav oprávnění.
 Dotykový klient při dosud neuděleném oprávnění jednou ukáže nápovědu pro jeho
 trvalé povolení. Uložení oprávnění při příštím otevření stránky řídí prohlížeč.
+
+Návod k trvalému povolení: [Safari na iPhonu](https://support.apple.com/guide/iphone/iphb01fc3c85/ios)
+(Nastavení → Aplikace → Safari → Mikrofon → Povolit; na starších iOS rovnou Safari)
+a [Chrome na Androidu](https://support.google.com/chrome/answer/2693767?co=GENIE.Platform%3DAndroid&hl=cs)
+(Nastavení → Nastavení webu → Mikrofon → vybrat web → Povolit).
