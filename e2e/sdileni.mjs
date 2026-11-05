@@ -436,12 +436,9 @@ export async function sharingChecks({
   await expect(
     a.getByRole("button", { name: "Přepnout zdroj", exact: true }),
   ).toBeEnabled();
-  if (
-    await a
-      .getByRole("button", { name: "Ukončit sdílení", exact: true })
-      .isVisible()
-  )
-    await a.locator(".share-toggle").click();
+  // Panel sdílení je modální okno — zavřít jeho tlačítkem, ne přepínačem pod zástěrou.
+  await a.getByRole("button", { name: "Zavřít sdílení", exact: true }).click();
+  await expect(a.getByRole("dialog", { name: "Sdílení obrazovky" })).toHaveCount(0);
   const video = b.locator(".share-player video");
   const timeBefore = await video.evaluate((v) => v.currentTime);
   await expect
