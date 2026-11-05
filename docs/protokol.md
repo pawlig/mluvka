@@ -246,6 +246,10 @@ na relaci (potom 429). STUN z `STUN_URLS` (výchozí Google), TURN z `TURN_URLS`
 Username = `<now+43200>:<base64(SHA1(uid)) bez +/=>`, credential = base64(HMAC-SHA1(secret, username)).
 Bez TURN URL se vrací pouze STUN, žádné statické heslo nikdy. Odpověď klient používá pro nová spojení;
 přihlášení nové WS relace zneplatní klientský cache configu a obnoví sledování podle UID (do 90 s).
+Divák čeká na navázání nejvýše 10 s na pokus. Bez TURN při timeoutu nebo selhání ICE
+uvolní sledování a zobrazí „Přímé spojení se nepodařilo a server nemá TURN — sdílení přes tuhle síť nejde“.
+S TURN zkusí nejvýše tři pokusy; další sledování může uživatel spustit ručně.
+
 
 Data channel `label:"mluvka.v1", protocol:"mluvka.v1"` je vyhrazený pro budoucí typované zprávy
 `{v:1,kind:...,type:...,payload:...}`. Tato verze nepřijímá žádné příkazy a nedává oprávnění k ovládání.

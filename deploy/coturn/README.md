@@ -59,3 +59,8 @@ produkční build tento přepínač neobsahuje. Canvas stream vkládá jen Playw
 
 Bez `TURN_URLS` vrací backend pouze STUN. Přímé spojení může fungovat v LAN a přes některé NAT;
 v mobilních sítích, symetrickém NAT nebo při blokovaném UDP se nemusí podařit připojit.
+
+Při neúspěšném přímém spojení se divák po 10 s (nebo po selhání ICE) dozví, že server nemá TURN,
+a sledování se uvolní. S nakonfigurovaným TURN jsou nejvýše tři pokusy, potom lze sledování spustit ručně.
+E2E navíc spouští druhý backend s prázdnými `TURN_URLS`/`TURN_SECRET`/`STUN_URLS`: ověřuje přenos
+přes `host` kandidáta i konečnou českou chybu při zablokovaném offeru.

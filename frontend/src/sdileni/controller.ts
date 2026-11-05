@@ -100,7 +100,7 @@ export class Sharing {
   private startTimer?: ReturnType<typeof setTimeout>;
   private watchTimer?: ReturnType<typeof setTimeout>;
   private watchAttempts = 0;
-  private hasTurn = false;
+  private hasTurn?: boolean;
   private lastBytes = { bytes: 0, at: 0 };
   constructor(private sendRaw: (data: unknown) => void) {}
   subscribe = (fn: () => void) => {
@@ -173,6 +173,7 @@ export class Sharing {
     if (msg.type === "share_session") {
       this.token = msg.token;
       this.config = undefined;
+      this.hasTurn = undefined;
       this.update({ self: msg.session });
       return;
     }
@@ -529,8 +530,9 @@ export class Sharing {
   private retryWatch(terminalWithoutTurn = true) {
     const share = this.state.watching;
     if (!share || !this.token) return;
-    if ((terminalWithoutTurn && !this.hasTurn) || this.watchAttempts >= 3) {
-      const message = !this.hasTurn
+    const noTurn = this.hasTurn === false;
+    if ((terminalWithoutTurn && noTurn) || this.watchAttempts >= 3) {
+      const message = noTurn
         ? "Přímé spojení se nepodařilo a server nemá TURN — sdílení přes tuhle síť nejde"
         : "Sdílení se nepodařilo připojit ani po třech pokusech. Zkuste sledování spustit znovu.";
       this.unwatch();
@@ -580,6 +582,7 @@ export class Sharing {
     this.generation++;
     this.token = "";
     this.config = undefined;
+    this.hasTurn = undefined;
     this.stop(false);
     this.unwatch(false);
     for (const p of this.peers.values()) this.close(p.to, p.sending);
