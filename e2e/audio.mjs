@@ -724,11 +724,34 @@ export async function codecRecoveryCheck(ok) {
   let clock = 0,
     sent = 0;
   const testWindow = new EventTarget();
+  let micCalls = 0,
+    stopped = 0;
+  const testNavigator = {
+    permissions: { query: async () => ({ state: "granted" }) },
+    mediaDevices: {
+      removeEventListener() {},
+      getUserMedia: async () => {
+        micCalls++;
+        const track = {
+          readyState: "live",
+          enabled: true,
+          addEventListener() {},
+          getSettings: () => ({}),
+          stop() {
+            this.readyState = "ended";
+            stopped++;
+          },
+        };
+        return { getTracks: () => [track], getAudioTracks: () => [track] };
+      },
+    },
+  };
   const Engine = new Function(
     "window",
     "performance",
+    "navigator",
     `${audioSource}\nreturn AudioEngine;`,
-  )(testWindow, { now: () => clock });
+  )(testWindow, { now: () => clock }, testNavigator);
   const engine = new Engine(
     {},
     () => {},
@@ -751,15 +774,53 @@ export async function codecRecoveryCheck(ok) {
     58,
     "běžných 50 rámců/s musí pokračovat po zahození dávky",
   );
-  let stopped = 0;
-  engine.stream = { getTracks: () => [{ stop: () => stopped++ }] };
+  const attachContext = () => {
+    engine.context = {
+      state: "running",
+      removeEventListener() {},
+      close: async () => {},
+      createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+    };
+    engine.node = { disconnect() {} };
+  };
+  attachContext();
+  await engine.changeInput();
+  assert.equal(micCalls, 1);
+  const retained = engine.stream;
+  await engine.close();
+  assert.equal(stopped, 0, "odpojení drží mikrofon pro další připojení");
+  assert.equal(retained.getAudioTracks()[0].enabled, false);
+  attachContext();
+  await engine.changeInput();
+  assert.equal(micCalls, 1, "nové připojení použije původní MediaStream");
+  assert.equal(engine.stream, retained);
+  assert.equal(retained.getAudioTracks()[0].enabled, true);
+  await engine.changeInput(true);
+  assert.equal(
+    micCalls,
+    2,
+    "ztracené zařízení nebo ruční retry smí otevřít nový vstup",
+  );
+  assert.equal(stopped, 1);
+  const stoppedBeforeHide = stopped;
   const cached = new Event("pagehide");
   Object.defineProperty(cached, "persisted", { value: true });
   testWindow.dispatchEvent(cached);
-  assert.equal(stopped, 0, "návrat z BFCache má zachovat mikrofon");
+  assert.equal(
+    stopped,
+    stoppedBeforeHide,
+    "návrat z BFCache má zachovat mikrofon",
+  );
   testWindow.dispatchEvent(new Event("pagehide"));
-  assert.equal(stopped, 1, "skutečné zavření stránky uvolní mikrofon");
+  assert.equal(
+    stopped,
+    stoppedBeforeHide + 1,
+    "skutečné zavření stránky uvolní mikrofon",
+  );
   assert.equal(engine.stream, undefined);
+  ok(
+    "Mikrofon: stream se drží přes odpojení, skutečná ztráta zařízení jej obnoví a zavření stránky uvolní",
+  );
   ok("Uplink: dávka nejvýše 8 rámců a dále 50 rámců/s i po zdržení prohlížeče");
   ok(
     "Opus Worker: 30 PLC rámců nezablokuje pozdější zvuk; skutečná mezera se počítá samostatně",
