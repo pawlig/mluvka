@@ -200,21 +200,25 @@ export function jitterChecks(ok) {
   }
   assert.ok(events.some((e) => e.underrun));
   // Samostatný test fade-out s konstantním vstupem: skok při podtečení < 0,01.
-  const fade = processor().node;
-  for (let i = 0; i < 3; i++)
+  const fadeCase = processor(), fade = fadeCase.node;
+  for (let i = 0; i < 4; i++)
     fade.port.onmessage({
       data: { pcm: new Int16Array(960).fill(16384).buffer },
     });
   last = 0;
   jump = 0;
+  let fadePeak = 0;
   for (let i = 0; i < 60; i++) {
     const out = new Float32Array(128);
     fade.process([], [[out]]);
     for (const x of out) {
+      fadePeak = Math.max(fadePeak, Math.abs(x));
       jump = Math.max(jump, Math.abs(x - last));
       last = x;
     }
   }
+  assert.ok(fadePeak > 0.49);
+  assert.ok(fadeCase.events.some((event) => event.underrun));
   assert.ok(jump < 0.01);
   ok("Podtečení a obnovení používají plynulé prolnutí", { fadeMaxJump: jump });
 }

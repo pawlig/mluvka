@@ -45,12 +45,13 @@ class MluvkaAudio extends AudioWorkletProcessor {
     this.fade = 0;
     this.tail = 0;
     // Mobilní strop 320 ms = 300 ms jitter + jeden rámec pro dekódování/render.
-    this.target = sampleRate * 0.06;
+    // 60 ms použitelné rezervy + půl 20ms rámce pro střed pilovité fronty.
+    this.target = sampleRate * 0.07;
     this.arrival = undefined;
     this.mobile = false;
     this.gaps = [];
     this.adaptAt = 0;
-    this.filtered = sampleRate * 0.05;
+    this.filtered = sampleRate * 0.07;
     this.integral = 0;
     this.correction = 0;
     this.clock = 0;
@@ -99,7 +100,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
       if (data.flush) {
         this.read = this.write = 0;
         this.playing = this.started = false;
-        this.target = Math.min(this.bufferLimit(), Math.max(this.target, sampleRate * (this.mobile ? 0.32 : 0.06)));
+        this.target = Math.min(this.bufferLimit(), Math.max(this.target, sampleRate * (this.mobile ? 0.32 : 0.07)));
         this.arrival = undefined;
         this.gaps = [];
         this.filtered = this.target - sampleRate * 0.01;
@@ -157,8 +158,9 @@ class MluvkaAudio extends AudioWorkletProcessor {
       });
     if (!this.playing && this.write - this.read >= this.target) {
       this.playing = this.started = true;
-      // Rebufferování mění časovou základnu; stará obálka by rozkmitala PI.
-      this.filtered = this.target - sampleRate * 0.01;
+      // Odhad středu skutečně naplněné fronty, včetně celých 20ms rámců.
+      // Podhodnocený start by zbytečně nabil integrátor a rozkmital rezervu.
+      this.filtered = (this.mobile ? this.target : this.write - this.read) - sampleRate * 0.01;
       this.integral = this.correction = 0;
       this.fade = 0;
       this.tail = this.last;
@@ -169,7 +171,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
       this.gaps = this.gaps.filter((v) => this.clock - v.at < sampleRate * 10);
       const sorted = this.gaps.map((v) => v.gap).sort((a, b) => a - b);
       const p95 = sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0;
-      const desired = Math.min(this.bufferLimit(), Math.max(sampleRate * 0.06, p95 + sampleRate * 0.04));
+      const desired = Math.min(this.bufferLimit(), Math.max(sampleRate * (this.mobile ? 0.06 : 0.07), p95 + sampleRate * 0.04));
       this.target = Math.max(this.target, desired);
       // P95 posledních 10 s dovolí pokles i při jednotlivých odlehlých mezerách.
       // Pokles o 2 ms/s nezkracuje ani nezahazuje celé rámce.
