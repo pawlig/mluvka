@@ -363,11 +363,12 @@ export async function vadCheck({ browser, base, login, ok, codec }) {
     }
     await login(a, "VAD tón");
     await login(b, "VAD poslech");
+    // Sdílené 45s okno může odložit nový TS handshake déle než původních 40 s.
     await expect(a.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 40000,
+      timeout: 90000,
     });
     await expect(b.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 40000,
+      timeout: 90000,
     });
     await a.waitForTimeout(3000);
     expect(await a.evaluate(() => window.__mluvkaStats.sentFrames)).toBe(0);
@@ -525,7 +526,7 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
     await cdp.send("Debugger.resume").catch(() => {});
   }
   await expect(b.locator(".connection-status")).toHaveText("Připojeno", {
-    timeout: 40000,
+    timeout: 90000,
   });
   await expect
     .poll(() => b.evaluate(() => window.__mluvkaStats.rms), { timeout: 15000 })

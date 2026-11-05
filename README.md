@@ -167,6 +167,7 @@ npm run e2e
 ```
 
 E2E používá Playwright s vlastním headless Chrome, dvěma prázdnými kontexty a falešným mikrofonem.
+Nové připojení v E2E může čekat až 90 s kvůli sdílenému 45s oknu TS handshake.
 Běhy různých pracovních stromů na stejném počítači spouštějte sériově: místní TS3
 bez licence odmítá další instanci přes local accounting.
 Na Macu použije `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, jinde Playwright
