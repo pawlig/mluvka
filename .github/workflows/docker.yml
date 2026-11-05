@@ -21,7 +21,6 @@ jobs:
         with:
           context: .
           file: Dockerfile.build
-          build-args: VITE_BUILD_COMMIT=${{ github.sha }}
           platforms: linux/amd64
           push: false
           load: true
@@ -56,7 +55,6 @@ jobs:
         with:
           context: .
           file: Dockerfile.build
-          build-args: VITE_BUILD_COMMIT=${{ github.sha }}
           platforms: linux/amd64
           push: false
           load: true
