@@ -832,6 +832,15 @@ export async function floodRecoveryChecks({
     ok(
       "Příkazový flood 0x020c: odmítnutá zpráva doručena právě jednou po zpomalení; stejný WS a TS klient",
     );
+    await pages[0]
+      .getByLabel("Režim vysílání", { exact: true })
+      .selectOption("always");
+    await expect
+      .poll(() => pages[1].evaluate(() => window.__mluvkaStats.outputRms))
+      .toBeGreaterThan(0.001);
+    let voiceFrames = await pages[1].evaluate(
+      () => window.__mluvkaStats.receivedFrames,
+    );
     const living = await Promise.all(
       pages.slice(0, 2).map(async (page) => ({
         client: await selfId(page),
@@ -863,6 +872,10 @@ export async function floodRecoveryChecks({
         /Čekám na volné místo.*Pauza nových připojení \d\d:\d\d/,
       ),
     ).toBeVisible();
+    const queueNotice = pages[3].getByText(
+      /Čekám na volné místo.*Pauza nových připojení/,
+    );
+    const initialQueueNotice = await queueNotice.textContent();
     const queuedSockets = await pages[3].evaluate(
       () => window.regSockets.length,
     );
@@ -898,6 +911,15 @@ export async function floodRecoveryChecks({
           ),
       );
       await wait(10000);
+      await expect
+        .poll(() => pages[1].evaluate(() => window.__mluvkaStats.outputRms))
+        .toBeGreaterThan(0.001);
+      const currentFrames = await pages[1].evaluate(
+        () => window.__mluvkaStats.receivedFrames,
+      );
+      expect(currentFrames).toBeGreaterThan(voiceFrames);
+      voiceFrames = currentFrames;
+      if (i === 0) await expect(queueNotice).not.toHaveText(initialQueueNotice);
       if (Date.now() - pausedAt < 119000) {
         expect(subscriptions()).toBe(beforeSubscriptions);
         for (const page of pages.slice(2))
@@ -918,7 +940,7 @@ export async function floodRecoveryChecks({
       queuedSockets,
     );
     ok(
-      "Handshake flood 0x0d01 → 0x0d03: nová připojení čekají ≥120 s s odpočtem, Flood-0/1 mají stejný WS i clid a dál doručují chat",
+      "Handshake flood 0x0d01 → 0x0d03: nová připojení čekají ≥120 s s odpočtem, Flood-0/1 mají stejný WS i clid, hlas i chat pokračují",
       {
         elapsedMs: Date.now() - pausedAt,
         wireCode: "0x0d01",
