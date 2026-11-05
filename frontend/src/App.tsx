@@ -1721,6 +1721,26 @@ function AppContent({
               />
             </section>
           </main>
+          {(inputUnavailable || (outputBlocked && !audioBlocked)) && (
+            <div className="audio-banners">
+              {outputBlocked && !audioBlocked && (
+                <div className="microphone-banner" role="status">
+                  Zvuk potřebuje vaše klepnutí.
+                  <button onClick={() => void audio.resume()}>
+                    Zapnout poslech
+                  </button>
+                </div>
+              )}
+              {inputUnavailable && (
+                <div className="microphone-banner" role="status">
+                  Mikrofon není povolený — posloucháte jen
+                  <button onClick={() => void audio.retryMicrophone()}>
+                    Zkusit znovu
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <footer className="voice-bar">
             <div className="self-card">
               {me && (
@@ -1839,26 +1859,6 @@ function AppContent({
             Povolit.
           </span>
           <button onClick={() => setPermissionHelp(false)}>Rozumím</button>
-        </div>
-      )}
-      {connected && (inputUnavailable || (outputBlocked && !audioBlocked)) && (
-        <div className="audio-banners">
-          {outputBlocked && !audioBlocked && (
-            <div className="microphone-banner" role="status">
-              Zvuk potřebuje vaše klepnutí.
-              <button onClick={() => void audio.resume()}>
-                Zapnout poslech
-              </button>
-            </div>
-          )}
-          {inputUnavailable && (
-            <div className="microphone-banner" role="status">
-              Mikrofon není povolený — posloucháte jen
-              <button onClick={() => void audio.retryMicrophone()}>
-                Zkusit znovu
-              </button>
-            </div>
-          )}
         </div>
       )}
       {restriction?.kind === "ban" && !connected && (

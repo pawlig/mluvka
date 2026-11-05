@@ -2003,11 +2003,9 @@ html {
   cursor: pointer;
 }
 .audio-banners {
-  position: fixed;
-  z-index: 80;
-  bottom: 100px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Lišty zabírají vlastní místo nad ovládáním, i při jeho mobilní výšce. */
+  flex-shrink: 0;
+  margin: 8px auto;
   width: min(94vw, 540px);
   display: flex;
   flex-direction: column;

@@ -611,6 +611,14 @@ async function microphoneDeniedChecks({ base, password, ok }) {
       await expect(
         page.getByRole("button", { name: "Rozumím", exact: true }),
       ).toBeHidden();
+      if (failure === "NotAllowedError")
+        await page.screenshot({
+          path: new URL(
+            "../docs/screenshots/mobil-bez-mikrofonu.png",
+            import.meta.url,
+          ).pathname,
+          fullPage: true,
+        });
       await page.getByRole("button", { name: "Odpojit", exact: true }).click();
       await context.close();
       ok(
