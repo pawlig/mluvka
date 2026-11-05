@@ -17,7 +17,7 @@ Nasazený TURN od Martina lze použít přímo, bez TLS a bez změny image Mluvk
    mimo repozitář a spustit `turnserver -c /run/turnserver.conf`. Heslo nevypisovat do logů.
    Pokud konfiguraci spravuje Martin již existujícím způsobem, zachovejte jej.
 5. Zachovejte všechny `denied-peer-ip` ze šablony (včetně IPv6), `no-multicast-peers`, `no-cli`,
-   `fingerprint`. `user-quota=12` dovoluje paralelní vysílání a sledování i dočasné ICE restarty;
+   `fingerprint`. `user-quota=32` dovoluje šest diváků, vlastní sledování i dočasné ICE restarty;
    `total-quota=120` a `max-bps=1500000` (bajty/s na TURN session) jsou výchozí provozní stropy.
    Šest diváků znamená šest samostatných přenosů; při růstu provozu sledujte kapacitu uplinku a alokace.
 

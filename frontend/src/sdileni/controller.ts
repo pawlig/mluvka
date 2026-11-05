@@ -135,6 +135,7 @@ export class Sharing {
     if (token !== this.token) throw Error("Relace byla mezitím odpojena.");
     this.configExpires = data.expiresAt * 1000;
     this.config = {
+      bundlePolicy: "max-bundle",
       iceServers: data.iceServers,
       ...(import.meta.env.VITE_E2E_SHARING === "1" &&
       window.__mluvkaShareTest?.relay

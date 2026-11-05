@@ -581,7 +581,12 @@ async fn session(
             _ = tokio::time::sleep_until(deadline.into()) => { tracing::warn!(ts_error = "ConnectTimeout", "Chyba připojení"); return Err("Vypršel čas připojení. Server neodpovídá.".into()); },
         };
         match event {
-            Some(Ok(StreamItem::BookEvents(_))) => break,
+            Some(Ok(StreamItem::BookEvents(_))) => {
+                // Initserver nejprve vytvoří prázdnou TS knihu. Registr místností
+                // smí vzniknout až po notifycliententerview vlastního klienta.
+                let book = con.get_state().map_err(|e| ts_error(&e))?;
+                if book.clients.contains_key(&book.own_client) { break; }
+            },
             Some(Ok(StreamItem::IdentityLevelIncreased)) => {
                 // Knihovna vytvořila nový handshake future, ale ještě jej nepollovala.
                 // I zvýšení identity proto spotřebuje společný limit připojení.

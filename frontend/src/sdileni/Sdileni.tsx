@@ -265,12 +265,18 @@ function Player({
   }
   async function fullscreen() {
     setFullscreenError("");
-    try {
-      const el = video.current as
-        (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
-      if (container.current?.requestFullscreen)
+    const el = video.current as
+      (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (container.current?.requestFullscreen) {
+      try {
         await container.current.requestFullscreen();
-      else if (el?.webkitEnterFullscreen) el.webkitEnterFullscreen();
+        return;
+      } catch {
+        /* iOS může API vystavit, ale povolit jen nativní fullscreen videa. */
+      }
+    }
+    try {
+      if (el?.webkitEnterFullscreen) el.webkitEnterFullscreen();
       else setFullscreenError("Celou obrazovku tento prohlížeč nepodporuje.");
     } catch {
       setFullscreenError("Celou obrazovku se nepodařilo zapnout.");

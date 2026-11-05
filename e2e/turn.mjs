@@ -33,8 +33,8 @@ export async function localTurn() {
       // Nutné výhradně pro test dvou klientů a relay na jednom loopback hostiteli.
       "allow-loopback-peers",
       "no-multicast-peers",
-      "user-quota=12",
-      "total-quota=30",
+      "user-quota=32",
+      "total-quota=60",
       "no-stdout-log",
       "log-file=/dev/null",
       `pidfile=${join(dir, "pid")}`,
