@@ -1,6 +1,6 @@
 // Skutečný TS3 + dvě izolované relace Chrome. Testovací hesla vznikají jen v paměti.
 import { chromium, expect } from "@playwright/test";
-import { mobileRegressionChecks, floodRecoveryChecks } from "./regrese-mobil.mjs";
+import { mobileRegressionChecks, floodRecoveryChecks, banUiChecks } from "./regrese-mobil.mjs";
 import { mobileChecks, pwaChecks } from "./mobil.mjs";
 import {
   jitterChecks,
@@ -903,6 +903,7 @@ try {
       restartBackend,
     });
   }
+  if (!process.env.E2E_FLOOD_ONLY) await banUiChecks({ browser, base, login: fillLogin, ok });
   if (!process.env.E2E_FLOOD_ONLY)
     await mobileRegressionChecks({ browser, base, query, password, login: fillLogin, ok, backendLog: () => backendOutput, root });
   await floodRecoveryChecks({ browser, base, query, login: fillLogin, ok, backendLog: () => backendOutput });

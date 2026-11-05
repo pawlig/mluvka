@@ -211,3 +211,9 @@ Počáteční `microphone` a `deafen` jsou volitelné položky `connect` (výcho
 zaslané rovnou v TS `clientinit`. Bez další změny stavu se po handshake posílá jen
 jeden `channelsubscribeall`; seznamy kanálů a klientů přicházejí v oznámeních TS,
 žádné `clientlist` / `channellist` ani dodatečný `clientmove` se při připojení neposílají.
+
+Skutečný ban může obsahovat volitelné `ban_seconds` získané z odpovědi TS. UI
+odpočítává „Ban vyprší za mm:ss“ a po uplynutí nabízí jen ruční připojení.
+Bez doloženého času uvádí, že server dobu vypršení nesdělil. `cooldown_seconds`
+u chyby `flood` je naproti tomu zbývající **vlastní** ochranná pauza backendu;
+TS při handshake floodu délku banu neposílá. Čas pauzy se neprezentuje jako čas TS banu.

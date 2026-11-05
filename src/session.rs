@@ -128,6 +128,8 @@ struct Socket {
     control: mpsc::Sender<Message>,
     audio: mpsc::Sender<Message>,
     pending_mute: Option<(bool, bool)>,
+    ban_seconds: Option<u64>,
+    cooldown_until: Option<Instant>,
 }
 impl Socket {
     async fn recv(&mut self) -> Option<Result<Message, axum::Error>> {
@@ -190,6 +192,10 @@ fn ts_variant(err: &tsclientlib::Error) -> (&'static str, Option<tsproto_types::
             })
             .unwrap_or(("ConnectFailed", None)),
         E::ConnectTs(code) => ("ConnectTs", Some(*code)),
+        E::ConnectBanned { .. } => (
+            "ConnectBanned",
+            Some(tsproto_types::errors::Error::ConnectFailedBanned),
+        ),
         E::ConnectFloodPrevention => (
             "ConnectFloodPrevention",
             Some(tsproto_types::errors::Error::BanFlooding),
@@ -232,7 +238,7 @@ fn ts_error(err: &tsclientlib::Error) -> String {
         tracing::warn!(ts_error = variant, "Chyba TS");
     }
     match code {
-        Some(T::ConnectFailedBanned) => "Server vás odmítl: zákaz přístupu (ban).",
+        Some(T::ConnectFailedBanned) => "Server vás odmítl: zákaz přístupu (ban). Dobu vypršení server neuvedl.",
         Some(T::BanFlooding | T::ClientIsFlooding) => "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.",
         Some(T::ChannelInvalidPassword) => "Nesprávné heslo kanálu.",
         Some(T::ServerInvalidPassword | T::ClientInvalidPassword) => "Nesprávné heslo serveru.",
@@ -392,6 +398,13 @@ impl CommandPoints {
     fn spend(&mut self, name: &str) {
         self.available -= Self::cost(name);
     }
+}
+fn flood_deadline(addr: SocketAddr) -> Option<Instant> {
+    budgets()
+        .lock()
+        .expect("budgets")
+        .get(&addr)
+        .and_then(|budget| budget.blocked_until)
 }
 fn server_paused(addr: SocketAddr) -> bool {
     budgets()
@@ -571,12 +584,25 @@ pub async fn run(
         control,
         audio,
         pending_mute: None,
+        ban_seconds: None,
+        cooldown_until: None,
     };
     if !*shutdown.borrow()
         && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads).await
     {
         tracing::warn!(session_end = error_code(&message), "Relace končí chybou");
-        let _ = json_send(&mut ws, error_message(&message, true)).await;
+        let mut error = error_message(&message, true);
+        if let Some(seconds) = ws.ban_seconds {
+            error["ban_seconds"] = seconds.into();
+        }
+        if let Some(until) = ws.cooldown_until {
+            error["cooldown_seconds"] = until
+                .saturating_duration_since(Instant::now())
+                .as_secs()
+                .saturating_add(1)
+                .into();
+        }
+        let _ = json_send(&mut ws, error).await;
     }
     drop(ws);
     if timeout(Duration::from_millis(300), &mut writer)
@@ -700,6 +726,7 @@ async fn session(
             event = next_event(&mut con) => event,
             _ = flood_check.tick() => {
                 if server_paused(addr) {
+                    ws.cooldown_until = flood_deadline(addr);
                     return Err(FLOOD_MESSAGE.into());
                 }
                 continue;
@@ -734,7 +761,8 @@ async fn session(
                 }
             }
             Some(Err(e)) => {
-                if is_flood(&e) { block_flood(addr); }
+                if is_flood(&e) { block_flood(addr); ws.cooldown_until = flood_deadline(addr); }
+                if let tsclientlib::Error::ConnectBanned { retry_after_seconds } = &e { ws.ban_seconds = Some(*retry_after_seconds); }
                 let _ = ts_error(&e);
                 if !renamed && is_nickname_error(&e) {
                     renamed = true;
@@ -758,7 +786,7 @@ async fn session(
                     wait_budget(ws, addr).await?;
                     deadline = Instant::now() + Duration::from_secs(25);
                     con = Connection::build(addr).identity(id.clone()).name(nickname.clone()).password(password.clone()).channel(channel.clone()).channel_password(channel_password.clone()).input_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).0).output_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).1).connect().map_err(|e| ts_error(&e))?;
-                } else { return Err(ts_error(&e)); }
+                } else { return Err(if ws.ban_seconds.is_some() { "Server vás odmítl: zákaz přístupu (ban).".into() } else { ts_error(&e) }); }
             }
             None => return Err("Server ukončil spojení.".into()),
             _ => {}
@@ -1007,6 +1035,7 @@ async fn connected(
             },
             scheduled = tick.tick() => {
                 if server_paused(addr) {
+                    ws.cooldown_until = flood_deadline(addr);
                     return Err(FLOOD_MESSAGE.into());
                 }
                 if pending.is_empty() && let Some(cmd) = commands.front() {

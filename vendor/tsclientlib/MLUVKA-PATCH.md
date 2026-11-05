@@ -12,3 +12,5 @@ se neukládá do chyby ani logu. Jiný text či jiný kód zůstává původním
 Backend tento jednoznačný příznak normalizuje do kategorie BanFlooding (0x0d03), přičemž
 log obsahuje i `wire_code=0x0d01`. Při aktualizaci upstreamu přenést tento malý rozdíl nebo
 použít upstream API zachovávající důvod odmítnutí. Přímé aplikační TS příkazy a audio se nemění.
+
+Při skutečném 0x0d01 zachováváme navíc pouze číselnou zbývající dobu z jednoznačného textu `you may retry in X seconds`, obdobných retry/expiry údajů nebo číselného extra_msg. Neznámý důvod zůstává banem bez doby; parser ani chyba nezachovávají volný serverový text.

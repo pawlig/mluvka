@@ -74,6 +74,65 @@ const selfId = (page) =>
 const avatarColor = (locator) =>
   locator.evaluate((element) => getComputedStyle(element).backgroundColor);
 
+export async function banUiChecks({ browser, base, login, ok }) {
+  for (const seconds of [3, undefined]) {
+    const context = await browser.newContext({
+      permissions: ["microphone"],
+      ...devices["Pixel 7"],
+    });
+    try {
+      await observe(context);
+      const page = await context.newPage();
+      await page.routeWebSocket("**/ws", (socket) => {
+        socket.onMessage((text) => {
+          if (JSON.parse(text).type !== "connect") return;
+          socket.send(
+            JSON.stringify({
+              type: "error",
+              code: "banned",
+              fatal: true,
+              retryable: false,
+              ban_seconds: seconds,
+              message:
+                seconds === undefined
+                  ? "Server vás odmítl: zákaz přístupu (ban). Dobu vypršení server neuvedl."
+                  : "Server vás odmítl: zákaz přístupu (ban).",
+            }),
+          );
+          socket.close();
+        });
+      });
+      await page.goto(base);
+      await login(page, "Odpočet");
+      await expect(page.getByRole("alert")).toContainText("zákaz přístupu");
+      if (seconds !== undefined) {
+        await expect(page.getByText(/Ban vyprší za 00:0[123]/)).toBeVisible();
+        await expect(
+          page.getByRole("button", { name: "Připojit znovu", exact: true }),
+        ).toBeHidden();
+        await expect(
+          page.getByText("Ban vypršel — můžete se připojit znovu."),
+        ).toBeVisible({ timeout: 5000 });
+      } else {
+        await expect(page.getByRole("alert")).toContainText(
+          "Dobu vypršení server neuvedl",
+        );
+        await expect(page.getByText(/Ban vyprší za/)).toBeHidden();
+      }
+      await expect(
+        page.getByRole("button", { name: "Připojit znovu", exact: true }),
+      ).toBeVisible();
+      await wait(3000);
+      expect(await page.evaluate(() => window.regSockets.length)).toBe(1);
+    } finally {
+      await context.close();
+    }
+  }
+  ok(
+    "UI banu: doložená doba se odpočítává, neznámá se nevymýšlí; po vypršení pouze ruční návrat",
+  );
+}
+
 export async function mobileRegressionChecks({
   browser,
   base,

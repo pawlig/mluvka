@@ -142,6 +142,24 @@ function AppContent({
   const [permissionHelp, setPermissionHelp] = useState(false);
   const [outputBlocked, setOutputBlocked] = useState(false);
   const [kicked, setKicked] = useState(false);
+  const [restriction, setRestriction] = useState<{
+    until: number;
+    kind: "ban" | "cooldown";
+  }>();
+  const [clock, setClock] = useState(Date.now());
+  const remaining = restriction
+    ? Math.max(0, Math.ceil((restriction.until - clock) / 1000))
+    : 0;
+  const banActive = restriction?.kind === "ban" && remaining > 0;
+  const countdown = `${Math.floor(remaining / 60)
+    .toString()
+    .padStart(2, "0")}:${(remaining % 60).toString().padStart(2, "0")}`;
+  useEffect(() => {
+    if (!restriction) return;
+    setClock(Date.now());
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [restriction]);
   const foregroundGrace = useRef(0);
   const [autoStarting, setAutoStarting] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
@@ -491,7 +509,12 @@ function AppContent({
   }
   function connect(e?: FormEvent) {
     e?.preventDefault();
-    if (phase.current !== "idle") return;
+    if (
+      phase.current !== "idle" ||
+      (restriction?.kind === "ban" && restriction.until > Date.now())
+    )
+      return;
+    setRestriction(undefined);
     wanted.current = true;
     setKicked(false);
     setAutoStarting(false);
@@ -608,7 +631,21 @@ function AppContent({
       }
       if (msg.type === "error") {
         setError(msg.message);
-        if (msg.code === "flood") retryAfter.current = Date.now() + 120000;
+        if (msg.code === "flood") {
+          // Délka vlastní ochranné pauzy backendu, nikoli odhad konce TS banu.
+          const seconds = Number.isFinite(msg.cooldown_seconds)
+            ? msg.cooldown_seconds
+            : 120;
+          const until = Date.now() + seconds * 1000;
+          retryAfter.current = until;
+          setRestriction({ until, kind: "cooldown" });
+        }
+        if (msg.code === "banned") {
+          const until = Date.now() + msg.ban_seconds * 1000;
+          if (Number.isSafeInteger(until) && msg.ban_seconds >= 0)
+            setRestriction({ until, kind: "ban" });
+          else setRestriction(undefined);
+        }
         if (
           msg.fatal !== false &&
           (msg.retryable === false ||
@@ -621,7 +658,7 @@ function AppContent({
             ].includes(msg.code))
         ) {
           wanted.current = false;
-          if (msg.code === "kicked") {
+          if (msg.code === "kicked" || msg.code === "banned") {
             setKicked(true);
             try {
               sessionStorage.setItem("mluvka.manual-disconnect", "1");
@@ -665,6 +702,7 @@ function AppContent({
         }
         restarting.current = false;
         retryAfter.current = 0;
+        setRestriction(undefined);
         audio.ready = true;
         const next = msg as RoomState;
         const prev = roomRef.current;
@@ -1214,9 +1252,11 @@ function AppContent({
       {retryAttempt > 0 && (
         <div className="reconnect-banner" role="status">
           <span>
-            {restarting.current
-              ? "Mluvka se aktualizuje — připojuji znovu…"
-              : `Spojení ztraceno — připojuji znovu (pokus ${retryAttempt})…`}
+            {restriction?.kind === "cooldown" && remaining > 0
+              ? `Vlastní ochranná pauza připojování skončí za ${countdown}`
+              : restarting.current
+                ? "Mluvka se aktualizuje — připojuji znovu…"
+                : `Spojení ztraceno — připojuji znovu (pokus ${retryAttempt})…`}
           </span>
           <button className="secondary" onClick={tryNow}>
             Zkusit hned
@@ -1396,7 +1436,7 @@ function AppContent({
               </InvitationDetails>
               <button
                 className="primary connect-button"
-                disabled={status === "connecting"}
+                disabled={status === "connecting" || banActive}
                 type="submit"
               >
                 {status === "connecting"
@@ -1811,7 +1851,14 @@ function AppContent({
           )}
         </div>
       )}
-      {kicked && !connected && (
+      {restriction?.kind === "ban" && !connected && (
+        <div className="reconnect-banner" role="status">
+          {remaining > 0
+            ? `Ban vyprší za ${countdown}`
+            : "Ban vypršel — můžete se připojit znovu."}
+        </div>
+      )}
+      {kicked && !connected && !banActive && (
         <button className="primary" onClick={() => connect()}>
           Připojit znovu
         </button>

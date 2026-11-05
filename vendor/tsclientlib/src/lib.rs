@@ -65,12 +65,16 @@ pub use tsproto::Identity;
 pub use tsproto_types::errors::Error as TsError;
 
 // Narrow match: a normal ban reason or a hostname containing "ban" must not retry.
-fn connect_ts_error(code: TsError, extra: Option<&str>) -> Error {
+fn connect_ts_error(code: TsError, message: &str, extra: Option<&str>) -> Error {
     if flood_prevention::is_handshake_flood(code as u32, extra) {
-        Error::ConnectFloodPrevention
-    } else {
-        Error::ConnectTs(code)
+        return Error::ConnectFloodPrevention;
     }
+    if code == TsError::ConnectFailedBanned {
+        if let Some(seconds) = flood_prevention::ban_seconds(message, extra) {
+            return Error::ConnectBanned { retry_after_seconds: seconds };
+        }
+    }
+    Error::ConnectTs(code)
 }
 
 
@@ -113,6 +117,9 @@ pub enum Error {
 	/// Keep only this safe marker; never retain the server's free-form text.
 	#[error("Server temporarily refused connection for IP flood prevention")]
 	ConnectFloodPrevention,
+    /// A real ban with an explicit remaining duration; never a server-provided reason.
+    #[error("Server refused connection with a timed ban")]
+    ConnectBanned { retry_after_seconds: u64 },
 	#[error("File transfer failed: {0}")]
 	FiletransferIo(#[source] std::io::Error),
 	#[error("Failed to create identity: {0}")]
@@ -477,7 +484,7 @@ impl Connection {
 			let addr = addr.map_err(|e| Error::ResolveAddress(Box::new(e)))?;
 			match Self::connect_to(&options, addr).await {
 				Ok(res) => return Ok(res),
-				Err(e @ Error::IdentityLevel(_)) | Err(e @ Error::ConnectTs(_)) | Err(e @ Error::ConnectFloodPrevention) => {
+				Err(e @ Error::IdentityLevel(_)) | Err(e @ Error::ConnectTs(_)) | Err(e @ Error::ConnectFloodPrevention) | Err(e @ Error::ConnectBanned { .. }) => {
 					// Either increase identity level or the server refused us
 					return Err(e);
 				}
@@ -610,7 +617,7 @@ impl Connection {
 							return Err(Error::IdentityLevel(needed));
 						}
 					}
-					return Err(connect_ts_error(e.id, e.extra_message.as_deref()));
+					return Err(connect_ts_error(e.id, &e.message, e.extra_message.as_deref()));
 				}
 				Ok(InMessage::InitServer(initserver)) => {
 					let public_key = {
