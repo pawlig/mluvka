@@ -39,7 +39,7 @@ export class AudioEngine {
   async retryMicrophone() {
     this.inputUnavailable = false;
     this.deferredInput = false;
-    await this.changeInput();
+    await this.changeInput(true);
   }
   recovering?: Promise<void>;
   startPromise?: Promise<void>;
@@ -384,14 +384,14 @@ export class AudioEngine {
     this.lastVoice = -Infinity;
     this.transmitting = false;
   }
-  changeInput(): Promise<void> {
+  changeInput(reopen = false): Promise<void> {
     const request = ++this.inputRequest;
     const context = this.context,
       node = this.node,
       settings = this.settings;
     const pending = this.inputQueue
       .catch(() => {})
-      .then(() => this.openInput(request, context, node, settings))
+      .then(() => this.openInput(request, context, node, settings, reopen))
       .catch(() => {
         if (request === this.inputRequest && this.context === context)
           this.inputFailed();
@@ -404,6 +404,7 @@ export class AudioEngine {
     context: SinkContext | undefined,
     node: AudioWorkletNode | undefined,
     s: Settings,
+    reopen: boolean,
   ) {
     if (
       !context ||
@@ -417,7 +418,8 @@ export class AudioEngine {
       this.stream
         ?.getAudioTracks()
         .some((track) => track.readyState === "live") &&
-      this.captureConfig === config
+      this.captureConfig === config &&
+      !reopen
     ) {
       this.stream.getAudioTracks().forEach((track) => {
         track.enabled = true;
@@ -601,7 +603,7 @@ export class AudioEngine {
         track.muted ||
         selectedGone
       )
-        await this.changeInput();
+        await this.changeInput(forceInput || selectedGone || !!track?.muted);
     })()
       .catch(() => {
         if (context && this.context === context) this.inputFailed();
