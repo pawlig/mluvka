@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-05T04:43:19.902Z",
+  "date": "2026-11-05T06:20:29.436Z",
   "complete": true,
   "runs": [
     {
@@ -55,8 +55,8 @@
     {
       "test": "TCP shaper 80 ms / 1,5 Mb/s: pořadí, rychlost a FIN bez ztráty",
       "result": "OK",
-      "latencyMs": 83.49529200000006,
-      "transferMs": 67.56237499999997,
+      "latencyMs": 83.45883400000002,
+      "transferMs": 67.85112499999923,
       "bytes": 12000,
       "runCodec": "opus"
     },
@@ -64,7 +64,7 @@
       "test": "TCP jitter: 300 celých WS rámců bez ztráty i při dělení těla, opakované prodlevy",
       "result": "OK",
       "frames": 300,
-      "maxGapMs": 402.1055409999999,
+      "maxGapMs": 399.83120899999994,
       "gapsOver390": 1,
       "runCodec": "opus"
     },
@@ -362,27 +362,27 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 1877,
+      "receivedFrames": 1822,
       "sentFrames": 0,
-      "rms": 0.1108522524711248,
-      "micRms": 0.019792722825657333,
+      "rms": 0.027322047549710755,
+      "micRms": 0.01979285321074384,
       "underruns": 0,
       "droppedFrames": 0,
       "droppedCaptureFrames": 0,
       "sampleRate": 48000,
-      "bufferMs": 73.0499953812614,
+      "bufferMs": 55.50457445309621,
       "targetBufferMs": 72,
-      "driftCorrection": -0.07541151519670186,
+      "driftCorrection": 0.05205144773243272,
       "maxJump": 0.000059634716308210045,
-      "outputRms": 0.0000022174707614928686,
+      "outputRms": 0.000002178969751188771,
       "upKbps": 0,
-      "downKbps": 35.992801429416495,
+      "downKbps": 36.05301914580265,
       "plcFrames": 0,
       "lostFrames": 0,
       "codec": "opus",
       "notifySounds": 7,
       "notifyPokes": 1,
-      "workletVersion": "ce6969f5d146",
+      "workletVersion": "fb765da40022",
       "renderQuantum": 128,
       "runCodec": "opus"
     },
@@ -400,42 +400,42 @@
       "plcFrames": 0,
       "lostFrames": 0,
       "strictDesktop": true,
-      "binaryGapMs": 28.699999809265137,
+      "binaryGapMs": 28.799999713897705,
       "path": "native",
-      "maxJump": 0.011253364384174347,
-      "minBufferMs": 66.23598578868162,
-      "maxBufferMs": 69.52287493090505,
+      "maxJump": 0.014994760975241661,
+      "minBufferMs": 56.74147671838485,
+      "maxBufferMs": 77.64617906387139,
       "dominantHz": 439.453125,
-      "rmsDifferenceDb": 0.006413567613005416,
-      "maxDownKbps": 90.7379891035166,
+      "rmsDifferenceDb": 0.0015833892120117887,
+      "maxDownKbps": 91.13663366336634,
       "initialTargetBufferMs": 72,
-      "targetBufferMs": 70,
+      "targetBufferMs": 72,
       "diagnostics": {
         "schema": 1,
-        "build": "91f5900",
-        "capturedAt": "2026-11-05T04:31:34.884Z",
+        "build": "1ee3daa",
+        "capturedAt": "2026-11-05T06:08:42.377Z",
         "codec": "opus",
-        "workletVersion": "ce6969f5d146",
-        "expectedWorkletVersion": "ce6969f5d146",
-        "bufferMs": 66.61,
-        "targetBufferMs": 70,
+        "workletVersion": "fb765da40022",
+        "expectedWorkletVersion": "fb765da40022",
+        "bufferMs": 77.35,
+        "targetBufferMs": 72,
         "underruns": 0,
         "underrunsLastMinute": 0,
         "plcFrames": 0,
         "lostFrames": 0,
         "droppedFrames": 0,
         "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 24.5,
-        "incomingGapMaxMs": 28.7,
+        "incomingGapP95Ms": 21.9,
+        "incomingGapMaxMs": 35.5,
         "incomingGapSamples": 1500,
         "incomingGapHistogram": [
           {
             "upToMs": 25,
-            "count": 1472
+            "count": 1497
           },
           {
             "upToMs": 50,
-            "count": 28
+            "count": 3
           },
           {
             "upToMs": 100,
@@ -461,11 +461,11 @@
         "mainThreadLongTasks": 0,
         "mainThreadLongTaskMaxMs": 0,
         "incomingGapWithLongTaskMaxMs": 0,
-        "decodeAverageMs": 0.16,
-        "decodeMaxMs": 0.9,
+        "decodeAverageMs": 0.18,
+        "decodeMaxMs": 0.6,
         "sampleRate": 48000,
         "baseLatency": 0.005333333333333333,
-        "outputLatency": 0.032,
+        "outputLatency": 0.03,
         "renderQuantum": 128,
         "outputRoute": "přímo / AudioDestinationNode",
         "websocketCompression": false,
@@ -473,8 +473,8 @@
         "effectiveType": "4g",
         "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
         "upKbps": 0,
-        "downKbps": 90.44,
-        "driftPercent": -0.01,
+        "downKbps": 88.59,
+        "driftPercent": 0,
         "maxJump": 0.01
       },
       "runCodec": "opus"
@@ -488,11 +488,11 @@
       "test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s",
       "result": "OK",
       "underruns": 0,
-      "downKbps": 84.32518074281364,
+      "downKbps": 85.392,
       "plcFrames": 0,
       "lostFrames": 0,
-      "inputGapMs": 26.589665999999852,
-      "outputGapMs": 25.51020900000003,
+      "inputGapMs": 27.284584000000905,
+      "outputGapMs": 28.428374999999505,
       "comparisonOnly": false,
       "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
       "runCodec": "opus"
@@ -517,17 +517,17 @@
       "plcFrames": 0,
       "lostFrames": 0,
       "droppedFrames": 0,
-      "inputGapMs": 80.39125000000058,
-      "outputGapMs": 406.12808300000324,
+      "inputGapMs": 27.712790999998106,
+      "outputGapMs": 402.90820800000074,
       "durationSeconds": 120,
       "diagnostic": {
         "schema": 1,
-        "build": "91f5900",
-        "capturedAt": "2026-11-05T04:34:46.660Z",
+        "build": "1ee3daa",
+        "capturedAt": "2026-11-05T06:11:53.939Z",
         "codec": "opus",
-        "workletVersion": "ce6969f5d146",
-        "expectedWorkletVersion": "ce6969f5d146",
-        "bufferMs": 454.48,
+        "workletVersion": "fb765da40022",
+        "expectedWorkletVersion": "fb765da40022",
+        "bufferMs": 353.04,
         "targetBufferMs": 320,
         "underruns": 0,
         "underrunsLastMinute": 0,
@@ -535,44 +535,44 @@
         "lostFrames": 0,
         "droppedFrames": 0,
         "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 201.9,
-        "incomingGapMaxMs": 402.6,
-        "incomingGapSamples": 1499,
+        "incomingGapP95Ms": 200.1,
+        "incomingGapMaxMs": 402.1,
+        "incomingGapSamples": 1501,
         "incomingGapHistogram": [
           {
             "upToMs": 25,
-            "count": 1346
+            "count": 1348
           },
           {
             "upToMs": 50,
-            "count": 1
+            "count": 0
           },
           {
             "upToMs": 100,
-            "count": 23
+            "count": 24
           },
           {
             "upToMs": 200,
-            "count": 54
+            "count": 53
           },
           {
             "upToMs": 300,
-            "count": 66
+            "count": 67
           },
           {
             "upToMs": 400,
-            "count": 4
+            "count": 5
           },
           {
             "upToMs": null,
-            "count": 5
+            "count": 4
           }
         ],
-        "mainThreadLongTasks": 1,
-        "mainThreadLongTaskMaxMs": 59,
-        "incomingGapWithLongTaskMaxMs": 128.8,
-        "decodeAverageMs": 0.07,
-        "decodeMaxMs": 0.4,
+        "mainThreadLongTasks": 0,
+        "mainThreadLongTaskMaxMs": 0,
+        "incomingGapWithLongTaskMaxMs": 0,
+        "decodeAverageMs": 0.06,
+        "decodeMaxMs": 0.9,
         "sampleRate": 48000,
         "baseLatency": 0.021333333333333333,
         "outputLatency": 0.047,
@@ -583,8 +583,8 @@
         "effectiveType": "4g",
         "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
         "upKbps": 0,
-        "downKbps": 89.52,
-        "driftPercent": 0.47,
+        "downKbps": 86.54,
+        "driftPercent": 0.46,
         "maxJump": 0.01
       },
       "runCodec": "opus"
@@ -647,11 +647,11 @@
     {
       "test": "VAD / opus: ticho 3 s, předběh a vyrovnaný začátek",
       "result": "OK",
-      "onsetDb": 0.19117006908160583,
+      "onsetDb": -0.07008862730915227,
       "precursorMs": 80,
       "lostOnsetMs": 0,
-      "firstRms": 0.13385474437580527,
-      "steadyRms": 0.13094088309217866,
+      "firstRms": 0.1299039467664636,
+      "steadyRms": 0.1309564149781188,
       "runCodec": "opus"
     },
     {
@@ -667,7 +667,7 @@
     {
       "test": "PWA: stará cache neversionovaného workletu neovlivní nový přehrávač",
       "result": "OK",
-      "workletVersion": "ce6969f5d146",
+      "workletVersion": "fb765da40022",
       "runCodec": "opus"
     },
     {
@@ -693,7 +693,7 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 30,
+      "elapsed_ms": 40,
       "runCodec": "opus"
     },
     {
@@ -768,9 +768,9 @@
           "stage": "scheduler",
           "windows": 13,
           "delay": {
-            "count": 19507,
+            "count": 19510,
             "histogram": [
-              19507,
+              19510,
               0,
               0,
               0,
@@ -778,123 +778,183 @@
               0,
               0
             ],
-            "maxMs": 24.946292,
-            "maxAtMs": 229543.811334,
-            "maxWindowP95Ms": 6.03425
+            "maxMs": 16.5945,
+            "maxAtMs": 25595.297583,
+            "maxWindowP95Ms": 3.659625
           },
           "gap": {
-            "count": 19505,
+            "count": 19508,
             "histogram": [
-              19404,
-              101,
+              19497,
+              11,
               0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 43.067665999999996,
-            "maxAtMs": 229543.81125,
-            "maxWindowP95Ms": 23.206375
+            "maxMs": 33.064083000000004,
+            "maxAtMs": 25595.297333000002,
+            "maxWindowP95Ms": 21.840958
           }
         },
         {
-          "stage": "source",
-          "windows": 20,
-          "eventPoll": {
-            "count": 98951,
+          "stage": "mix",
+          "windows": 21,
+          "mixStart": {
+            "count": 31512,
             "histogram": [
-              98951,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 6.434041,
-            "maxAtMs": 250626.33895900002,
-            "maxWindowP95Ms": 0.090292
-          },
-          "eventWork": {
-            "count": 16952,
-            "histogram": [
-              16952,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 2.108417,
-            "maxAtMs": 221631.685459,
-            "maxWindowP95Ms": 0.059500000000000004
-          },
-          "sessionTick": {
-            "count": 30013,
-            "histogram": [
-              29782,
-              230,
-              1,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 54.153583999999995,
-            "maxAtMs": 229543.807834,
-            "maxWindowP95Ms": 23.9035
-          },
-          "sessionWork": {
-            "count": 30017,
-            "histogram": [
-              30017,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 4.914625,
-            "maxAtMs": 228545.76424999998,
-            "maxWindowP95Ms": 0.003792
-          },
-          "tickDelay": {
-            "count": 30017,
-            "histogram": [
-              30010,
-              7,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 34.582625,
-            "maxAtMs": 229543.807917,
-            "maxWindowP95Ms": 6.356458
-          },
-          "tsIncoming": {
-            "count": 16132,
-            "histogram": [
-              15567,
-              556,
+              31503,
               9,
               0,
               0,
               0,
+              0,
               0
             ],
-            "maxMs": 58.027417,
-            "maxAtMs": 259510.691834,
-            "maxWindowP95Ms": 28.939292
+            "maxMs": 32.077667,
+            "maxAtMs": 157509.915958,
+            "maxWindowP95Ms": 21.827125
+          },
+          "mixWork": {
+            "count": 31517,
+            "histogram": [
+              31517,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 12.243416,
+            "maxAtMs": 141370.534458,
+            "maxWindowP95Ms": 1.561125
+          },
+          "tickDelay": {
+            "count": 31517,
+            "histogram": [
+              31517,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 15.193375,
+            "maxAtMs": 325511.748958,
+            "maxWindowP95Ms": 3.551667
+          },
+          "modes": [
+            "inline"
+          ],
+          "cadenceComparison": {
+            "mixP95Ms": 21.827125,
+            "sessionP95Ms": 21.827125,
+            "mixGaps25to50": 9,
+            "sessionGaps25to50": 9,
+            "mixTickDelayP95Ms": 3.551667,
+            "sessionTickDelayP95Ms": 3.551667
+          }
+        },
+        {
+          "stage": "source",
+          "windows": 21,
+          "eventPoll": {
+            "count": 102949,
+            "histogram": [
+              102949,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 2.141167,
+            "maxAtMs": 117855.269208,
+            "maxWindowP95Ms": 0.09466699999999999
+          },
+          "eventWork": {
+            "count": 17047,
+            "histogram": [
+              17047,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 0.409709,
+            "maxAtMs": 104515.440541,
+            "maxWindowP95Ms": 0.066458
+          },
+          "sessionTick": {
+            "count": 31512,
+            "histogram": [
+              31503,
+              9,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 32.077667,
+            "maxAtMs": 157509.915958,
+            "maxWindowP95Ms": 21.827125
+          },
+          "sessionWork": {
+            "count": 31517,
+            "histogram": [
+              31517,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 12.260584,
+            "maxAtMs": 141370.536,
+            "maxWindowP95Ms": 1.5636249999999998
+          },
+          "tickDelay": {
+            "count": 31517,
+            "histogram": [
+              31517,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 15.193375,
+            "maxAtMs": 325512.042041,
+            "maxWindowP95Ms": 3.551667
+          },
+          "tsIncoming": {
+            "count": 16184,
+            "histogram": [
+              16165,
+              19,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 33.427749999999996,
+            "maxAtMs": 141407.183708,
+            "maxWindowP95Ms": 21.955417
           },
           "tsWork": {
-            "count": 16135,
+            "count": 16187,
             "histogram": [
-              16135,
+              16187,
               0,
               0,
               0,
@@ -902,14 +962,14 @@
               0,
               0
             ],
-            "maxMs": 2.1081670000000003,
-            "maxAtMs": 221631.68529199998,
-            "maxWindowP95Ms": 0.016625
+            "maxMs": 0.409333,
+            "maxAtMs": 104515.440291,
+            "maxWindowP95Ms": 0.012625
           },
           "uplinkWork": {
-            "count": 10094,
+            "count": 10085,
             "histogram": [
-              10094,
+              10085,
               0,
               0,
               0,
@@ -917,14 +977,14 @@
               0,
               0
             ],
-            "maxMs": 2.1615409999999997,
-            "maxAtMs": 224136.974292,
-            "maxWindowP95Ms": 0.045833
+            "maxMs": 0.734,
+            "maxAtMs": 96094.47220799999,
+            "maxWindowP95Ms": 0.053709
           },
           "wsWork": {
-            "count": 10250,
+            "count": 10248,
             "histogram": [
-              10250,
+              10248,
               0,
               0,
               0,
@@ -932,98 +992,49 @@
               0,
               0
             ],
-            "maxMs": 2.162584,
-            "maxAtMs": 224136.974959,
-            "maxWindowP95Ms": 0.046708
+            "maxMs": 0.735125,
+            "maxAtMs": 96094.472708,
+            "maxWindowP95Ms": 0.05475
           }
         },
         {
           "stage": "writer",
-          "windows": 20,
+          "windows": 21,
           "producer": {
-            "count": 29977,
+            "count": 31420,
             "histogram": [
-              27811,
-              2163,
-              3,
+              31407,
+              13,
+              0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 93.026458,
-            "maxAtMs": 229587.158417,
-            "maxWindowP95Ms": 28.68575
+            "maxMs": 32.171917,
+            "maxAtMs": 141370.53037499997,
+            "maxWindowP95Ms": 21.930542
           },
           "writer": {
-            "count": 29977,
+            "count": 31420,
             "histogram": [
-              27693,
-              2279,
-              5,
+              31406,
+              14,
+              0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 93.46579200000001,
-            "maxAtMs": 229588.39508400002,
-            "maxWindowP95Ms": 29.114
+            "maxMs": 32.240958,
+            "maxAtMs": 141370.631291,
+            "maxWindowP95Ms": 21.93675
           },
-          "queueMaxMs": 31.595458,
+          "queueMaxMs": 1.8185,
           "averageFrameBytesRange": [
             89,
-            213
+            216
           ]
-        },
-        {
-          "stage": "mix",
-          "windows": 20,
-          "mixStart": {
-            "count": 30012,
-            "histogram": [
-              27880,
-              2130,
-              2,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 76.505292,
-            "maxAtMs": 229566.68804200002,
-            "maxWindowP95Ms": 28.597667
-          },
-          "mixWork": {
-            "count": 30016,
-            "histogram": [
-              30014,
-              2,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 29.518334,
-            "maxAtMs": 231768.94975,
-            "maxWindowP95Ms": 1.4217920000000002
-          },
-          "tickDelay": {
-            "count": 30016,
-            "histogram": [
-              30007,
-              6,
-              3,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 57.416375,
-            "maxAtMs": 229566.68837500003,
-            "maxWindowP95Ms": 9.748415999999999
-          }
         }
       ],
       "runCodec": "opus"
@@ -1076,8 +1087,8 @@
     {
       "test": "TCP shaper 80 ms / 1,5 Mb/s: pořadí, rychlost a FIN bez ztráty",
       "result": "OK",
-      "latencyMs": 83.78674999999998,
-      "transferMs": 67.41816599999993,
+      "latencyMs": 83.75212499999998,
+      "transferMs": 70.11774999999989,
       "bytes": 12000,
       "runCodec": "pcm"
     },
@@ -1085,7 +1096,7 @@
       "test": "TCP jitter: 300 celých WS rámců bez ztráty i při dělení těla, opakované prodlevy",
       "result": "OK",
       "frames": 300,
-      "maxGapMs": 400.5124159999996,
+      "maxGapMs": 402.3079580000003,
       "gapsOver390": 1,
       "runCodec": "pcm"
     },
@@ -1383,27 +1394,27 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 1795,
+      "receivedFrames": 1900,
       "sentFrames": 0,
-      "rms": 0.11176159130607899,
-      "micRms": 0.019808327403914798,
+      "rms": 0.0655431869478295,
+      "micRms": 0.019605903048908257,
       "underruns": 0,
       "droppedFrames": 0,
       "droppedCaptureFrames": 0,
       "sampleRate": 48000,
-      "bufferMs": 59.79891314628185,
+      "bufferMs": 67.74955540890733,
       "targetBufferMs": 82.66666666666667,
-      "driftCorrection": -0.4638450764122255,
+      "driftCorrection": -0.17390649695381183,
       "maxJump": 0,
       "outputRms": 0,
       "upKbps": 0,
-      "downKbps": 760.9427611583556,
+      "downKbps": 768.4,
       "plcFrames": 0,
       "lostFrames": 0,
       "codec": "pcm",
       "notifySounds": 7,
       "notifyPokes": 1,
-      "workletVersion": "ce6969f5d146",
+      "workletVersion": "fb765da40022",
       "renderQuantum": 128,
       "runCodec": "pcm"
     },
@@ -1421,24 +1432,24 @@
       "plcFrames": 0,
       "lostFrames": 0,
       "strictDesktop": true,
-      "binaryGapMs": 44.69999980926514,
+      "binaryGapMs": 25.09999990463257,
       "path": "native",
-      "maxJump": 0.011627627536654472,
-      "minBufferMs": 55.462433773020166,
-      "maxBufferMs": 93.82871080219047,
+      "maxJump": 0.03301711956737563,
+      "minBufferMs": 56.7358886160946,
+      "maxBufferMs": 79.55319361599929,
       "dominantHz": 439.453125,
-      "rmsDifferenceDb": 0.002915681122737323,
-      "maxDownKbps": 783.6896311116272,
+      "rmsDifferenceDb": 0.0023417459242442646,
+      "maxDownKbps": 776.3922734026746,
       "initialTargetBufferMs": 72.66666666666667,
       "targetBufferMs": 72,
       "diagnostics": {
         "schema": 1,
-        "build": "91f5900",
-        "capturedAt": "2026-11-05T04:38:18.880Z",
+        "build": "1ee3daa",
+        "capturedAt": "2026-11-05T06:15:27.574Z",
         "codec": "pcm",
-        "workletVersion": "ce6969f5d146",
-        "expectedWorkletVersion": "ce6969f5d146",
-        "bufferMs": 70.7,
+        "workletVersion": "fb765da40022",
+        "expectedWorkletVersion": "fb765da40022",
+        "bufferMs": 61.92,
         "targetBufferMs": 72,
         "underruns": 0,
         "underrunsLastMinute": 0,
@@ -1446,17 +1457,17 @@
         "lostFrames": 0,
         "droppedFrames": 0,
         "droppedCaptureFrames": 0,
-        "incomingGapP95Ms": 24.2,
-        "incomingGapMaxMs": 44.8,
+        "incomingGapP95Ms": 20.9,
+        "incomingGapMaxMs": 32,
         "incomingGapSamples": 1500,
         "incomingGapHistogram": [
           {
             "upToMs": 25,
-            "count": 1447
+            "count": 1499
           },
           {
             "upToMs": 50,
-            "count": 53
+            "count": 1
           },
           {
             "upToMs": 100,
@@ -1486,7 +1497,7 @@
         "decodeMaxMs": 0,
         "sampleRate": 48000,
         "baseLatency": 0.005333333333333333,
-        "outputLatency": 0.03,
+        "outputLatency": 0.035,
         "renderQuantum": 128,
         "outputRoute": "přímo / AudioDestinationNode",
         "websocketCompression": false,
@@ -1494,9 +1505,9 @@
         "effectiveType": "4g",
         "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
         "upKbps": 0,
-        "downKbps": 769.15,
-        "driftPercent": 0.26,
-        "maxJump": 0.01
+        "downKbps": 768.17,
+        "driftPercent": -0.08,
+        "maxJump": 0.03
       },
       "runCodec": "pcm"
     },
@@ -1509,11 +1520,11 @@
       "test": "CDP síť 1,5 Mb/s / 80 ms, pcm, 30 s",
       "result": "OK",
       "underruns": 0,
-      "downKbps": 768.4,
+      "downKbps": 760.9427607990311,
       "plcFrames": 0,
       "lostFrames": 0,
-      "inputGapMs": 32.28074999999808,
-      "outputGapMs": 26.476042000002053,
+      "inputGapMs": 28.06370799999968,
+      "outputGapMs": 20.19562500000029,
       "comparisonOnly": true,
       "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
       "runCodec": "pcm"
@@ -1538,17 +1549,17 @@
       "plcFrames": 0,
       "lostFrames": 0,
       "droppedFrames": 0,
-      "inputGapMs": 31.59058300000106,
-      "outputGapMs": 402.8454589999965,
+      "inputGapMs": 24.016417000006186,
+      "outputGapMs": 402.6971659999981,
       "durationSeconds": 120,
       "diagnostic": {
         "schema": 1,
-        "build": "91f5900",
-        "capturedAt": "2026-11-05T04:41:30.507Z",
+        "build": "1ee3daa",
+        "capturedAt": "2026-11-05T06:18:39.199Z",
         "codec": "pcm",
-        "workletVersion": "ce6969f5d146",
-        "expectedWorkletVersion": "ce6969f5d146",
-        "bufferMs": 320.07,
+        "workletVersion": "fb765da40022",
+        "expectedWorkletVersion": "fb765da40022",
+        "bufferMs": 406.18,
         "targetBufferMs": 320,
         "underruns": 0,
         "underrunsLastMinute": 0,
@@ -1557,7 +1568,7 @@
         "droppedFrames": 0,
         "droppedCaptureFrames": 0,
         "incomingGapP95Ms": 200.6,
-        "incomingGapMaxMs": 400.1,
+        "incomingGapMaxMs": 400,
         "incomingGapSamples": 1501,
         "incomingGapHistogram": [
           {
@@ -1566,15 +1577,15 @@
           },
           {
             "upToMs": 50,
-            "count": 2
+            "count": 0
           },
           {
             "upToMs": 100,
-            "count": 21
+            "count": 24
           },
           {
             "upToMs": 200,
-            "count": 54
+            "count": 53
           },
           {
             "upToMs": 300,
@@ -1582,11 +1593,11 @@
           },
           {
             "upToMs": 400,
-            "count": 8
+            "count": 9
           },
           {
             "upToMs": null,
-            "count": 1
+            "count": 0
           }
         ],
         "mainThreadLongTasks": 0,
@@ -1604,9 +1615,9 @@
         "effectiveType": "4g",
         "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
         "upKbps": 0,
-        "downKbps": 796.43,
-        "driftPercent": 0.37,
-        "maxJump": 0.01
+        "downKbps": 737.82,
+        "driftPercent": 0.29,
+        "maxJump": 0.08
       },
       "runCodec": "pcm"
     },
@@ -1668,11 +1679,11 @@
     {
       "test": "VAD / pcm: ticho 3 s, předběh a vyrovnaný začátek",
       "result": "OK",
-      "onsetDb": 0.15359396709524897,
+      "onsetDb": 0.21140086365766658,
       "precursorMs": 100,
       "lostOnsetMs": 0,
-      "firstRms": 0.1330862176766854,
-      "steadyRms": 0.13075351846566335,
+      "firstRms": 0.1341123947751804,
+      "steadyRms": 0.13088771149900882,
       "runCodec": "pcm"
     },
     {
@@ -1688,7 +1699,7 @@
     {
       "test": "PWA: stará cache neversionovaného workletu neovlivní nový přehrávač",
       "result": "OK",
-      "workletVersion": "ce6969f5d146",
+      "workletVersion": "fb765da40022",
       "runCodec": "pcm"
     },
     {
@@ -1714,13 +1725,13 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 33,
+      "elapsed_ms": 28,
       "runCodec": "pcm"
     },
     {
       "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
       "result": "OK",
-      "elapsedMs": 3,
+      "elapsedMs": 2,
       "disconnectedClients": 1,
       "disconnectReasons": [
         8
@@ -1789,9 +1800,9 @@
           "stage": "scheduler",
           "windows": 13,
           "delay": {
-            "count": 19509,
+            "count": 19508,
             "histogram": [
-              19509,
+              19508,
               0,
               0,
               0,
@@ -1799,33 +1810,93 @@
               0,
               0
             ],
-            "maxMs": 15.758999999999999,
-            "maxAtMs": 293414.43845899997,
-            "maxWindowP95Ms": 3.711417
+            "maxMs": 16.794166999999998,
+            "maxAtMs": 27235.521667,
+            "maxWindowP95Ms": 3.7945420000000003
           },
           "gap": {
-            "count": 19507,
+            "count": 19506,
             "histogram": [
-              19488,
-              19,
+              19498,
+              8,
               0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 32.694291,
-            "maxAtMs": 293414.43837499997,
-            "maxWindowP95Ms": 22.097042000000002
+            "maxMs": 32.623417,
+            "maxAtMs": 27214.487041999997,
+            "maxWindowP95Ms": 22.013917
+          }
+        },
+        {
+          "stage": "mix",
+          "windows": 21,
+          "mixStart": {
+            "count": 31514,
+            "histogram": [
+              31501,
+              13,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 33.514167,
+            "maxAtMs": 54356.171042,
+            "maxWindowP95Ms": 22.041042
+          },
+          "mixWork": {
+            "count": 31519,
+            "histogram": [
+              31519,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 5.001792,
+            "maxAtMs": 146920.041042,
+            "maxWindowP95Ms": 0.23625
+          },
+          "tickDelay": {
+            "count": 31519,
+            "histogram": [
+              31519,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "maxMs": 17.439208,
+            "maxAtMs": 57170.016959,
+            "maxWindowP95Ms": 3.9324169999999996
+          },
+          "modes": [
+            "inline"
+          ],
+          "cadenceComparison": {
+            "mixP95Ms": 22.041042,
+            "sessionP95Ms": 22.041042,
+            "mixGaps25to50": 13,
+            "sessionGaps25to50": 13,
+            "mixTickDelayP95Ms": 3.9324169999999996,
+            "sessionTickDelayP95Ms": 3.9324169999999996
           }
         },
         {
           "stage": "source",
           "windows": 21,
           "eventPoll": {
-            "count": 101742,
+            "count": 101260,
             "histogram": [
-              101742,
+              101260,
               0,
               0,
               0,
@@ -1833,14 +1904,14 @@
               0,
               0
             ],
-            "maxMs": 4.561875,
-            "maxAtMs": 87351.656292,
-            "maxWindowP95Ms": 0.102333
+            "maxMs": 2.692667,
+            "maxAtMs": 329595.74804200005,
+            "maxWindowP95Ms": 0.098375
           },
           "eventWork": {
-            "count": 17075,
+            "count": 16970,
             "histogram": [
-              17075,
+              16970,
               0,
               0,
               0,
@@ -1848,29 +1919,29 @@
               0,
               0
             ],
-            "maxMs": 1.033042,
-            "maxAtMs": 118931.692,
-            "maxWindowP95Ms": 0.057541999999999996
+            "maxMs": 1.41075,
+            "maxAtMs": 127328.054125,
+            "maxWindowP95Ms": 0.07050000000000001
           },
           "sessionTick": {
-            "count": 31511,
+            "count": 31514,
             "histogram": [
-              31482,
-              29,
+              31501,
+              13,
               0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 34.541000000000004,
-            "maxAtMs": 89383.647834,
-            "maxWindowP95Ms": 21.954792
+            "maxMs": 33.514167,
+            "maxAtMs": 54356.171042,
+            "maxWindowP95Ms": 22.041042
           },
           "sessionWork": {
-            "count": 31516,
+            "count": 31519,
             "histogram": [
-              31516,
+              31519,
               0,
               0,
               0,
@@ -1878,14 +1949,14 @@
               0,
               0
             ],
-            "maxMs": 1.398833,
-            "maxAtMs": 27450.192542,
-            "maxWindowP95Ms": 0.0053750000000000004
+            "maxMs": 5.004416,
+            "maxAtMs": 146920.042125,
+            "maxWindowP95Ms": 0.239208
           },
           "tickDelay": {
-            "count": 31516,
+            "count": 31519,
             "histogram": [
-              31516,
+              31519,
               0,
               0,
               0,
@@ -1893,29 +1964,29 @@
               0,
               0
             ],
-            "maxMs": 16.516042000000002,
-            "maxAtMs": 89383.648167,
-            "maxWindowP95Ms": 3.7238330000000004
+            "maxMs": 17.439208,
+            "maxAtMs": 57170.022791999996,
+            "maxWindowP95Ms": 3.9324169999999996
           },
           "tsIncoming": {
-            "count": 16212,
+            "count": 16107,
             "histogram": [
-              15005,
-              1207,
+              16100,
+              7,
               0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 48.138042,
-            "maxAtMs": 89388.409709,
-            "maxWindowP95Ms": 30.634375
+            "maxMs": 36.101458,
+            "maxAtMs": 158952.247667,
+            "maxWindowP95Ms": 23.012792
           },
           "tsWork": {
-            "count": 16215,
+            "count": 16110,
             "histogram": [
-              16215,
+              16110,
               0,
               0,
               0,
@@ -1923,14 +1994,14 @@
               0,
               0
             ],
-            "maxMs": 1.032375,
-            "maxAtMs": 118931.69145900001,
-            "maxWindowP95Ms": 0.017750000000000002
+            "maxMs": 1.41025,
+            "maxAtMs": 127328.053709,
+            "maxWindowP95Ms": 0.012917
           },
           "uplinkWork": {
-            "count": 10079,
+            "count": 10098,
             "histogram": [
-              10079,
+              10098,
               0,
               0,
               0,
@@ -1938,14 +2009,14 @@
               0,
               0
             ],
-            "maxMs": 6.962041,
-            "maxAtMs": 76029.008084,
-            "maxWindowP95Ms": 0.363458
+            "maxMs": 5.531084000000001,
+            "maxAtMs": 146920.598459,
+            "maxWindowP95Ms": 0.345
           },
           "wsWork": {
-            "count": 10240,
+            "count": 10261,
             "histogram": [
-              10240,
+              10261,
               0,
               0,
               0,
@@ -1953,98 +2024,49 @@
               0,
               0
             ],
-            "maxMs": 6.964084,
-            "maxAtMs": 76029.00925,
-            "maxWindowP95Ms": 0.364709
+            "maxMs": 5.532292,
+            "maxAtMs": 146920.59920899998,
+            "maxWindowP95Ms": 0.34495800000000004
           }
         },
         {
           "stage": "writer",
           "windows": 21,
           "producer": {
-            "count": 31378,
+            "count": 31503,
             "histogram": [
-              29621,
-              1757,
+              31487,
+              16,
               0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 37.163542,
-            "maxAtMs": 156724.597584,
-            "maxWindowP95Ms": 27.19225
+            "maxMs": 33.513458,
+            "maxAtMs": 54356.175041999995,
+            "maxWindowP95Ms": 22.098459000000002
           },
           "writer": {
-            "count": 31378,
+            "count": 31503,
             "histogram": [
-              29595,
-              1783,
+              31486,
+              17,
               0,
               0,
               0,
               0,
               0
             ],
-            "maxMs": 41.116042,
-            "maxAtMs": 156728.670542,
-            "maxWindowP95Ms": 27.253625
+            "maxMs": 33.487207999999995,
+            "maxAtMs": 54356.184667,
+            "maxWindowP95Ms": 22.258416
           },
-          "queueMaxMs": 14.697750000000001,
+          "queueMaxMs": 3.928458,
           "averageFrameBytesRange": [
             1921,
             1921
           ]
-        },
-        {
-          "stage": "mix",
-          "windows": 21,
-          "mixStart": {
-            "count": 31512,
-            "histogram": [
-              29756,
-              1756,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 43.584125,
-            "maxAtMs": 89382.299,
-            "maxWindowP95Ms": 27.192
-          },
-          "mixWork": {
-            "count": 31517,
-            "histogram": [
-              31517,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 2.003042,
-            "maxAtMs": 124133.67624999999,
-            "maxWindowP95Ms": 0.172875
-          },
-          "tickDelay": {
-            "count": 31517,
-            "histogram": [
-              31516,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "maxMs": 26.669166,
-            "maxAtMs": 89382.299542,
-            "maxWindowP95Ms": 8.923167
-          }
         }
       ],
       "runCodec": "pcm"

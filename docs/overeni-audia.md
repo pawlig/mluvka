@@ -1,12 +1,6 @@
 # Ověření zvuku a producenta — 5. 11. 2026
 
-Předchozí úplný běh před navázáním (5): `npm run e2e` — **196/196 OK, complete: true**, Opus i PCM, oba procesy exit 0. [Strojový report](e2e-vysledky.json), UTC `2026-11-05T04:43:19.902Z`. Frontend `91f5900`, worklet `ce6969f5d146`. Nativní tóny mají výslovně `strictDesktop: true`; naměřený jitter už nemůže přepnout nativní běh na měkčí limit.
-
-## Navázání (5): oprava kadence
-
-Zdroj `1ee3daa` vrací výchozí mix jako první práci tiku relace (`Burst`); WS writer zůstává oddělený. Samostatné vlákno je pouze opt-in `MLUVKA_AUDIO_PRODUCER=thread`. Oba režimy sdílejí AudioHandler, limiter a enkodér. Vstupní ztráty volitelné fronty se logují souhrnně po 10 s. Opraveno i odsazení workletu, jeho chování se nemění.
-
-Clippy všech cílů, 13 Rust testů (nově i dohánění šesti rámců po 110ms prodlevě v obou kodecích), release build, typecheck a frontend build prošly. Celý nový E2E čeká na sdílený TS3 zámek; následující čísla zatím popisují předchozí běhy. Nový guard porovnává mixStart a sessionTick ze stejného běhu, vyžaduje oba limity z přejímky a historický nevyhovující report odmítá.
+`npm run e2e`: **196/196 OK, complete: true**, Opus i PCM, oba procesy exit 0. [Strojový report](e2e-vysledky.json), UTC `2026-11-05T06:20:29.436Z`. Frontend `1ee3daa`, worklet `fb765da40022`. Nativní tóny mají výslovně `strictDesktop: true`.
 
 ## Build bez gitových metadat
 
@@ -22,100 +16,89 @@ VM test záměrně vyvolá právě jedno podtečení 120ms špičkou: maximum c�
 
 ## Kde vzniká mezera producenta
 
-Původní 120,108ms producent / 120,071ms writer / 120,20ms klient a pozdější 159,19ms producent byly doloženy již před tímto navázáním. Samy nerozlišovaly práci relace od plánování. Nový výchozí běh s instrumentací inline producenta (`0ffe749`) prošel 194 kontrolami, ale stále naměřil **57,76 ms Opus / 82,89 ms PCM před WS frontou**.
+Historické 120–160ms mezery byly již před WS frontou. Instrumentovaný inline běh `0ffe749` ukázal v nejhorším 30s PCM okně bez jediného příchozího TS audio paketu mezeru 82,896 ms, zpoždění termínu 63,876 ms, práci mixu nejvýše 0,751 ms a poll TS nejvýše 4,830 ms. Nezávislý Tokio takt měl maximum 75,795 ms. To dokládá opožděné probouzení/plánování runtime, nikoli čekání na TS audio nebo dávkování writeru. Přesný OS spouštěč historické špičky zpětně určit nelze.
 
-V nejhorším 30s PCM okně nebyl **žádný příchozí TS audio paket**: mezera začátků mixu **82,896 ms**, zpoždění termínu **63,876 ms**, vlastní práce mixu nejvýše **0,751 ms**, poll TS nejvýše **4,830 ms**. Nezávislý Tokio takt měl maximum **75,795 ms**. Prodlevu tedy nezpůsobilo čekání na TS audio, dekódování Opus ani dávkování WS writeru. Jde o opožděné probouzení/plánování runtime; konkrétní OS spouštěč historické 120–160ms špičky zpětně určit nelze. TS API může vykázat současnou mezeru také proto, že se ve stejném runtime opožděně polluje. To samo nedokazuje zpoždění TS serveru nebo sítě.
+Samostatné OS vlákno už používalo absolutní `deadline += 20 ms`, přesto v následné přejímce stejného běhu taktuje hůř než Tokio interval relace; viz řádky „před / vlákno“ níže. Izolace od uměle blokovaného runtime proto není doklad lepší kadence v E2E.
 
-V předchozím režimu mix vlastnilo samostatné vlákno na relaci. Absolutní `deadline += 20 ms` už používalo, ale ve skutečném E2E bylo jitterovější než takt relace. Výchozí režim se proto vrací inline do stejného tiku jako údržba relace. Značky mixStart a sessionTick nyní označují stejný vstup do této větve a reportují stejné 30s okno; výpočet mixu se měří zvlášť. Tento návrat neizoluje od opožděného plánování Tokio. Volitelnou izolaci stále ověřuje test blokace runtime; nelze ho vydávat za lepší kadenci běžného provozu.
+Výchozí mix se vrací jako první synchronní práce 20ms tiku relace s `MissedTickBehavior::Burst`. Při zpoždění se nevypustí žádný časový rámec; nový Rust test v obou kodecích zablokuje runtime na 110 ms a ověří šest termínů i souvislé pořadí Opus. AudioHandler, Opus PLC, limiter a nastavení enkodéru jsou společné pro oba režimy. Výchozí cesta nemá vstupní mezivláknovou frontu ani její zahazování. Opus uplink se stále nepřekóduje.
 
-`TCP_NODELAY` již byl zapnutý, `SinkExt::send` flushuje každý rámec. Tyto mechanismy se neměnily. `Application::Audio`, bitrate, VBR, FEC a complexity 10 zůstávají stejné; uplink Opus se stále nepřekóduje.
+Experimentální izolace zůstává pouze přes `MLUVKA_AUDIO_PRODUCER=thread`. Její vstupní ztráty se počítají a logují souhrnně nejvýše jednou za 10 s, nikoli každý paket. Řízení při přetížení vede k čistému odpojení; Drop zastavuje vlákno i bez dalšího paketu. Zachovaný jednotkový test izolace ověřuje pokračování této volitelné varianty při 140ms blokaci jediného Tokio workeru, netvrdí lepší časování produkčního režimu.
+
+WS writer zůstává samostatný async úkol s omezenou výstupní frontou 16 rámců. `TCP_NODELAY` už byl zapnutý a `SinkExt::send` flushuje každý rámec. Mix nemá aplikační zámek a nečeká na WS síťový zápis.
 
 ## Histogramy před / po
 
-Přejímka výchozího stavu `1315ecc`, každý pár ze stejného běhu. P95 je největší p95 jednoho 30s okna; 25–50 ms je součet počtů v této třídě, nikoli percentil.
+Každý pár **mixStart vs sessionTick** pochází ze stejného běhu a stejných relací. „Před“ je uložený report z přejímky na `1315ecc`, „po“ je finální úplný běh uvedený v záhlaví. P95 je maximum p95 jednotlivých 30s oken, nikoli percentil spojené distribuce. Počty 25–50 ms jsou součty všech těchto oken.
 
-| Kodek před opravou | mixStart p95 ms | sessionTick p95 ms | mix 25–50 ms | relace 25–50 ms | mix tickDelay p95 ms | relace tickDelay p95 ms |
+| Kodek / režim | mixStart p95 ms | sessionTick p95 ms | mix 25–50 ms | relace 25–50 ms | mix tickDelay p95 ms | relace tickDelay p95 ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| opus | 28.60 | 23.90 | 2130 | 230 | 9.75 | 6.36 |
-| pcm | 27.19 | 21.95 | 1756 | 29 | 8.92 | 3.72 |
+| opus před / vlákno | 28.60 | 23.90 | 2130 | 230 | 9.75 | 6.36 |
+| opus po / inline | 21.83 | 21.83 | 9 | 9 | 3.55 | 3.55 |
+| pcm před / vlákno | 27.19 | 21.95 | 1756 | 29 | 8.92 | 3.72 |
+| pcm po / inline | 22.04 | 22.04 | 13 | 13 | 3.93 | 3.93 |
 
-Vlákno tedy v obou kodecích nesplňuje požadavek kadence vůči souběžnému Tokio taktu. Níže je ještě historické srovnání dvou starších, různě zatížených běhů; jeho maxima nejsou maxima tohoto páru z přejímky. Finální měření opraveného režimu se doplní po získání TS3.
+V režimu inline začíná mix přímo na vstupu do větve tiku relace: obě značky označují stejnou událost a používají stejnou hranici reportovacího okna. Shodné řady jsou důsledkem jednoho časovače, nejsou dokladem izolace od zpoždění runtime. Výpočet mixu se měří zvlášť; `sessionWork` nyní zahrnuje také mix. E2E vyžaduje mix p95 ≤ sessionTick p95 a počet mezer 25–50 ms ≤ počet u relace pro oba kodeky; historický nevyhovující report tento guard odmítne.
 
-Součet 30s oken celého běhu, mezery v ms. Počet rámců se liší délkou relací, tichem a prodloužením mobilní zátěže na 120 s; **max p95 je největší p95 jednotlivého okna**, ne percentil spojené distribuce. Výchozí TS API měřilo mezery událostí; nové měření je po mluvčích a vynechává explicitně ukončené proudy. Různě zatížené E2E běhy nejsou řízené A/B; následující jednotkový test ověřuje pouze izolaci při umělé blokaci runtime.
+Anonymní histogram celého finálního běhu; meze v ms:
 
-| Transport / místo | ≤25 | 25–50 | 50–100 | 100–200 | 200–300 | 300–400 | >400 | max p95 okna | maximum |
+| Kodek / místo | ≤25 | 25–50 | 50–100 | 100–200 | 200–300 | 300–400 | >400 | max p95 okna | maximum |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| opus / TS API před | 10254 | 16 | 1 | 0 | 0 | 0 | 0 | 21.86 | 58.63 |
-| opus / mix před | 23606 | 55 | 2 | 0 | 0 | 0 | 0 | 22.29 | 57.76 |
-| opus / TS API po | 15567 | 556 | 9 | 0 | 0 | 0 | 0 | 28.94 | 58.03 |
-| opus / mix po | 27811 | 2163 | 3 | 0 | 0 | 0 | 0 | 28.69 | 93.03 |
-| opus / writer po | 27693 | 2279 | 5 | 0 | 0 | 0 | 0 | 29.11 | 93.47 |
-| pcm / TS API před | 10341 | 35 | 1 | 0 | 0 | 0 | 0 | 23.29 | 83.45 |
-| pcm / mix před | 20693 | 21 | 3 | 0 | 0 | 0 | 0 | 21.96 | 82.89 |
-| pcm / TS API po | 15005 | 1207 | 0 | 0 | 0 | 0 | 0 | 30.63 | 48.14 |
-| pcm / mix po | 29621 | 1757 | 0 | 0 | 0 | 0 | 0 | 27.19 | 37.16 |
-| pcm / writer po | 29595 | 1783 | 0 | 0 | 0 | 0 | 0 | 27.25 | 41.12 |
+| opus / TS API | 16165 | 19 | 0 | 0 | 0 | 0 | 0 | 21.96 | 33.43 |
+| opus / sessionTick | 31503 | 9 | 0 | 0 | 0 | 0 | 0 | 21.83 | 32.08 |
+| opus / mixStart | 31503 | 9 | 0 | 0 | 0 | 0 | 0 | 21.83 | 32.08 |
+| opus / WS zápis | 31406 | 14 | 0 | 0 | 0 | 0 | 0 | 21.94 | 32.24 |
+| pcm / TS API | 16100 | 7 | 0 | 0 | 0 | 0 | 0 | 23.01 | 36.10 |
+| pcm / sessionTick | 31501 | 13 | 0 | 0 | 0 | 0 | 0 | 22.04 | 33.51 |
+| pcm / mixStart | 31501 | 13 | 0 | 0 | 0 | 0 | 0 | 22.04 | 33.51 |
+| pcm / WS zápis | 31486 | 17 | 0 | 0 | 0 | 0 | 0 | 22.26 | 33.49 |
 
-Nový anonymní `audio_timing` rozlišuje TS API, celý poll/obsluhu událostí, WS vstup, údržbu relace, nezávislý Tokio takt, začátky/výpočet mixu, zařazení do WS a dokončený zápis. `maxAtMs` umožňuje korelaci maxim na monotónní ose daného procesu. Neobsahuje adresy, přezdívky, UID, hesla ani obsah paketů. E2E ukládá jen souhrny; jednotlivá okna jsou v ignorovaném `tmp-ts3/audio-timing-*.json`.
-
-| Kodek po opravě | max výpočet mixu ms | max poll TS ms | max obsluha události ms | max WS vstup ms | max mezera Tokio ms | max čekání WS ms |
+| Kodek | max mixWork ms | max poll TS ms | max obsluha události ms | max WS vstup ms | max mezera Tokio ms | max čekání WS ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| opus | 29.52 | 6.43 | 2.11 | 2.16 | 43.07 | 31.60 |
-| pcm | 2.00 | 4.56 | 1.03 | 6.96 | 32.69 | 14.70 |
+| opus | 12.24 | 2.14 | 0.41 | 0.74 | 33.06 | 1.82 |
+| pcm | 5.00 | 2.69 | 1.41 | 5.53 | 32.62 | 3.93 |
 
-Časy výpočtů jsou skutečný uplynulý čas včetně případného přerušení OS, nikoli thread CPU time. Celý nový běh stále obsahuje Opus mezeru producenta 93,03 ms (oproti 57,76 ms ve výchozím běhu), PCM 37,16 ms (oproti 82,89 ms). Samostatný producent tedy není záruka menších OS špiček; doložené zlepšení je izolace od blokovaného Tokio v řízeném testu. Přesný spouštěč zbývající 93ms špičky bez plánovacího profilu neurčujeme.
+Časy práce jsou uplynulý čas včetně případného přerušení OS, nikoli thread CPU time. Srovnání různých běhů není řízené A/B. Nový výchozí režim odstraňuje prokázanou dodatečnou nepravidelnost OS vlákna; neodstraňuje omezení plánovače Tokio/OS.
 
-### Řízené zablokování runtime — pouze volitelná větev
-
-`cargo test producer_keeps_ticking -- --nocapture`: jediný Tokio worker se zablokuje na 140 ms. Původní inline interval Burst čeká, nový skutečný producent pokračuje. Histogram má stejné meze jako tabulka výše. Nejde o simulaci TS serveru nebo produkční měření.
-
-| Kodek | inline max ms | samostatný producent max ms | vytvořené intervaly během blokace | inline histogram | producent histogram |
-| --- | ---: | ---: | ---: | --- | --- |
-| pcm | 142.44 | 25.64 | 7 | [0, 0, 0, 1, 0, 0, 0] | [6, 1, 0, 0, 0, 0, 0] |
-| opus | 146.08 | 27.38 | 7 | [0, 0, 0, 1, 0, 0, 0] | [5, 2, 0, 0, 0, 0, 0] |
+`audio_timing` obsahuje i TS příjem po mluvčích, `tickDelay`, celý poll/obsluhu událostí a monotónní `maxAtMs`. Neobsahuje adresy, přezdívky, UID, hesla ani obsah paketů. Jednotlivá okna jsou pouze v ignorovaném `tmp-ts3/audio-timing-*.json`; report uchovává souhrny a výsledek porovnání.
 
 ## Tóny 30 s přes nativní WS
 
 | Kodek | strictDesktop | Podtečení/PLC | Buffer min–max ms | Cíl ms | Max skok | FFT Hz | RMS rozdíl dB | Max dolů kb/s |
-| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| opus | true | 0/0 | 66.24–69.52 | 70.00 | 0.01125 | 439.45 | 0.0064 | 90.74 |
-| pcm | true | 0/0 | 55.46–93.83 | 72.00 | 0.01163 | 439.45 | 0.0029 | 783.69 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| opus | true | 0/0 | 56.74–77.65 | 72.00 | 0.01499 | 439.45 | 0.0016 | 91.14 |
+| pcm | true | 0/0 | 56.74–79.55 | 72.00 | 0.03302 | 439.45 | 0.0023 | 776.39 |
 
-Rozsah bufferu jsou sekundové statistiky; podtečení a max skok počítá worklet po vzorcích. Stejné limity platí pro Opus i PCM: nulové podtečení/PLC, buffer 40–120 ms a cíl ≤90 ms. Bitrate je binární WS payload včetně typu/pořadí, bez TCP/TLS a textových řídicích zpráv.
+Rozsah bufferu jsou sekundové statistiky; podtečení a skok počítá worklet po vzorcích. Stejné limity pro oba kodeky: nula podtečení/PLC, buffer 40–120 ms, cíl ≤90 ms. Bitrate je binární WS payload včetně typu/pořadí.
 
 ## Mobilní emulace, CPU 4×, jitter 120 s
 
-TCP shaper dávkuje celé WS rámce, náhodné mezery 50–300 ms a každou 17. 400 ms; měření trvá 120 s po 15s náběhu. Začátek potvrzuje worklet přes FIFO portu, takže do něj nevstupují opožděné události náběhu. Anonymní časová stopa v ignorovaném tmp-ts3 obsahuje stav regulátoru, příchody PCM a časy podtečení, žádné audio vzorky. Samostatný test ověřuje pořadí 300 rámců i při dělení rámce mezi TCP zápisy. Další 30s krok používá CDP i TCP shaper 1,5 Mb/s / 80 ms. Debugger.pause 20 s je samostatná kontrola.
+TCP shaper dávkuje celé WS rámce, mezery 50–300 ms a každou 17. 400 ms; měří se 120 s po 15s náběhu. Hranici potvrzuje worklet přes FIFO. Samostatný test ověřuje pořadí 300 rámců při dělení mezi TCP zápisy. Další krok používá 1,5 Mb/s / 80 ms; Debugger.pause 20 s je samostatná kontrola.
 
 | Kodek | Podtečení/PLC/ztráty/zahození | Max mezera vstup/výstup shaperu ms | p95 klienta ms | Dekódování průměr/max ms | Cíl ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| opus | 0/0/0/0 | 80.39/406.13 | 201.90 | 0.07/0.40 | 320.00 |
-| pcm | 0/0/0/0 | 31.59/402.85 | 200.60 | 0.00/0.00 | 320.00 |
+| opus | 0/0/0/0 | 27.71/402.91 | 200.10 | 0.06/0.90 | 320.00 |
+| pcm | 0/0/0/0 | 24.02/402.70 | 200.60 | 0.00/0.00 | 320.00 |
 
-Mobilní cesta zůstává MediaStreamDestination → audio element, nativní vzorkování a latencyHint playback; desktop používá přímý výstup. Dekodér zpracovává pakety ihned ve Workeru a předává PCM přímým MessagePortem do zásoby workletu. Kopírovaný JSON je výslovný seznam technických polí; E2E ověřuje panel, schránku, hashe a nepřítomnost adresy, přezdívek i testovacího hesla. Stará neversionovaná PWA cache je v E2E záměrně otrávená a nový worklet se přesto načte z URL s hashem.
+Mobilní výstup zůstává MediaStreamDestination → audio element, nativní vzorkování a latencyHint playback; desktop má přímý výstup. Worker dekóduje ihned a předává PCM přímým portem do zásoby workletu. E2E ověřuje panel, JSON schránky, hashe i nepřítomnost adresy, přezdívek a hesla. Přehrávací algoritmus se v tomto navázání nemění.
 
-Časová stopa navíc potvrzuje běžící přehrávač na začátku a přibližně 120 s skutečného renderování; samotná nula v počítadle by u zastaveného AudioContextu nestačila. Nejmenší rezerva je těsně před přidáním dalšího 20ms rámce, nikoli průměr fronty. Zkouška pokrývá uvedenou stopu, negarantuje libovolně dlouhou pauzu zařízení nebo sítě.
+Stopa potvrzuje běžící přehrávač na začátku i přibližně 120 s renderování. Rezerva před příchodem = naměřená fronta po příchodu minus 20ms rámec. Časová stopa bez audio vzorků je jen v ignorovaném tmp-ts3; nula v počítadle sama o sobě nestačí.
 
-| Kodek | Přijaté PCM rámce | Rozsah renderovacího taktu ms | Max mezera ve workletu ms | Min rezerva před příchodem ms | Podtečení |
+| Kodek | PCM rámce | Rozsah renderovacího taktu ms | Max mezera ve workletu ms | Min rezerva před příchodem ms | Podtečení |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| opus | 5999 | 119850.67 | 426.67 | 0.88 | 0 |
-| pcm | 5999 | 119850.67 | 426.67 | 3.61 | 0 |
+| opus | 6002 | 119914.67 | 405.33 | 12.12 | 0 |
+| pcm | 6000 | 119872.00 | 426.67 | 0.85 | 0 |
 
 ## Regrese a doklady
 
 | Kodek | VAD začátek vůči ustálení dB | Předběh ms | Ztracený začátek ms | SIGTERM odpojení ms | reasonid |
-| --- | ---: | ---: | ---: | ---: | --- |
-| opus | 0.1912 | 80 | 0 | 4 | [8] |
-| pcm | 0.1536 | 100 | 0 | 3 | [8] |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| opus | -0.0701 | 80 | 0 | 4 | [8] |
+| pcm | 0.2114 | 100 | 0 | 2 | [8] |
 
-Úplný report dále obsahuje upozornění, pozvánky, rich chat, obrázky/upload, mute/deafen/PTT, přehrávání 16/44,1/48/96 kHz, drift ±1 %, migraci AGC, PCM fallback, běh při pauze stránky a obnovení přezdívky/identity/kanálu po restartu.
-
-- `cargo clippy --all-targets -- -D warnings`: exit 0.
-- `cargo test`: 12 prošlo, 0 selhalo, včetně skutečného producenta obou kodeků při blokaci runtime.
+- `cargo clippy --all-targets -- -D warnings`: exit 0; `cargo test`: **13 prošlo, 0 selhalo**, včetně dohánění inline rámců i volitelné izolace.
 - `cargo build --release`, `npm run typecheck`, `npm run build`: exit 0.
-- Celé `npm run e2e`: 196/196, oba transporty, complete true. Společný zámek držen jen během běhu; porty 3102/9102/10102/30102.
-- TS3 má pro celý běh vlastní dočasnou databázi: jinak by stará DB ignorovala `default_voice_port` a test se připojoval na jiný port.
-- [Souhrn kontroly UI](kontrola-diagnostiky/souhrn.json), [desktopový panel](kontrola-diagnostiky/panel-desktop.png), [mobilní panel](kontrola-diagnostiky/panel-mobil.png), aktuální živá diagnostika [Opus](screenshots/diagnostika-mobil-opus.png) / [PCM](screenshots/diagnostika-mobil-pcm.png). UI se v tomto navázání neměnilo.
-- [Historické souhrny](audio-historie-souhrn.json) zachovávají i neúspěšný běh s pěti podtečeními při >600ms mezeře; původní velké JSON a duplicitní PNG jsou odstraněné. [Starší VM A/B](audio-buffer-porovnani.json) porovnává worklet 81110d7 s první mobilní opravou, není vydáván za nové měření producenta.
+- Celé `npm run e2e`: 196/196, oba kodeky exit 0, complete true; společný zámek jen po dobu běhu, porty 3102/9102/10102/30102. Report zahrnuje upozornění, pozvánky, chat/upload, mute/deafen/PTT, 16/44,1/48/96 kHz, drift ±1 %, AGC migraci, PCM fallback, pauzu stránky a obnovení identity/kanálu po restartu.
+- [Souhrn kontroly UI](kontrola-diagnostiky/souhrn.json), [desktopový panel](kontrola-diagnostiky/panel-desktop.png), [mobilní panel](kontrola-diagnostiky/panel-mobil.png); aktuální diagnostika [Opus](screenshots/diagnostika-mobil-opus.png) / [PCM](screenshots/diagnostika-mobil-pcm.png). UI se neměnilo.
+- [Historické souhrny](audio-historie-souhrn.json) a [starší VM A/B](audio-buffer-porovnani.json) zůstávají označené jako historické. Surové JSON a duplicitní PNG se nevracejí do repa.
 
-Neověřeno: postižený fyzický telefon (iOS/Android, PWA, Bluetooth a skutečná hardwarová latence), Martinův klient, produkční Easypanel/Traefik a Docker image (Docker CLI není dostupné). Zde běžel lokální TS3 3.13.7 a izolovaný Chrome. Konkrétní historickou 120–160ms OS prodlevu nelze zpětně přiřadit; mechanismus blokace runtime i jeho izolace jsou reprodukované. Jen lokální commity na vyvoj, bez pushe.
+Neověřeno: postižený fyzický telefon, Martinův klient, produkční Easypanel/Traefik a Docker image (Docker CLI zde není). Běžel lokální TS3 3.13.7 a izolovaný Chrome. Linuxová kadence může být jiná než macOS; tento doklad se vztahuje k uvedenému lokálnímu běhu. Jen lokální commity na vyvoj, bez pushe.
