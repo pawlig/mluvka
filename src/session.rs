@@ -934,6 +934,7 @@ async fn connected(
     let mut pending: HashMap<_, (Instant, OutCommand)> = HashMap::new();
     let mut points = CommandPoints::new(Instant::now());
     let mut slowing = false;
+    let mut mute_unconfirmed = false;
     let mut command_counts = HashMap::new();
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count) = (0, 0);
@@ -963,7 +964,7 @@ async fn connected(
                                 // Sloučit čekající změny mikrofonu, neposílat mezistavy bez změny.
                                 commands.retain(|cmd| !cmd.0.content().starts_with(b"clientupdate client_input_muted="));
                                 let book = con.get_state().map_err(|e| ts_error(&e))?;
-                                if book.clients.get(&book.own_client).map(|client| (client.input_muted, client.output_muted)).unwrap_or_else(|| (con.get_options().get_input_muted(), con.get_options().get_output_muted())) == (mic, deaf) { continue; }
+                                if book.clients.get(&book.own_client).map(|client| (client.input_muted, client.output_muted)).unwrap_or_else(|| (con.get_options().get_input_muted(), con.get_options().get_output_muted())) == (mic, deaf) && !mute_unconfirmed { continue; }
                                 Some(command("clientupdate", &[("client_input_muted",u8::from(mic).to_string()),("client_output_muted",u8::from(deaf).to_string())]))
                             },
                             Control::Peer { uid, volume, muted } => {
@@ -1027,6 +1028,11 @@ async fn connected(
                     },
                     Some(Ok(StreamItem::MessageResult(handle, result))) => {
                         let sent = pending.remove(&handle);
+                        // Knihovna mění lokální mute optimisticky už při odeslání.
+                        // Odmítnutí proto nesmí deduplikací zrušit potřebný retry.
+                        if sent.as_ref().is_some_and(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")) {
+                            mute_unconfirmed = result.is_err();
+                        }
                         if let Err(e) = result {
                             let error = tsclientlib::Error::CommandError(e);
                             if is_command_flood(&error) {
@@ -1053,7 +1059,10 @@ async fn connected(
                             points.available = 0.0;
                             // TS někdy chybu vrátí bez return_code. Díky jednomu
                             // čekajícímu potvrzení víme, který příkaz opakovat.
-                            if let Some((_, (_, cmd))) = pending.drain().next() { commands.push_front(cmd); }
+                            if let Some((_, (_, cmd))) = pending.drain().next() {
+                                mute_unconfirmed |= cmd.0.content().starts_with(b"clientupdate client_input_muted=");
+                                commands.push_front(cmd);
+                            }
                             slowing = true;
                             json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
                         } else {
@@ -1116,7 +1125,7 @@ async fn connected(
                 // Burst musí pustit writer mezi doháněnými rámci. Jinak plní
                 // vlastní lokální frontu rychleji, než může proběhnout její čtenář.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
-                if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
+                if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { mute_unconfirmed |= pending.values().any(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")); pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {
                 if last_pong.elapsed() >= BROWSER_TIMEOUT { return Err("Prohlížeč přestal odpovídat.".into()); }

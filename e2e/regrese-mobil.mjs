@@ -648,6 +648,32 @@ export async function floodRecoveryChecks({
     const original = await pages[0].evaluate(() => window.regSockets.length);
     const originalClient = await selfId(pages[0]);
     const commandStart = backendLog().length;
+    await control(pages[0], { type: "mute", microphone: true, deafen: false });
+    await expect
+      .poll(() => query.cmd(`clientinfo clid=${originalClient}`))
+      .toContain("client_input_muted=1");
+    await query.cmd(
+      "serveredit virtualserver_antiflood_points_needed_command_block=1 virtualserver_antiflood_points_needed_ip_block=10000",
+    );
+    await control(pages[0], { type: "mute", microphone: false, deafen: false });
+    await expect
+      .poll(() => backendLog().slice(commandStart), { timeout: 15000 })
+      .toMatch(/code="?0x020c"?/);
+    // Totéž nastavení znovu během odmítnutí nesmí zahodit čekající unmute.
+    await control(pages[0], { type: "mute", microphone: false, deafen: false });
+    await query.cmd(
+      "serveredit virtualserver_antiflood_points_needed_command_block=150 virtualserver_antiflood_points_needed_ip_block=250",
+    );
+    await expect
+      .poll(() => query.cmd(`clientinfo clid=${originalClient}`), {
+        timeout: 15000,
+      })
+      .toContain("client_input_muted=0");
+    ok(
+      "Příkazový flood: odmítnuté unmute přežije opakovaný stejný stav a skutečně odtlumí klienta na TS",
+    );
+    const chatStart = backendLog().length;
+
     await query.cmd(
       "serveredit virtualserver_antiflood_points_needed_command_block=1 virtualserver_antiflood_points_needed_ip_block=10000",
     );
@@ -657,7 +683,7 @@ export async function floodRecoveryChecks({
       text: "fronta-po-command-floodu",
     });
     await expect
-      .poll(() => backendLog().slice(commandStart), { timeout: 15000 })
+      .poll(() => backendLog().slice(chatStart), { timeout: 15000 })
       .toMatch(/code="?0x020c"?/);
     await expect(
       pages[0].getByText("Odesílám pomaleji, server omezuje počet zpráv", {
