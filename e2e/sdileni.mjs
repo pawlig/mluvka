@@ -614,6 +614,11 @@ export async function sharingChecks({
     for (const context of contexts.reverse()) await context.close();
   }
   await withoutTurn({ browser, base, root, tsAddress, login, connected, ok });
+  // Nový scénář panelu přepne skrytý mobilní pohled na Chat i na desktopu.
+  // Dalším regresním scénářům vrátíme původní výchozí pohled Kanály.
+  await b.setViewportSize({ width: 390, height: 844 });
+  await b.getByRole("button", { name: /^Kanály/ }).click();
+  await b.setViewportSize({ width: 1440, height: 900 });
 }
 
 // Druhý backend využívá stejnou zamčenou TS3 instanci, ale skutečně nemá TURN env.
