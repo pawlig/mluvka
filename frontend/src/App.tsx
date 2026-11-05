@@ -1798,6 +1798,7 @@ function AppContent({
               </button>
               <button
                 className="disconnect control-button"
+                aria-label="Odpojit"
                 onClick={disconnect}
               >
                 <Icon name="leave" />
