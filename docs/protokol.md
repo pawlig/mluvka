@@ -237,7 +237,7 @@ Odmítnutí vrátí nefatální `share_error:{v:1,message:string,request:string}
 WS transport má maximum 32 KiB, ale původní řízení zůstává omezené na 16 KiB a 40 zpráv/s.
 Výhradně offer/answer smějí mít 32 KiB JSON (samotné SDP max. 30 KiB), ICE 4 KiB (candidate max. 2 KiB),
 ostatní signalizace 1 KiB. Změny `share_start`, `share_stop`, `watch`, `unwatch` mají navíc společný klouzavý limit 5/s na relaci; překročení vrací `share_error` „příliš rychle“. Signalizace má zvláštní strop 120 zpráv/s pro šest paralelních ICE jednání.
-Překročení tempa ukončí relaci; odmítnutí obsahu nebo směrování vrátí `share_error`.
+Překročení signalizačního tempa zahodí přebytečné zprávy a první vrátí `share_error`; TS relace pokračuje. Odmítnutí obsahu nebo směrování také vrátí `share_error`.
 Fronty zůstávají omezené, signalizace nepřebírá audio frontu.
 
 `GET /api/ice` vyžaduje `Authorization: Bearer <token>` živé TS relace, jinak 401.

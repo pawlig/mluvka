@@ -1,6 +1,8 @@
 import { expect } from "@playwright/test";
 import { createHmac } from "node:crypto";
 import { resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 
 export async function installSharingCapture(context, relay = false) {
   await context.addInitScript(
@@ -525,5 +527,122 @@ export async function sharingChecks({
     ok("Systémové track.onended zastaví sdílení i všechny diváky");
   } finally {
     for (const context of contexts.reverse()) await context.close();
+  }
+  await withoutTurn({ browser, base, root, tsAddress, login, connected, ok });
+}
+
+// Druhý backend využívá stejnou zamčenou TS3 instanci, ale skutečně nemá TURN env.
+async function withoutTurn({
+  browser,
+  base,
+  root,
+  tsAddress,
+  login,
+  connected,
+  ok,
+}) {
+  const url = new URL(base);
+  url.port = String(Number(url.port) + 1);
+  const directBase = url.origin;
+  const directory = mkdtempSync(resolve(root, "tmp-ts3/sharing-direct-"));
+  const backend = spawn(resolve(root, "target/release/mluvka"), [], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PORT: url.port,
+      PUBLIC_URL: directBase,
+      ALLOWED_SERVERS: tsAddress,
+      TURN_URLS: "",
+      TURN_SECRET: "",
+      STUN_URLS: "",
+      UPLOAD_DIR: directory,
+    },
+    stdio: "ignore",
+  });
+  let startupError;
+  backend.on("error", (error) => {
+    startupError = error;
+  });
+  const contexts = [];
+  try {
+    await expect
+      .poll(
+        async () => {
+          if (startupError || backend.exitCode !== null)
+            throw Error("Backend bez TURN nenastartoval");
+          return fetch(directBase + "/healthz")
+            .then((r) => r.ok)
+            .catch(() => false);
+        },
+        { timeout: 10000 },
+      )
+      .toBe(true);
+    for (let i = 0; i < 2; i++)
+      contexts.push(await browser.newContext({ permissions: ["microphone"] }));
+    const s = await contexts[0].newPage(),
+      v = await contexts[1].newPage();
+    await s.goto(directBase);
+    await v.goto(directBase);
+    await login(s, "Přímé vysílání");
+    await connected(s);
+    await login(v, "Přímý divák");
+    await connected(v);
+    const token = await v.evaluate(() => window.__e2eShareToken);
+    const config = await (
+      await v.request.get(directBase + "/api/ice", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(config.iceServers).toEqual([]);
+    await s
+      .getByRole("button", { name: "Sdílet obrazovku", exact: true })
+      .click();
+    await v.getByRole("button", { name: "Sledovat", exact: true }).click();
+    const stats = await flowing(v);
+    expect(stats.candidate).toBe("host");
+    ok(
+      "Bez TURN_URLS: skutečný backend bez ICE serverů přenáší video přímo přes host kandidáta",
+      stats,
+    );
+    await v.getByRole("button", { name: "Zavřít sledování" }).click();
+    await v.evaluate(() => {
+      window.__e2eBlockOffers = true;
+    });
+    await v.getByRole("button", { name: "Sledovat", exact: true }).click();
+    await expect(v.locator(".share-error")).toHaveText(
+      "Přímé spojení se nepodařilo a server nemá TURN — sdílení přes tuhle síť nejde",
+      { timeout: 13000 },
+    );
+    await expect(v.locator(".share-player")).toHaveCount(0);
+    await expect(s.locator(".share-live")).toContainText("0 diváků");
+    const attempts = await s.evaluate(
+      () => window.__e2eShareMessages.filter((m) => m.type === "watch").length,
+    );
+    await v.waitForTimeout(1500);
+    expect(
+      await s.evaluate(
+        () =>
+          window.__e2eShareMessages.filter((m) => m.type === "watch").length,
+      ),
+    ).toBe(attempts);
+    expect(attempts).toBeLessThanOrEqual(3);
+    ok(
+      "Bez TURN: chybějící offer skončí do 10 s českou chybou, uvolní místo a neopakuje watch",
+    );
+  } finally {
+    for (const context of contexts.reverse()) await context.close();
+    if (backend.exitCode === null && backend.signalCode === null && backend.pid)
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          backend.kill("SIGKILL");
+          resolve();
+        }, 3000);
+        backend.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        backend.kill("SIGTERM");
+      });
+    rmSync(directory, { recursive: true, force: true });
   }
 }

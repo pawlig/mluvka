@@ -98,6 +98,9 @@ export class Sharing {
   private captureGeneration = 0;
   private pendingStart?: string;
   private startTimer?: ReturnType<typeof setTimeout>;
+  private watchTimer?: ReturnType<typeof setTimeout>;
+  private watchAttempts = 0;
+  private hasTurn = false;
   private lastBytes = { bytes: 0, at: 0 };
   constructor(private sendRaw: (data: unknown) => void) {}
   subscribe = (fn: () => void) => {
@@ -135,6 +138,11 @@ export class Sharing {
       throw Error("Nastavení spojení není dostupné. Zkuste se připojit znovu.");
     const data = await result.json();
     if (token !== this.token) throw Error("Relace byla mezitím odpojena.");
+    this.hasTurn = data.iceServers.some((server: RTCIceServer) =>
+      (Array.isArray(server.urls) ? server.urls : [server.urls]).some((url) =>
+        /^turns?:/i.test(url),
+      ),
+    );
     this.configExpires = data.expiresAt * 1000;
     this.config = {
       bundlePolicy: "max-bundle",
@@ -338,6 +346,15 @@ export class Sharing {
       const disconnected =
         pc.connectionState === "disconnected" ||
         pc.iceConnectionState === "disconnected";
+      if (
+        !sending &&
+        pc.connectionState === "connected" &&
+        !failed &&
+        !disconnected
+      ) {
+        clearTimeout(this.watchTimer);
+        this.watchAttempts = 0;
+      }
       if (!sending)
         this.update({
           status:
@@ -413,13 +430,17 @@ export class Sharing {
       return;
     if (peer.sending)
       void this.offer(to, peer, true).catch((e) => this.fail(e));
-    else this.send("watch", { to });
+    else {
+      this.retryWatch();
+      return;
+    }
     peer.timer = setTimeout(() => this.recover(to, peer), 8000);
   }
   networkChanged = () => {
     for (const p of this.peers.values()) {
       clearTimeout(p.timer);
-      this.recover(p.to, p);
+      if (p.sending) this.recover(p.to, p);
+      else this.retryWatch(false);
     }
   };
   async start(quality: Quality, audio: boolean) {
@@ -492,9 +513,38 @@ export class Sharing {
       error: "",
       stats: undefined,
     });
+    this.watchAttempts = 1;
     this.send("watch", { to: share.session });
+    this.watchDeadline();
+    void this.ice().catch((error) => {
+      if (this.state.watching !== share) return;
+      this.unwatch();
+      this.fail(error);
+    });
+  }
+  private watchDeadline() {
+    clearTimeout(this.watchTimer);
+    this.watchTimer = setTimeout(() => this.retryWatch(), 10000);
+  }
+  private retryWatch(terminalWithoutTurn = true) {
+    const share = this.state.watching;
+    if (!share || !this.token) return;
+    if ((terminalWithoutTurn && !this.hasTurn) || this.watchAttempts >= 3) {
+      const message = !this.hasTurn
+        ? "Přímé spojení se nepodařilo a server nemá TURN — sdílení přes tuhle síť nejde"
+        : "Sdílení se nepodařilo připojit ani po třech pokusech. Zkuste sledování spustit znovu.";
+      this.unwatch();
+      this.update({ error: message });
+      return;
+    }
+    this.watchAttempts++;
+    this.update({ status: "Spojení ztraceno — zkouším znovu" });
+    this.send("watch", { to: share.session });
+    this.watchDeadline();
   }
   unwatch(notify = true) {
+    clearTimeout(this.watchTimer);
+    this.watchAttempts = 0;
     const share = this.state.watching;
     if (share) {
       if (notify && this.token) this.send("unwatch", { to: share.session });
