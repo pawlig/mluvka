@@ -143,7 +143,7 @@ export class AudioEngine {
           window.__mluvkaStats.underruns++;
           audioUnderrun();
         }
-        if (data.dropped) window.__mluvkaStats.droppedFrames++;
+        if (data.dropped) window.__mluvkaStats.droppedFrames += typeof data.dropped === "number" ? data.dropped : 1;
         if (data.stats) Object.assign(window.__mluvkaStats, data.stats);
         if (data.plc && this.ready && this.codec === "opus")
           this.worker?.postMessage({ plc: true });

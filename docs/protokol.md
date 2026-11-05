@@ -89,14 +89,14 @@ díře v pořadí se doplňuje nejvýše 10 rámců.
 
 Desktop začíná na 60 ms, mobil na 320 ms. Cíl zvyšuje p95 mezer za 30 s + 40 ms,
 rychlá reakce na jednotlivou špičku a podtečení; strop je 320 ms. Po 30 s bez špiček
-klesá nejvýše o 2 ms/s. Čistý desktop má cíl ≤90 ms. PI regulátor mění lineární
+klesá nejvýše o 2 ms/s. Naučený cíl přežije reconnect; podtečení vynutí doplnění celé rezervy. PI regulátor se při doplnění resetuje a má anti-windup. Čistý desktop má cíl ≤90 ms. PI regulátor mění lineární
 interpolaci nejvýše ±1,05 %, aby zvládl drift ±1 %. Nouzové srovnání s prolnutím
-nastává až při překročení 600 ms nebo cíle + 300 ms. Podtečení i obnovení mají 5ms rampu.
+nastává až po překročení větší z mezí 800 ms a cíl + 400 ms. Podtečení i obnovení mají 5ms rampu.
 Mobil používá nativní vzorkování AudioContextu a latencyHint playback; desktop interactive.
 
 `window.__mluvkaStats` obsahuje počty rámců, RMS, podtečení, zahození, buffer/cíl,
 korekci driftu, skok sousedních vzorků, kb/s, PLC/ztráty, kodek, vzorkování a render quantum.
-Interní UID slouží testům a není součástí kopie diagnostiky. Nastavení → Diagnostika zvuku
+Zahození se počítá v ekvivalentech 20ms rámců (zaokrouhlení nahoru), nikoli počtem srovnání fronty. Interní UID slouží testům a není součástí kopie diagnostiky. Nastavení → Diagnostika zvuku
 kopíruje výslovný seznam bezpečných technických polí, včetně 30s histogramu mezer,
 časů dekódování, latencí a verze buildu. TS ztráty řeší uvnitř `AudioHandler`;
 WS PLC čítače je nezahrnují. Backend každých 30 s loguje pouze číselné histogramy

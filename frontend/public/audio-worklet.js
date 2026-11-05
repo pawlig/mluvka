@@ -80,11 +80,12 @@ class MluvkaAudio extends AudioWorkletProcessor {
         this.playResampler.push(new Int16Array(data.pcm), (v) => {
           this.ring[this.write++ % this.ring.length] = v / 32768;
         });
-        if (this.write - this.read > Math.max(sampleRate * 0.6, this.target + sampleRate * 0.3)) {
+        if (this.write - this.read > Math.max(sampleRate * 0.8, this.target + sampleRate * 0.4)) {
+          const skipped = this.write - this.target - this.read;
           this.read = this.write - this.target;
           this.tail = this.last;
           this.fade = 0;
-          this.port.postMessage({ dropped: true });
+          this.port.postMessage({ dropped: Math.ceil(skipped * 50 / sampleRate) });
         }
       }
       if (data.settings) {
