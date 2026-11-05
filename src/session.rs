@@ -80,6 +80,10 @@ enum Control {
     },
     Ping,
     Disconnect,
+    Music {
+        action: String,
+        arg: Option<String>,
+    },
 }
 
 pub fn normalize_server(input: &str) -> Result<String, String> {
@@ -788,6 +792,8 @@ async fn connected(
     > = HashMap::new();
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count, mut signal_count) = (0, 0, 0);
+    let mut music = crate::music_bot::MusicBot::default();
+    if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
     loop {
         tokio::select! {
             incoming = ws.recv() => {
@@ -819,6 +825,7 @@ async fn connected(
                             Control::Chat { target, client, text } => {
                                 if text.trim().is_empty() || text.len() > 4000 { json_send(ws,error_message("Zpráva musí mít 1–4000 bajtů.", false)).await?; continue; }
                                 let target = match target.as_str() { "server" => MessageTarget::Server, "channel" => MessageTarget::Channel, "private" if client.is_some() => MessageTarget::Client(ClientId(client.unwrap())), _ => return Err("Neplatný cíl zprávy.".into()) };
+                                if let MessageTarget::Client(id) = &target { music.manual_sent(id.0, &text, Instant::now()); }
                                 Some(con.get_state().map_err(|e| ts_error(&e))?.send_message(target, &text))
                             },
                             Control::Mute { microphone: mic, deafen: deaf } => {
@@ -833,6 +840,7 @@ async fn connected(
                             },
                             Control::Ping => { last_pong = Instant::now(); json_send(ws, json!({"type":"pong"})).await?; None },
                             Control::Disconnect => return Ok(()),
+                            Control::Music { action, arg } => { if let Some(ev) = music.request(&action, arg.as_deref()) { json_send(ws, ev).await?; } None },
                             Control::Connect { .. } => return Err("Spojení už je připojené.".into()),
                         };
                         if let Some(cmd) = cmd { let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?; pending.insert(handle, Instant::now()); }
@@ -878,10 +886,15 @@ async fn connected(
                             }
                             if let Event::Message { target, invoker, message } = e {
                                 let (kind, client) = match target { MessageTarget::Server => ("server",None), MessageTarget::Channel => ("channel",None), MessageTarget::Client(id) => ("private",Some(id.0)), MessageTarget::Poke(id) => ("poke",Some(id.0)) };
+                                let peer = if kind != "private" { None } else if invoker.id == own_client { client } else { Some(invoker.id.0) };
+                                let handled = music.on_message(kind == "channel", peer, invoker.id, own_client, &message, Instant::now());
+                                if let Some(ev) = handled.event { json_send(ws, ev).await?; }
+                                if !handled.show_in_chat { continue; }
                                 json_send(ws,json!({"type":if kind == "poke" {"poke"} else {"chat"},"target":kind,"client":client,"from":invoker.id.0,"name":invoker.name,"text":message})).await?;
                             }
                         }
                         json_send(ws, sharing.snapshot(snapshot(con)?)).await?;
+                        if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
                     },
                     Some(Ok(StreamItem::FileDownload(handle, result))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Ok(result)); } },
                     Some(Ok(StreamItem::FiletransferFailed(handle, error))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Err(crate::ts_file::transfer_error(&error))); } },
@@ -937,6 +950,13 @@ async fn connected(
                 // Burst musí pustit writer mezi doháněnými rámci. Jinak plní
                 // vlastní lokální frontu rychleji, než může proběhnout její čtenář.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
+                let (music_send, music_events) = music.tick(Instant::now());
+                for ev in music_events { json_send(ws, ev).await?; }
+                if let Some((bot, text)) = music_send {
+                    let cmd = con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text);
+                    let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?;
+                    pending.insert(handle, Instant::now());
+                }
                 if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {

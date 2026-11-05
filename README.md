@@ -133,6 +133,8 @@ Vite vypíše adresu a přesměruje `/ws`, `/healthz`, `/api` a `/img` na backen
 | `PORT` | `3000` | Jediný HTTP/WS port. |
 | `ALLOWED_SERVERS` | prázdné | Čárkami oddělené `host[:port]`. Prázdné (výchozí) povolí libovolný server — tak se Mluvka zatím nasazuje. Omezení lze kdykoliv zapnout. |
 | `MAX_SESSIONS` | `20` | Současná spojení včetně WS čekajících na přihlášení. |
+| `MUSIC_BOT_NAMES` | `Spotify Bot` | Čárkami oddělené přezdívky hudebního bota (bez rozlišení velikosti). Když je bot v kanálu uživatele, ukáže se lišta „Hudba". |
+| `MUSIC_BOT_UIDS` | prázdné | Čárkami oddělená unique ID hudebního bota (doplňuje přezdívky). |
 | `RUST_LOG` | `mluvka=info` | Úroveň logů aplikace. TS paketové logy jsou kvůli přihlašovacím údajům vždy vypnuté. |
 | `STATIC_DIR` | `dist` | Cesta k frontendu. |
 | `UPLOAD_DIR` | `/data/uploads` | Adresář obrázků a příloh, zapisovatelný UID 10001. |

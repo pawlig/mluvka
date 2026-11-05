@@ -1,4 +1,5 @@
 mod ice;
+mod music_bot;
 mod session;
 mod signal;
 mod ts_file;
