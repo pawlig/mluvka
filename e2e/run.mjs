@@ -16,6 +16,7 @@ import {
 } from "./audio.mjs";
 import { resamplingChecks } from "./resampling.mjs";
 import { shaperChecks } from "./shaper.mjs";
+import { jitterShaperCheck } from "./jitter-shaper.mjs";
 import { chatChecks } from "./chat.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { notificationChecks } from "./upozorneni.mjs";
@@ -570,6 +571,7 @@ try {
     return context;
   };
   await shaperChecks(ok);
+  await jitterShaperCheck(ok);
   await codecRecoveryCheck(ok);
   resamplingChecks(ok);
   jitterChecks(ok);

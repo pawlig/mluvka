@@ -85,17 +85,55 @@ const server = net.createServer((client) => {
     if (!upstream.write(data)) client.pause();
   });
   upstream.on("drain", () => client.resume());
+  let response = Buffer.alloc(0), wire = Buffer.alloc(0), protocol;
+  const enqueue = (data, now) => {
+    const at = Math.max(now + latency, next);
+    for (let offset = 0; offset < data.length; offset += 1200) {
+      const part = data.subarray(offset, offset + 1200);
+      next = at + data.length * 1000 / bytesPerSecond;
+      // Celý WS rámec má jeden deadline; hold nesmí rozdělit jeho tělo napůl.
+      queue.push({ data: part, at });
+      queued += part.length;
+    }
+  };
   upstream.on("data", (data) => {
     const now = performance.now();
     if (inputAt !== undefined) inputGapMs = Math.max(inputGapMs, now - inputAt);
     inputAt = now;
-    for (let offset = 0; offset < data.length; offset += 1200) {
-      const part = data.subarray(offset, offset + 1200);
-      const at = Math.max(now + latency, next);
-      next = at + part.length * 1000 / bytesPerSecond;
-      queue.push({ data: part, at });
-      queued += part.length;
+    if (!protocol) {
+      response = Buffer.concat([response, data]);
+      if (response.length < 5 && "HTTP/".startsWith(response.toString("latin1"))) return;
+      if (response.subarray(0, 5).toString("latin1") !== "HTTP/") {
+        protocol = "raw"; data = response;
+      } else {
+        const end = response.indexOf("\r\n\r\n");
+        if (end < 0) { if (response.length > 16384) close(); return; }
+        protocol = /^HTTP\/1\.1 101/.test(response.toString("latin1")) ? "ws" : "raw";
+        enqueue(response.subarray(0, end + 4), now);
+        data = response.subarray(end + 4);
+      }
+      response = undefined;
     }
+    if (protocol === "ws") {
+      wire = Buffer.concat([wire, data]);
+      while (wire.length >= 2) {
+        let headerSize = 2, length = wire[1] & 127;
+        if (length === 126) {
+          if (wire.length < 4) break;
+          length = wire.readUInt16BE(2); headerSize = 4;
+        } else if (length === 127) {
+          if (wire.length < 10) break;
+          const wide = wire.readBigUInt64BE(2);
+          if (wide > 1024n * 1024n) { close(); return; }
+          length = Number(wide); headerSize = 10;
+        }
+        if (wire[1] & 128) headerSize += 4;
+        const size = headerSize + length;
+        if (wire.length < size) break;
+        enqueue(wire.subarray(0, size), now);
+        wire = wire.subarray(size);
+      }
+    } else enqueue(data, now);
     if (queued > 1024 * 1024) upstream.pause();
     if (!timer && !blocked) pump();
   });
