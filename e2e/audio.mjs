@@ -336,7 +336,9 @@ export async function toneCheck(a, b, ok, codec, profile) {
       max,
       maxDown,
     });
+  const strictDesktop = !profile.cdp;
   const timing = {
+    strictDesktop,
     binaryGapMs: measurement.binaryGapMs,
     path: profile.cdp ? "proxy" : "native",
     ...(profile.cdp ? {
@@ -366,9 +368,9 @@ export async function toneCheck(a, b, ok, codec, profile) {
     expect(measurement.stats.underruns).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
-    // Nové zadání dovoluje vyšší cíl při skutečně naměřeném jitteru.
-    // Původní meze zůstávají pro čistý desktop, nulové podtečení platí vždy.
-    if (measurement.binaryGapMs <= 50 && initialTargetBufferMs <= 90) {
+    // Nativní desktop vždy vyžaduje nízkou latenci, nezávisle na výsledku.
+    // Vyšší rezervu smí přijmout jen výslovně zapnutý síťový shaper.
+    if (strictDesktop) {
       expect(max).toBeLessThanOrEqual(120);
       expect(measurement.stats.targetBufferMs).toBeLessThanOrEqual(90);
     } else expect(max).toBeLessThanOrEqual(400);
