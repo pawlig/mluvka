@@ -110,6 +110,12 @@ export async function banUiChecks({ browser, base, login, ok }) {
         await expect(
           page.getByRole("button", { name: "Připojit znovu", exact: true }),
         ).toBeHidden();
+        await page.screenshot({
+          path: new URL("../docs/screenshots/mobil-ban.png", import.meta.url)
+            .pathname,
+          fullPage: true,
+        });
+
         await expect(
           page.getByText("Ban vypršel — můžete se připojit znovu."),
         ).toBeVisible({ timeout: 5000 });
@@ -550,7 +556,10 @@ async function microphoneDeniedChecks({ base, password, ok }) {
   });
   try {
     for (const failure of ["NotAllowedError", "NotFoundError"]) {
-      const context = await browser.newContext({ permissions: [] });
+      const context = await browser.newContext({
+        ...devices["Pixel 7"],
+        permissions: [],
+      });
       await context.grantPermissions([], { origin: base });
       await observe(
         context,
@@ -571,6 +580,16 @@ async function microphoneDeniedChecks({ base, password, ok }) {
         "Mikrofon není povolený — posloucháte jen",
       );
       await expect(page.locator(".audio-unlock")).toBeHidden();
+      await expect(
+        page.getByRole("button", { name: "Rozumím", exact: true }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Rozumím", exact: true }).click();
+      expect(
+        await page.evaluate(() =>
+          localStorage.getItem("mluvka.microphone-help"),
+        ),
+      ).toBe("1");
+
       await expect
         .poll(() => page.evaluate(() => window.__mluvkaStats.outputRms))
         .toBeGreaterThan(0.001);
@@ -584,6 +603,9 @@ async function microphoneDeniedChecks({ base, password, ok }) {
       await expect
         .poll(() => page.evaluate(() => window.regMicCalls))
         .toBe(attempts + 1);
+      await expect(
+        page.getByRole("button", { name: "Rozumím", exact: true }),
+      ).toBeHidden();
       await page.getByRole("button", { name: "Odpojit", exact: true }).click();
       await context.close();
       ok(
