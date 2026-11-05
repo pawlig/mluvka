@@ -1,0 +1,24 @@
+{
+  "url": "http://127.0.0.1:3105",
+  "kdy": "2026-11-05T01:42:47.950Z",
+  "varianty": {
+    "desktop": {
+      "prepad": 0,
+      "zmena": "2.35 %"
+    },
+    "tmavy": {
+      "prepad": 0,
+      "zmena": "3.64 %"
+    },
+    "mobil": {
+      "prepad": 0,
+      "zmena": "4.41 %"
+    }
+  },
+  "chyby": [],
+  "konzole": [],
+  "strom": {
+    "pridano": 0,
+    "odebrano": 0
+  }
+}

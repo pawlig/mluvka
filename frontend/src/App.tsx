@@ -950,6 +950,7 @@ function AppContent({
       if (document.visibilityState !== "visible") return;
       void audio.recover();
       foregroundGrace.current = Date.now() + 5000;
+      setClock(Date.now());
       tryNow();
     };
     const online = () => {
@@ -1258,7 +1259,14 @@ function AppContent({
                 ? "Mluvka se aktualizuje — připojuji znovu…"
                 : `Spojení ztraceno — připojuji znovu (pokus ${retryAttempt})…`}
           </span>
-          <button className="secondary" onClick={tryNow}>
+          <button
+            className="secondary"
+            disabled={restriction?.kind === "cooldown" && remaining > 0}
+            onClick={() => {
+              retryAfter.current = 0;
+              tryNow();
+            }}
+          >
             Zkusit hned
           </button>
           <button className="secondary" onClick={disconnect}>
