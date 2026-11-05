@@ -371,13 +371,13 @@ fn is_command_flood(error: &tsclientlib::Error) -> bool {
             )
         })
 }
-fn slow_commands(addr: SocketAddr) {
+fn slow_commands(addr: SocketAddr, code: u32) {
     let mut all = budgets().lock().expect("budgets");
     let budget = all.entry(addr).or_default();
     budget.commands_after = Some(Instant::now() + Duration::from_secs(5));
     budget.tokens = 0.0;
     budget.updated = budget.commands_after.expect("command pause");
-    tracing::warn!(server = %addr, code = "0x020c", pause_seconds = 5, "Zpomalení fronty příkazů, TS relace pokračuje");
+    tracing::warn!(server = %addr, code = %format!("0x{code:04x}"), pause_seconds = 5, "Zpomalení fronty příkazů, TS relace pokračuje");
 }
 // TS účtuje body za příkaz, nikoli jen počet paketů. Konzervativní lokální
 // rozpočet ponechá rezervu pod výchozími 150 body a rozpouští dlouhé série chatu.
@@ -694,11 +694,15 @@ async fn session(
     let mut superseded = slot.changed.subscribe();
     let _guard = slot.gate.lock().await;
     if superseded.has_changed().unwrap_or(true) {
+        json_send(ws, json!({"type":"notice", "code":"session_replaced", "message":"Spojení převzalo jiné okno Mluvky."})).await?;
         return Ok(());
     }
     tokio::select! {
         result = wait_budget(ws, addr) => result?,
-        _ = superseded.changed() => return Ok(()),
+        _ = superseded.changed() => {
+            json_send(ws, json!({"type":"notice", "code":"session_replaced", "message":"Spojení převzalo jiné okno Mluvky."})).await?;
+            return Ok(());
+        },
         _ = shutdown.changed() => {
             let _ = json_send(ws, json!({"type":"notice", "code":"server_restart", "message":"Mluvka se aktualizuje — připojuji znovu…"})).await;
             return Ok(());
@@ -1027,7 +1031,7 @@ async fn connected(
                             let error = tsclientlib::Error::CommandError(e);
                             if is_command_flood(&error) {
                                 let _ = ts_error(&error);
-                                slow_commands(addr);
+                                slow_commands(addr, ts_variant(&error).1.expect("command flood") as u32);
                                 points.available = 0.0;
                                 if let Some((_, cmd)) = sent { commands.push_front(cmd); }
                                 slowing = true;
@@ -1045,7 +1049,7 @@ async fn connected(
                     Some(Err(e)) => {
                         if is_command_flood(&e) {
                             let _ = ts_error(&e);
-                            slow_commands(addr);
+                            slow_commands(addr, ts_variant(&e).1.expect("command flood") as u32);
                             points.available = 0.0;
                             // TS někdy chybu vrátí bez return_code. Díky jednomu
                             // čekajícímu potvrzení víme, který příkaz opakovat.

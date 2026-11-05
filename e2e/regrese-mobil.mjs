@@ -636,7 +636,7 @@ export async function floodRecoveryChecks({
     });
     await expect
       .poll(() => backendLog().slice(commandStart), { timeout: 15000 })
-      .toContain('code="0x020c"');
+      .toMatch(/code="?0x020c"?/);
     await expect(
       pages[0].getByText("Odesílám pomaleji, server omezuje počet zpráv", {
         exact: true,
