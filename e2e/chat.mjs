@@ -585,11 +585,15 @@ export async function chatChecks({
     .getByRole("button", { name: /^Adam(?: |$)/ })
     .click();
   await a.waitForTimeout(700);
-  for (const page of [a, b])
-    await expect(page.locator(".message-text")).toHaveText([
-      "Soukromá první upravená",
-      "Soukromá druhá",
-    ]);
+  // Starší soukromé zprávy z dřívějších kroků (upozornění) zůstávají; kontrolujeme poslední dvě a pořadí.
+  for (const page of [a, b]) {
+    await expect
+      .poll(async () => (await page.locator(".message-text").allTextContents()).slice(-2))
+      .toEqual(["Soukromá první upravená", "Soukromá druhá"]);
+    const texts = await page.locator(".message-text").allTextContents();
+    expect(texts.filter((t) => t.includes("Soukromá první"))).toEqual(["Soukromá první upravená"]);
+    expect(texts.some((t) => t.includes("✎ oprava"))).toBe(false);
+  }
   // Esc úpravu zruší a nic se neodešle.
   const total = () =>
     [...deliveryCounts.values()].reduce((sum, value) => sum + value, 0);
