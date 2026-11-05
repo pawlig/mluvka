@@ -610,8 +610,15 @@ async fn session(
     }
     let initial_mute = ws.pending_mute.take().or(initial_mute);
     let upload_lease = uploads.grant();
+    let (file_sender, mut files) = mpsc::channel(4);
+    uploads.bind_files(&upload_lease.token, file_sender);
+    let mut file_context = FileContext { server: server.clone(), passwords: HashMap::new(), files: &mut files };
+    if !channel_password.is_empty() {
+        let book = con.get_state().map_err(|e| ts_error(&e))?;
+        if let Some(client) = book.clients.get(&book.own_client) { file_context.passwords.insert(client.channel.0, channel_password.clone()); }
+    }
     json_send(ws, json!({"type":"upload_token", "token":upload_lease.token})).await?;
-    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio).await
+    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio, &mut file_context).await
       } => result,
     };
     // I při chybě WS je nutné dokončit UDP odpojení a zahodit identitu v paměti.
@@ -647,12 +654,19 @@ fn snapshot(con: &Connection) -> Result<Value, String> {
     )
 }
 
+struct FileContext<'a> {
+    server: String,
+    passwords: HashMap<u64, String>,
+    files: &'a mut mpsc::Receiver<crate::ts_file::Download>,
+}
+
 async fn connected(
     ws: &mut Socket,
     con: &mut Connection,
     initial_mute: Option<(bool, bool)>,
     restore_nickname: Option<&str>,
     options: &AudioOptions,
+    file_context: &mut FileContext<'_>,
 ) -> Result<(), String> {
     let (mut microphone, mut deafen) = initial_mute.unwrap_or_default();
     if initial_mute.is_some() {
@@ -703,6 +717,10 @@ async fn connected(
     let own_client = con.get_state().map_err(|e| ts_error(&e))?.own_client;
     let mut restore_nickname = restore_nickname;
     let mut pending = HashMap::new();
+    let mut downloads: HashMap<
+        tsclientlib::FiletransferHandle,
+        tokio::sync::oneshot::Sender<Result<tsclientlib::FileDownloadResult, String>>,
+    > = HashMap::new();
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count) = (0, 0);
     loop {
@@ -716,7 +734,7 @@ async fn connected(
                         if control_count > 40 { return Err("Příliš mnoho řídicích zpráv.".into()); }
                         let ctrl: Control = serde_json::from_str(&s).map_err(|_| "Neplatná řídicí zpráva.")?;
                         let cmd = match ctrl {
-                            Control::Move { channel, password } => { audio.reset(); Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
+                            Control::Move { channel, password } => { if !password.is_empty() { file_context.passwords.insert(channel, password.clone()); } audio.reset(); Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
                             Control::Chat { target, client, text } => {
                                 if text.trim().is_empty() || text.len() > 4000 { json_send(ws,error_message("Zpráva musí mít 1–4000 bajtů.", false)).await?; continue; }
                                 let target = match target.as_str() { "server" => MessageTarget::Server, "channel" => MessageTarget::Channel, "private" if client.is_some() => MessageTarget::Client(ClientId(client.unwrap())), _ => return Err("Neplatný cíl zprávy.".into()) };
@@ -761,6 +779,14 @@ async fn connected(
                     Message::Close(_) => return Ok(()),
                 }
             },
+            Some(request) = file_context.files.recv() => {
+                downloads.retain(|_, reply| !reply.is_closed());
+                if downloads.len() >= 4 { let _ = request.reply.send(Err("Probíhá příliš mnoho přenosů.".into())); continue; }
+                match crate::ts_file::start(con, &request.link, &file_context.server, &file_context.passwords) {
+                    Ok(handle) => { downloads.insert(handle, request.reply); },
+                    Err(error) => { let _ = request.reply.send(Err(error)); },
+                }
+            },
             event = next_event(con) => {
                 match event {
                     Some(Ok(StreamItem::BookEvents(events))) => {
@@ -776,6 +802,8 @@ async fn connected(
                         }
                         json_send(ws, snapshot(con)?).await?;
                     },
+                    Some(Ok(StreamItem::FileDownload(handle, result))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Ok(result)); } },
+                    Some(Ok(StreamItem::FiletransferFailed(handle, error))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Err(crate::ts_file::transfer_error(&error))); } },
                     Some(Ok(StreamItem::Audio(packet))) => {
                         let from = match packet.data().data() { AudioData::S2C { from,.. } => ClientId(*from), _ => continue };
                         let now = Instant::now();

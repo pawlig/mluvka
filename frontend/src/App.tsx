@@ -1576,7 +1576,38 @@ export function App() {
                           })}
                         </time>
                       </div>
-                      <MessageBody text={m.text} />
+                      <MessageBody
+                        text={m.text}
+                        context={{
+                          token: uploadToken,
+                          server: login.server,
+                          channels: room?.channels || [],
+                        }}
+                        requestLink={(name) => {
+                          const text = `Můžeš mi ${name} poslat přes Mluvku nebo jako odkaz? Z TeamSpeaku 5/6 ho v prohlížeči nestáhnu.`;
+                          send({
+                            type: "chat",
+                            target: "private",
+                            client: m.from,
+                            text,
+                          });
+                          setPrivateTabs((old) => ({
+                            ...old,
+                            [m.from]: m.name,
+                          }));
+                          setMessages((old) => [
+                            ...old.slice(-499),
+                            {
+                              target: "private",
+                              thread: `private:${m.from}`,
+                              from: me!.id,
+                              name: me!.name,
+                              text,
+                              time: Date.now(),
+                            },
+                          ]);
+                        }}
+                      />
                     </div>
                   </article>
                 ))}

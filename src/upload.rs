@@ -21,7 +21,12 @@ const MAX_IMAGE: usize = 10 * 1024 * 1024;
 const MAX_GIF: usize = 8 * 1024 * 1024;
 const WINDOW: Duration = Duration::from_secs(300);
 #[derive(Default)]
-pub struct Sessions(Mutex<HashMap<String, VecDeque<Instant>>>);
+struct UploadSession {
+    attempts: VecDeque<Instant>,
+    files: Option<tokio::sync::mpsc::Sender<crate::ts_file::Download>>,
+}
+#[derive(Default)]
+pub struct Sessions(Mutex<HashMap<String, UploadSession>>);
 pub struct Lease {
     pub token: String,
     sessions: Arc<Sessions>,
@@ -32,15 +37,38 @@ impl Sessions {
         self.0
             .lock()
             .expect("upload sessions")
-            .insert(token.clone(), VecDeque::new());
+            .insert(token.clone(), UploadSession::default());
         Lease {
             token,
             sessions: self.clone(),
         }
     }
-    fn check(&self, token: &str, count: bool) -> Result<(), StatusCode> {
+    pub fn bind_files(
+        &self,
+        token: &str,
+        files: tokio::sync::mpsc::Sender<crate::ts_file::Download>,
+    ) {
+        if let Some(session) = self.0.lock().expect("upload sessions").get_mut(token) {
+            session.files = Some(files);
+        }
+    }
+    pub fn files(
+        &self,
+        token: &str,
+    ) -> Result<tokio::sync::mpsc::Sender<crate::ts_file::Download>, StatusCode> {
+        self.0
+            .lock()
+            .expect("upload sessions")
+            .get(token)
+            .and_then(|s| s.files.clone())
+            .ok_or(StatusCode::UNAUTHORIZED)
+    }
+    pub fn check(&self, token: &str, count: bool) -> Result<(), StatusCode> {
         let mut sessions = self.0.lock().expect("upload sessions");
-        let attempts = sessions.get_mut(token).ok_or(StatusCode::UNAUTHORIZED)?;
+        let attempts = &mut sessions
+            .get_mut(token)
+            .ok_or(StatusCode::UNAUTHORIZED)?
+            .attempts;
         let now = Instant::now();
         attempts.retain(|at| now.duration_since(*at) < WINDOW);
         if count {
@@ -72,6 +100,7 @@ pub struct Uploads {
     dir: PathBuf,
     ttl: Duration,
     max_total: u64,
+    max_file: usize,
     public_url: Option<String>,
     gate: Arc<AsyncMutex<()>>,
 }
@@ -83,6 +112,7 @@ impl Uploads {
                 .unwrap_or_else(|_| "/data/uploads".into())
                 .into(),
             ttl: Duration::from_secs(env_number("UPLOAD_TTL_DAYS", 7) * 86400),
+            max_file: (env_number("UPLOAD_FILE_MAX_MB", 25) * 1024 * 1024) as usize,
             max_total: env_number("UPLOAD_MAX_TOTAL_MB", 1024) * 1024 * 1024,
             public_url: env::var("PUBLIC_URL")
                 .ok()
@@ -109,14 +139,14 @@ impl Uploads {
         let mut total = reserve;
         while let Some(entry) = entries.next_entry().await? {
             if !entry.file_type().await?.is_file()
-                || valid_name(&entry.file_name().to_string_lossy()).is_none()
+                || !stored_name(&entry.file_name().to_string_lossy())
             {
                 continue;
             }
             let meta = entry.metadata().await?;
             let modified = meta.modified()?;
             if now.duration_since(modified).unwrap_or_default() >= self.ttl {
-                fs::remove_file(entry.path()).await?;
+                remove_stored(&entry.path()).await?;
             } else {
                 total = total.saturating_add(meta.len());
                 files.push((modified, entry.path(), meta.len()));
@@ -127,7 +157,7 @@ impl Uploads {
             if total <= self.max_total {
                 break;
             }
-            fs::remove_file(path).await?;
+            remove_stored(&path).await?;
             total = total.saturating_sub(len);
         }
         Ok(())
@@ -230,11 +260,35 @@ pub async fn upload(
     let storage = &app.uploads;
     storage.sessions.check(token, true)?;
     let base = public_base(storage, &parts.headers)?;
-    let bytes = to_bytes(body, MAX_IMAGE)
-        .await
-        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
-    let (ext, _) = image_type(&bytes).ok_or(StatusCode::UNSUPPORTED_MEDIA_TYPE)?;
-    check_size(bytes.len(), ext)?;
+    let filename = parts
+        .headers
+        .get("x-file-name")
+        .map(|h| {
+            let raw = h.to_str().map_err(|_| StatusCode::BAD_REQUEST)?;
+            let decoded = url::form_urlencoded::parse(format!("name={raw}").as_bytes())
+                .next()
+                .map(|(_, v)| v.into_owned())
+                .ok_or(StatusCode::BAD_REQUEST)?;
+            Ok::<_, StatusCode>(sanitize_filename(&decoded))
+        })
+        .transpose()?;
+    let bytes = to_bytes(
+        body,
+        if filename.is_some() {
+            storage.max_file
+        } else {
+            MAX_IMAGE
+        },
+    )
+    .await
+    .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+    let ext = if filename.is_some() {
+        "bin"
+    } else {
+        let (ext, _) = image_type(&bytes).ok_or(StatusCode::UNSUPPORTED_MEDIA_TYPE)?;
+        check_size(bytes.len(), ext)?;
+        ext
+    };
     let _guard = storage.gate.lock().await;
     storage.sessions.check(token, false)?;
     if bytes.len() as u64 > storage.max_total {
@@ -257,10 +311,29 @@ pub async fn upload(
         let _ = fs::remove_file(&path).await;
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
+    let url = if let Some(filename) = &filename {
+        if fs::write(
+            storage.dir.join(format!("{name}.json")),
+            serde_json::to_vec(filename).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        )
+        .await
+        .is_err()
+        {
+            let _ = fs::remove_file(&path).await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+        format!(
+            "{base}/f/{}/{}",
+            name.trim_end_matches(".bin"),
+            encode_filename(filename)
+        )
+    } else {
+        format!("{base}/img/{name}")
+    };
     Ok((
         StatusCode::CREATED,
         [("cache-control", "no-store")],
-        Json(json!({"url":format!("{base}/img/{name}")})),
+        Json(json!({"url":url,"name":filename,"size":bytes.len()})),
     )
         .into_response())
 }
@@ -294,9 +367,123 @@ pub async fn image(
         .into_response())
 }
 
+pub fn sanitize_filename(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !r#"/\:*?"<>|[]"#.contains(*c)
+                && !matches!(*c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .take(120)
+        .collect();
+    let name = name.trim().trim_matches('.');
+    if name.is_empty() {
+        "soubor".into()
+    } else {
+        name.into()
+    }
+}
+pub fn encode_filename(name: &str) -> String {
+    name.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+pub fn attachment_headers(name: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    for (key, value) in [
+        ("content-type", "application/octet-stream".to_owned()),
+        (
+            "content-disposition",
+            format!(
+                "attachment; filename*=UTF-8''{}",
+                encode_filename(&sanitize_filename(name))
+            ),
+        ),
+        ("x-content-type-options", "nosniff".into()),
+        (
+            "content-security-policy",
+            "default-src 'none'; sandbox".into(),
+        ),
+        ("cache-control", "private, max-age=604800".into()),
+    ] {
+        headers.insert(
+            axum::http::HeaderName::from_static(key),
+            value.parse().expect("safe attachment header"),
+        );
+    }
+    headers
+}
+fn valid_id(id: &str) -> bool {
+    id.len() == 43
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+}
+fn stored_name(name: &str) -> bool {
+    valid_name(name).is_some() || name.strip_suffix(".bin").is_some_and(valid_id)
+}
+async fn remove_stored(path: &std::path::Path) -> std::io::Result<()> {
+    fs::remove_file(path).await?;
+    if path.extension().is_some_and(|e| e == "bin") {
+        let _ = fs::remove_file(path.with_extension("bin.json")).await;
+    }
+    Ok(())
+}
+pub async fn file(
+    State(app): State<crate::App>,
+    Path((id, _name)): Path<(String, String)>,
+) -> Result<Response, StatusCode> {
+    if !valid_id(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let path = app.uploads.dir.join(format!("{id}.bin"));
+    let file = fs::File::open(&path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let meta = file.metadata().await.map_err(|_| StatusCode::NOT_FOUND)?;
+    if !meta.is_file()
+        || SystemTime::now()
+            .duration_since(meta.modified().map_err(|_| StatusCode::NOT_FOUND)?)
+            .unwrap_or_default()
+            >= app.uploads.ttl
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let name: String = serde_json::from_slice(
+        &fs::read(path.with_extension("bin.json"))
+            .await
+            .map_err(|_| StatusCode::NOT_FOUND)?,
+    )
+    .map_err(|_| StatusCode::NOT_FOUND)?;
+    let mut headers = attachment_headers(&name);
+    headers.insert("content-length", meta.len().to_string().parse().unwrap());
+    Ok((
+        headers,
+        Body::from_stream(tokio_util::io::ReaderStream::new(file)),
+    )
+        .into_response())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn filename_and_utf8_disposition() {
+        assert_eq!(sanitize_filename("../a\\b:c*?\"<>|\r\n.zip"), "abc.zip");
+        assert_eq!(sanitize_filename("..."), "soubor");
+        assert_eq!(sanitize_filename(&"ž".repeat(200)).chars().count(), 120);
+        assert_eq!(
+            attachment_headers("žluťoučký.zip")["content-disposition"],
+            "attachment; filename*=UTF-8''%C5%BElu%C5%A5ou%C4%8Dk%C3%BD.zip"
+        );
+    }
     #[test]
     fn magic_bytes_and_rejected_active_content() {
         for (bytes, ext) in [
@@ -325,6 +512,7 @@ mod tests {
             dir: PathBuf::new(),
             ttl: Duration::ZERO,
             max_total: 0,
+            max_file: 25 * 1024 * 1024,
             public_url: None,
             gate: Arc::default(),
         };
@@ -384,6 +572,7 @@ mod tests {
             dir: dir.clone(),
             ttl: Duration::from_secs(60),
             max_total: 5,
+            max_file: 25 * 1024 * 1024,
             public_url: None,
             gate: Arc::default(),
         };

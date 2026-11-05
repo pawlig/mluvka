@@ -1971,5 +1971,73 @@ html {
 
 .composer:has(.send-image) > input:not(.image-file-input) {
   padding-right: 90px;
+}
 
+/* Přílohy v úzkém chatu i na telefonu. */
+.file-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px solid #48543e;
+  border-radius: 10px;
+  background: #242c20;
+  white-space: normal;
+  font-size: 12px;
+}
+.file-icon {
+  font-size: 24px;
+  flex: 0 0 auto;
+}
+.file-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.file-source,
+.file-size {
+  color: #b5bda9;
+  font-size: 11px;
+}
+.file-card > a,
+.file-card > button,
+.ts-attachment button {
+  flex: 0 0 auto;
+  border: 1px solid #63714f;
+  border-radius: 6px;
+  background: #34422a;
+  color: #e4efcf;
+  padding: 7px 10px;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ts-attachment button {
+  margin-top: 10px;
+}
+.pending-image > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pending-image progress {
+  width: 100%;
+  max-width: 220px;
+  accent-color: #c5dd98;
+}
+@media (max-width: 480px) {
+  .file-card {
+    flex-wrap: wrap;
+  }
+  .file-details {
+    flex: 1;
+  }
+  .file-card > a,
+  .file-card > button {
+    margin-left: 36px;
+  }
 }

@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const escapeQuery = (text) =>
+export const escapeQuery = (text) =>
   text
     .replaceAll("\\", "\\\\")
     .replaceAll("/", "\\/")
@@ -10,7 +10,7 @@ const escapeQuery = (text) =>
     .replaceAll("|", "\\p")
     .replaceAll("\n", "\\n")
     .replaceAll("\r", "\\r");
-async function probe(base, tsAddress, password) {
+export async function probe(base, tsAddress, password) {
   const ws = new WebSocket(base.replace(/^http/, "ws") + "/ws");
   const token = await new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -113,7 +113,7 @@ export async function chatChecks({
     `sendtextmessage targetmode=3 target=1 msg=${escapeQuery(attachment)}`,
   );
   const card = b.locator(".ts-attachment").last();
-  await expect(card).toContainText("9854755_78f48.gif · 1,3 MB");
+  await expect(card).toContainText("9854755_78f48.gif · 1,2 MB");
   await expect(card).toContainText("TeamSpeak 5/6");
   await expect(b.getByRole("log")).not.toContainText('"msg_type"');
   await query.cmd(
@@ -138,7 +138,7 @@ export async function chatChecks({
     gif = readFileSync(gifPath);
   expect(png.includes(Buffer.from("eXIf"))).toBe(true);
   const chooser = a.waitForEvent("filechooser");
-  await a.getByRole("button", { name: "Přidat obrázek" }).click();
+  await a.getByRole("button", { name: "Přidat soubor" }).click();
   await (await chooser).setFiles(pngPath);
   await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
   await a.getByLabel("Zpráva", { exact: true }).fill("Fotka bez polohy");
@@ -189,7 +189,7 @@ export async function chatChecks({
     "A → B PNG s GPS: canvas odstraní EXIF, resize ≤2048, náhled i holá URL, viewer a Esc",
   );
 
-  await a.getByLabel("Vybrat obrázek").setInputFiles(gifPath);
+  await a.getByLabel("Vybrat soubory").setInputFiles(gifPath);
   await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
   await a.getByLabel("Zpráva", { exact: true }).fill("Animovaný GIF");
   await a.getByRole("button", { name: "Odeslat obrázek" }).click();
@@ -276,7 +276,7 @@ export async function chatChecks({
   await b.setViewportSize({ width: 390, height: 960 });
   await b.getByRole("button", { name: "Chat", exact: true }).click();
   const mobileChooser = b.waitForEvent("filechooser");
-  await b.getByRole("button", { name: "Přidat obrázek" }).click();
+  await b.getByRole("button", { name: "Přidat soubor" }).click();
   await (await mobileChooser).setFiles(gifPath);
   await expect(b.getByAltText("Náhled před odesláním")).toBeVisible();
   await b.getByRole("button", { name: "Zrušit", exact: true }).click();

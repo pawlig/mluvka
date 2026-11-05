@@ -168,7 +168,7 @@ Po úspěšném přihlášení k TS přijde jednou na WS `{"type":"upload_token"
 Token (256 náhodných bitů) žije jen v paměti po dobu této relace, není identitou TS ani
 uloženým přihlášením. Odpojení, převzetí identity nebo restart jej zruší. Frontend ho neukládá.
 
-`POST /api/upload` přijímá **syrové bajty obrázku** s `Authorization: Bearer <token>`
+`POST /api/upload` bez hlavičky `X-File-Name` přijímá **syrové bajty obrázku** s `Authorization: Bearer <token>`
 a `Content-Type` obrázku, nikoli multipart ani jméno souboru. Autoritativní jsou magické
 bajty PNG/JPEG/GIF/WebP. SVG/HTML → 415, přes 10 MiB (GIF 8 MiB) → 413, chybějící/neplatný
 nebo zrušený token → 401, jedenáctý pokus v klouzavých 5 minutách → 429. Pokusy o upload
@@ -187,3 +187,52 @@ s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5
 `Content-Security-Policy: default-src 'none'`. URL z `PUBLIC_URL`, jinak `Host` a důvěryhodné
 `X-Forwarded-Proto` (http/https). Produkční proxy musí tyto hlavičky přepisovat.
 Úklid je při startu a každou hodinu; před zápisem se také hlídá celková kapacita.
+
+
+## Přílohy a nativní přenos TS
+
+`POST /api/upload` s `X-File-Name: <percent-encoded UTF-8 jméno>` přijímá libovolné bajty
+přílohy. Bez této hlavičky zůstává původní kontrolovaná cesta pro bitmapy. Token Bearer,
+10 pokusů / 5 minut, TTL a celková kapacita jsou společné. Tělo je omezené při čtení,
+`UPLOAD_FILE_MAX_MB` (výchozí 25 MiB), překročení → 413; bez platné relace → 401.
+Odpověď 201: `{"url":"https://mluvka.example.org/f/<id>/<jméno>","name":"<očištěné jméno>","size":111303}`.
+Jméno nemá lomítka, zakázané znaky ani řídicí znaky, nejvýše 120 znaků; metadata leží vedle
+binárního souboru a mizí spolu s ním. Do logu nepatří obsah, původní jméno ani token.
+Zpráva do TS: `[URL=https://mluvka.example.org/f/<id>/<jméno>]📎 <jméno> (108,7 kB)[/URL]`.
+
+`GET /f/<id>/<jméno>` používá jméno z metadat, nikdy typ odhadnutý z přípony.
+Hlavičky: `Content-Type: application/octet-stream`,
+`Content-Disposition: attachment; filename*=UTF-8''<percent-encoded jméno>`,
+`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
+`Cache-Control: private, max-age=604800`. Veřejná náhodná URL funguje bez tokenu stejně jako
+obrázky; po expiraci/úklidu 404. Velikosti v kartě používají násobky 1024 a českou desetinnou čárku.
+
+Tvar odkazu TS klienta (parametry `isDir`, `size`, `fileDateTime` jsou metadata):
+
+```
+ts3file://example.org?port=9987&serverUID=<UID>&channel=12&path=%2F&filename=zkouska.zip&isDir=0&size=111303&fileDateTime=0
+```
+
+Zdroj tvaru: [oficiální fórum TeamSpeak, TS.ChrisR, 23. 5. 2024](https://community.teamspeak.com/t/server-and-channel-banner-direct-upload/39553/7).
+BBCode obaluje URL jako `[URL=ts3file://…]zkouska.zip[/URL]`.
+E2E vytváří soubor přes ServerQuery `ftinitupload` a jeho klíč odešle na skutečný TCP port FT;
+nejde o ručně podstrčenou HTTP odpověď. Skutečný desktopový TS3/TS5 klient tím není ověřen.
+
+`GET /api/ts-file?url=<percent-encoded celý ts3file odkaz>` vyžaduje `Authorization: Bearer <token>`.
+URL se parsuje až po autentizaci. Kanál, cesta a jméno jsou validované, `.`/`..`, lomítko
+ve jméně, řídicí znaky, opakované parametry a nadměrné délky se odmítají (400).
+Server i volitelný serverUID musí odpovídat relaci (jinak 403); API neprovádí DNS ani
+TCP připojení podle URL. Oprávnění a heslo kontroluje TS server, známá hesla žijí jen v paměti relace.
+Chybějící heslo, oprávnění nebo nedostupný port mají českou chybu (403/504), nikoli odpojení chatu.
+Nad `TS_FILE_MAX_MB` → 413. Navázání má deadline 20 s, samotný stream 180 s; nejvýše 64 KiB
+buffer a serverem ohlášená velikost, žádný soubor na disku. Hlavičky stejné jako `/f/`, ale
+`Cache-Control: no-store`. Tato cesta má se zápisy společné tempo 10 pokusů / 5 minut.
+
+Relace v Mluvce používá nízkoúrovňový `Connection::download_file` a události
+`FileDownload`/`FiletransferFailed` ze stejného tsclientlib, které uvnitř používá
+`SyncConnectionHandle::download_file` (`sync.rs:419`, `lib.rs:970`). Zachovává to stávající
+pollování spojení a zpracování výsledků příkazů bez přestavby zvukové smyčky.
+
+JSON `ts.file.myts` se nikdy nestahuje přes Matrix. Karta nabídne pouze žádost o odkaz,
+která po kliknutí odešle soukromý `chat` odesílateli JSON zprávy. U externích HTTPS
+odkazů na dokumenty/archivy se vykreslí karta bez automatického HTTP požadavku.

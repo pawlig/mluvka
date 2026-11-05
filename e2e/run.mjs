@@ -13,6 +13,7 @@ import {
 } from "./audio.mjs";
 import { resamplingChecks } from "./resampling.mjs";
 import { chatChecks } from "./chat.mjs";
+import { fileChecks } from "./soubory.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { notificationChecks } from "./upozorneni.mjs";
 import { invitationChecks } from "./pozvanky.mjs";
@@ -373,6 +374,7 @@ function startBackend() {
       ALLOWED_SERVERS: tsAddress,
       UPLOAD_DIR: uploadDir,
       PUBLIC_URL: base,
+      TS_FILE_MAX_MB: "1",
       MAX_SESSIONS: "6",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -890,6 +892,35 @@ try {
     ok,
     restartBackend,
   });
+  // Velké souborové payloady a jejich GC patří až za měření latence zvuku.
+  const fileContexts = await Promise.all(
+    [0, 1].map(() => browser.newContext({
+      permissions: ["microphone"],
+      viewport: { width: 1440, height: 900 },
+    })),
+  );
+  try {
+    const [a, b] = await Promise.all(fileContexts.map((context) => context.newPage()));
+    pages = [a, b];
+    for (const page of pages) {
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      await page.goto(base);
+    }
+    await fillLogin(a, "Adam");
+    await connected(a);
+    await fillLogin(b, "Bára");
+    await connected(b);
+    await moveToProtected(a);
+    await moveToProtected(b);
+    for (const page of pages)
+      await page.getByRole("button", { name: "Server", exact: true }).click();
+    await fileChecks({ a, b, query, base, root, tsAddress, password, channelPassword, ok });
+  } finally {
+    await Promise.all(fileContexts.map((context) => context.close()));
+  }
   expect(errors).toEqual([]);
   ok("Žádné JS výjimky ani chyby konzole v obou relacích");
   writeFileSync(
