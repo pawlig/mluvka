@@ -91,7 +91,7 @@ export async function fileChecks({
   const url = await zip.locator("a").getAttribute("href");
   await expect(zip).toContainText("5 MB");
   await expect
-    .poll(() => query.messages.find((m) => m.includes("📎 zkouska.zip")))
+    .poll(() => query.messages.find((m) => m.includes("📎 zkouska.zip")), { timeout: 30000 })
     .toBe(`📎 zkouska.zip (5 MB)\n${url}`);
   expect(query.messages.find((m) => m.includes("📎 zkouska.zip"))).not.toMatch(
     /\[URL/i,

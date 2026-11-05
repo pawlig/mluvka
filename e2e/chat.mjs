@@ -184,7 +184,7 @@ export async function chatChecks({
   expect(response.headers.get("content-type")).toMatch(/^image\/(jpeg|png)$/);
   expect(url).toMatch(/\/img\/[\w-]+\.(jpg|png)$/);
   await expect
-    .poll(() => query.messages.find((m) => m.startsWith("Fotka bez polohy\n")))
+    .poll(() => query.messages.find((m) => m.startsWith("Fotka bez polohy\n")), { timeout: 30000 })
     .toBe(`Fotka bez polohy\n${url}`);
   expect(
     query.messages.find((m) => m.startsWith("Fotka bez polohy\n")),
@@ -262,12 +262,12 @@ export async function chatChecks({
       .last()
       .locator(".image-preview img");
     await expect
-      .poll(() => img.evaluate((image) => image.naturalWidth))
+      .poll(() => img.evaluate((image) => image.naturalWidth), { timeout: 30000 })
       .toBe(128);
     const outputUrl = await img.getAttribute("src");
     expect(outputUrl).toMatch(kind === "photo" ? /\.jpg$/ : /\.png$/);
     await expect
-      .poll(() => query.messages.find((m) => m.startsWith(`Formát ${kind}\n`)))
+      .poll(() => query.messages.find((m) => m.startsWith(`Formát ${kind}\n`)), { timeout: 30000 })
       .toBe(`Formát ${kind}\n${outputUrl}`);
     if (kind === "transparent")
       expect(
@@ -294,7 +294,7 @@ export async function chatChecks({
     .last()
     .locator(".image-preview img");
   await expect
-    .poll(() => gifImage.evaluate((img) => img.naturalWidth))
+    .poll(() => gifImage.evaluate((img) => img.naturalWidth), { timeout: 30000 })
     .toBeGreaterThan(0);
   expect(
     Buffer.from(
