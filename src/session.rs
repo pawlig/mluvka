@@ -728,7 +728,7 @@ async fn connected(
                             Control::Chat { target, client, text } => {
                                 if text.trim().is_empty() || text.len() > 4000 { json_send(ws,error_message("Zpráva musí mít 1–4000 bajtů.", false)).await?; continue; }
                                 let target = match target.as_str() { "server" => MessageTarget::Server, "channel" => MessageTarget::Channel, "private" if client.is_some() => MessageTarget::Client(ClientId(client.unwrap())), _ => return Err("Neplatný cíl zprávy.".into()) };
-                                if let MessageTarget::Client(id) = &target { music.manual_sent(id.0, Instant::now()); }
+                                if let MessageTarget::Client(id) = &target { music.manual_sent(id.0, &text, Instant::now()); }
                                 Some(con.get_state().map_err(|e| ts_error(&e))?.send_message(target, &text))
                             },
                             Control::Mute { microphone: mic, deafen: deaf } => {
