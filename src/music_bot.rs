@@ -444,10 +444,13 @@ impl MusicBot {
         }
         match command_text(action, arg) {
             Err(e) => Some(json!({"type":"music","event":"error","code":"invalid","text":e})),
-            Ok(text) if !self.commander.push(text) => {
-                Some(json!({"type":"music","event":"error","code":"busy"}))
+            Ok(text) => {
+                if self.commander.push(text) {
+                    None
+                } else {
+                    Some(json!({"type":"music","event":"error","code":"busy"}))
+                }
             }
-            Ok(_) => None,
         }
     }
 
