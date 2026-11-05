@@ -1,5 +1,9 @@
 # Mobil: dokončení #1289 a navázání #1298
 
+> Historický doklad ke commitu `8027840`. Aktuální chování handshake pauzy a výsledky
+> navazující přejímky jsou v [overeni-mobil-1298-3.md](overeni-mobil-1298-3.md).
+> Soubor `e2e-vysledky.json` už obsahuje tento novější běh.
+
 Stav: hotovo podle automatických podmínek. Úplné E2E prošlo 100 kroky pro Opus a 100 pro PCM; oba procesy skončily kódem 0.
 
 ## Zjištěné příčiny

@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-05T04:03:52.734Z",
+  "date": "2026-11-05T06:06:54.967Z",
   "complete": true,
   "runs": [
     {
@@ -289,25 +289,25 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 3453,
+      "receivedFrames": 3465,
       "sentFrames": 0,
-      "rms": 0.08098992988600698,
-      "micRms": 0.019792722967187083,
+      "rms": 0.026694432965879075,
+      "micRms": 0.01980841548007899,
       "underruns": 2,
       "droppedFrames": 0,
       "droppedCaptureFrames": 0,
       "sampleRate": 48000,
-      "bufferMs": 98.79694021508719,
+      "bufferMs": 93.39490626020901,
       "targetBufferMs": 100,
-      "driftCorrection": -0.0036638833439851803,
-      "maxJump": 0.000058400759371579625,
-      "outputRms": 0.0000018285211219651636,
+      "driftCorrection": 0.0009020947339327454,
+      "maxJump": 0.000058389812693349086,
+      "outputRms": 0.000001834442085341085,
       "upKbps": 0,
-      "downKbps": 36.01059135713296,
-      "plcFrames": 7,
+      "downKbps": 35.99280144657577,
+      "plcFrames": 6,
       "lostFrames": 0,
       "codec": "opus",
-      "notifySounds": 8,
+      "notifySounds": 7,
       "notifyPokes": 1,
       "runCodec": "opus"
     },
@@ -317,22 +317,22 @@
       "underruns": 0,
       "plcFrames": 0,
       "lostFrames": 0,
-      "binaryGapMs": 27.800000190734863,
-      "inputGapMs": 111,
-      "outputGapMs": 111,
-      "maxJump": 0.011223763227462769,
-      "minBufferMs": 98.66394412036364,
-      "maxBufferMs": 98.79055800056085,
+      "binaryGapMs": 31.59999990463257,
+      "inputGapMs": 128,
+      "outputGapMs": 128,
+      "maxJump": 0.015227180905640125,
+      "minBufferMs": 93.30367238584829,
+      "maxBufferMs": 94.02947805462948,
       "dominantHz": 439.453125,
-      "rmsDifferenceDb": 0.006488522407020051,
-      "maxDownKbps": 90.4081632399274,
+      "rmsDifferenceDb": -0.0037572884596738894,
+      "maxDownKbps": 99.15684315684315,
       "runCodec": "opus"
     },
     {
       "test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s",
       "result": "OK",
       "underruns": 0,
-      "downKbps": 88.79817693754393,
+      "downKbps": 89.63921568627451,
       "plcFrames": 0,
       "note": "CDP doplněné skutečným WS shaperem: 1,5 Mb/s a 80 ms pro binární rámce.",
       "runCodec": "opus"
@@ -401,11 +401,11 @@
     {
       "test": "VAD / opus: ticho 3 s, předběh a vyrovnaný začátek",
       "result": "OK",
-      "onsetDb": 0.21221276263844335,
-      "precursorMs": 100,
+      "onsetDb": -0.07171515590586792,
+      "precursorMs": 80,
       "lostOnsetMs": 0,
-      "firstRms": 0.13418642961332622,
-      "steadyRms": 0.13094772550534278,
+      "firstRms": 0.12988315253098215,
+      "steadyRms": 0.13095997367279447,
       "runCodec": "opus"
     },
     {
@@ -441,13 +441,13 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 5326,
+      "elapsed_ms": 2322,
       "runCodec": "opus"
     },
     {
       "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
       "result": "OK",
-      "elapsedMs": 5,
+      "elapsedMs": 7,
       "disconnectedClients": 1,
       "disconnectReasons": [
         8
@@ -514,6 +514,11 @@
       "runCodec": "opus"
     },
     {
+      "test": "Desktop s dotykem a jemným ukazatelem používá přímý AudioContext výstup",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
       "test": "Výchozí antiflood: 6 současných relací, každá přesun + chat, bez banu; stejný mute bez příkazu",
       "result": "OK",
       "commands": {
@@ -521,7 +526,7 @@
         "clientmove": 6,
         "sendtextmessage": 6
       },
-      "elapsedMs": 55820,
+      "elapsedMs": 55589,
       "runCodec": "opus"
     },
     {
@@ -541,19 +546,24 @@
       "runCodec": "opus"
     },
     {
+      "test": "Mobil: odmítnuté play() i stojící přehrávač se signálem přepnou na přímý výstup; po obnově hraje jen neztlumený audio element",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
       "test": "Pozadí 60 s: dekódované rámce a výstupní RMS rostou, audio hraje, stejné WS/clid, mute stopy bez getUserMedia",
       "result": "OK",
-      "frames": 3003,
+      "frames": 3002,
       "runCodec": "opus"
     },
     {
       "test": "Zmrazení 30 s → active: zvuk do 10 s, přezdívka zachována, žádný falešný banner v milosti",
       "result": "OK",
-      "elapsedMs": 5023,
+      "elapsedMs": 5016,
       "runCodec": "opus"
     },
     {
-      "test": "Spadlé WS na pozadí se znovu připojí ještě v hidden",
+      "test": "Spadlé WS na pozadí: reconnect ještě v hidden, audioSession nepřejde na auto",
       "result": "OK",
       "runCodec": "opus"
     },
@@ -583,11 +593,15 @@
       "runCodec": "opus"
     },
     {
-      "test": "Skutečný TS handshake flood: wire 0x0d01 → normalizovaný 0x0d03, všechny relace pauza ≥120 s bez příkazů a postupný návrat",
+      "test": "Handshake flood 0x0d01 → 0x0d03: nová připojení čekají ≥120 s s odpočtem, Flood-0/1 mají stejný WS i clid, hlas i chat pokračují",
       "result": "OK",
-      "elapsedMs": 126436,
+      "elapsedMs": 123203,
       "wireCode": "0x0d01",
       "floodCode": "0x0d03",
+      "survivingClients": [
+        "42",
+        "43"
+      ],
       "runCodec": "opus"
     },
     {
@@ -872,25 +886,25 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 3435,
+      "receivedFrames": 3422,
       "sentFrames": 0,
-      "rms": 0.1107668773848289,
-      "micRms": 0.019615557403339912,
+      "rms": 0.1122611978106226,
+      "micRms": 0.019922203088587186,
       "underruns": 2,
       "droppedFrames": 0,
       "droppedCaptureFrames": 0,
       "sampleRate": 48000,
-      "bufferMs": 102.88697875245514,
+      "bufferMs": 91.88095073065293,
       "targetBufferMs": 100,
-      "driftCorrection": -0.027354709310745844,
+      "driftCorrection": 0.0038475860326110654,
       "maxJump": 0,
       "outputRms": 0,
       "upKbps": 0,
-      "downKbps": 769.0785984757333,
+      "downKbps": 768.8522659669184,
       "plcFrames": 0,
       "lostFrames": 0,
       "codec": "pcm",
-      "notifySounds": 8,
+      "notifySounds": 7,
       "notifyPokes": 1,
       "runCodec": "pcm"
     },
@@ -900,22 +914,22 @@
       "underruns": 0,
       "plcFrames": 0,
       "lostFrames": 0,
-      "binaryGapMs": 23.899999618530273,
-      "inputGapMs": 119,
-      "outputGapMs": 119,
-      "maxJump": 0.09912549471482635,
-      "minBufferMs": 81.27534996920924,
-      "maxBufferMs": 104.21659910509092,
+      "binaryGapMs": 23.09999990463257,
+      "inputGapMs": 113,
+      "outputGapMs": 113,
+      "maxJump": 0.01061602495610714,
+      "minBufferMs": 91.91280380423996,
+      "maxBufferMs": 91.99063535318903,
       "dominantHz": 439.453125,
-      "rmsDifferenceDb": 0.0040160750884186665,
-      "maxDownKbps": 783.9278005937207,
+      "rmsDifferenceDb": 0.0037131786445281853,
+      "maxDownKbps": 776.4691895442343,
       "runCodec": "pcm"
     },
     {
       "test": "CDP síť 1,5 Mb/s / 80 ms, pcm, 30 s",
       "result": "OK",
       "underruns": 0,
-      "downKbps": 768.0927628216203,
+      "downKbps": 768.7768513977439,
       "plcFrames": 0,
       "note": "CDP doplněné skutečným WS shaperem: 1,5 Mb/s a 80 ms pro binární rámce.",
       "runCodec": "pcm"
@@ -985,11 +999,11 @@
     {
       "test": "VAD / pcm: ticho 3 s, předběh a vyrovnaný začátek",
       "result": "OK",
-      "onsetDb": -0.12902286801841034,
+      "onsetDb": 0.15291813858619507,
       "precursorMs": 80,
       "lostOnsetMs": 0,
-      "firstRms": 0.12887932218748702,
-      "steadyRms": 0.13080802446076292,
+      "firstRms": 0.1331654880794669,
+      "steadyRms": 0.1308415795157631,
       "runCodec": "pcm"
     },
     {
@@ -1025,13 +1039,13 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 7857,
+      "elapsed_ms": 5337,
       "runCodec": "pcm"
     },
     {
       "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
       "result": "OK",
-      "elapsedMs": 4,
+      "elapsedMs": 5,
       "disconnectedClients": 1,
       "disconnectReasons": [
         8
@@ -1098,6 +1112,11 @@
       "runCodec": "pcm"
     },
     {
+      "test": "Desktop s dotykem a jemným ukazatelem používá přímý AudioContext výstup",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
       "test": "Výchozí antiflood: 6 současných relací, každá přesun + chat, bez banu; stejný mute bez příkazu",
       "result": "OK",
       "commands": {
@@ -1105,7 +1124,7 @@
         "clientmove": 6,
         "sendtextmessage": 6
       },
-      "elapsedMs": 55465,
+      "elapsedMs": 55845,
       "runCodec": "pcm"
     },
     {
@@ -1125,6 +1144,11 @@
       "runCodec": "pcm"
     },
     {
+      "test": "Mobil: odmítnuté play() i stojící přehrávač se signálem přepnou na přímý výstup; po obnově hraje jen neztlumený audio element",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
       "test": "Pozadí 60 s: dekódované rámce a výstupní RMS rostou, audio hraje, stejné WS/clid, mute stopy bez getUserMedia",
       "result": "OK",
       "frames": 3002,
@@ -1133,11 +1157,11 @@
     {
       "test": "Zmrazení 30 s → active: zvuk do 10 s, přezdívka zachována, žádný falešný banner v milosti",
       "result": "OK",
-      "elapsedMs": 5017,
+      "elapsedMs": 5027,
       "runCodec": "pcm"
     },
     {
-      "test": "Spadlé WS na pozadí se znovu připojí ještě v hidden",
+      "test": "Spadlé WS na pozadí: reconnect ještě v hidden, audioSession nepřejde na auto",
       "result": "OK",
       "runCodec": "pcm"
     },
@@ -1167,11 +1191,15 @@
       "runCodec": "pcm"
     },
     {
-      "test": "Skutečný TS handshake flood: wire 0x0d01 → normalizovaný 0x0d03, všechny relace pauza ≥120 s bez příkazů a postupný návrat",
+      "test": "Handshake flood 0x0d01 → 0x0d03: nová připojení čekají ≥120 s s odpočtem, Flood-0/1 mají stejný WS i clid, hlas i chat pokračují",
       "result": "OK",
-      "elapsedMs": 126434,
+      "elapsedMs": 123170,
       "wireCode": "0x0d01",
       "floodCode": "0x0d03",
+      "survivingClients": [
+        "90",
+        "89"
+      ],
       "runCodec": "pcm"
     },
     {
