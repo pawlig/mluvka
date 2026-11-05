@@ -268,7 +268,17 @@ export async function sharingChecks({
   await expect(
     b.locator('.share-tree-icon[title="Sdílí obrazovku"]'),
   ).toBeVisible();
-  await b.getByRole("button", { name: "Sledovat", exact: true }).click();
+  await b.locator(".client-row").filter({ hasText: "Adam" }).first().click();
+  await expect(
+    b.getByRole("dialog", { name: "Uživatel Adam", exact: true }),
+  ).toBeVisible();
+  await expect(b.locator(".share-player")).toHaveCount(0);
+  await b
+    .getByRole("button", { name: "Sledovat obrazovku", exact: true })
+    .click();
+  ok(
+    "Klepnutí na jméno otevírá panel uživatele; jeho tlačítko spustí sledování",
+  );
   ok("Sdílení A → B: dekódované snímky rostou alespoň 5 s", await flowing(b));
   await expect(a.locator(".share-live")).toContainText("1 diváků");
   for (const page of [a, b])
@@ -475,8 +485,12 @@ export async function sharingChecks({
     await expect(
       m.getByRole("button", { name: "Sdílet obrazovku", exact: true }),
     ).toHaveCount(0);
-    // Klepnutí na sdílejícího ve stromu rovnou otevře přehrávač.
-    await m.locator(".client-row").filter({ hasText: "TURN vysílá" }).click();
+    // Klepnutí na samostatnou ikonu ve stromu spustí sledování.
+    await m
+      .locator(".client-row")
+      .filter({ hasText: "TURN vysílá" })
+      .locator(".share-tree-icon")
+      .click();
     await flowing(m, true);
     const viewport = m.locator(".share-viewport"),
       rect = await viewport.boundingBox(),

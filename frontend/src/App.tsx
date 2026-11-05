@@ -1094,11 +1094,7 @@ export function App() {
                     onPointerUp={stopLongPress}
                     onPointerCancel={stopLongPress}
                     onLostPointerCapture={stopLongPress}
-                    onClick={() => {
-                      const share = sharing.state.shares.find(s => s.client === p.id && s.uid === p.uid && s.session !== sharing.state.self);
-                      if (share) { sharing.controller.watch(share); setMobile("chat"); }
-                      else setPeerClient(p);
-                    }}
+                    onClick={() => setPeerClient(p)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setPeerClient(p);
@@ -1115,7 +1111,14 @@ export function App() {
                       {p.id === room?.self && <small> vy</small>}
                     </span>
                     <span className="client-icons">
-                      {sharing.state.clients.some(c => c.client === p.id && c.uid === p.uid && c.sharing) && <span className="share-tree-icon" title="Sdílí obrazovku"><ScreenIcon /></span>}
+                      {sharing.state.clients.some(c => c.client === p.id && c.uid === p.uid && c.sharing) && <span className="share-tree-icon" title="Sdílí obrazovku" onClick={(event) => {
+                        const share = sharing.state.shares.find(s => s.client === p.id && s.uid === p.uid && s.session !== sharing.state.self);
+                        if (share) {
+                          event.stopPropagation();
+                          sharing.controller.watch(share);
+                          setMobile("chat");
+                        }
+                      }}><ScreenIcon /></span>}
                       {sharing.state.clients.some(c => c.client === p.id && c.uid === p.uid) && <span title="Připojeno přes Mluvku" aria-label="Mluvka">m</span>}
                       {p.microphone && <Icon name="micOff" size={14} />}{" "}
                       {p.deafen && <Icon name="deaf" size={14} />}{" "}
@@ -2176,6 +2179,14 @@ export function App() {
             </header>
             {peerClient.id !== me?.id ? (
               <>
+                {sharing.state.shares.some(s => s.client === peerClient.id && s.uid === peerClient.uid && s.session !== sharing.state.self) && (
+                  <button className="primary" onClick={() => {
+                    const share = sharing.state.shares.find(s => s.client === peerClient.id && s.uid === peerClient.uid && s.session !== sharing.state.self);
+                    if (share) sharing.controller.watch(share);
+                    setMobile("chat");
+                    setPeerClient(undefined);
+                  }}><ScreenIcon />Sledovat obrazovku</button>
+                )}
                 <Range
                   label="Hlasitost uživatele"
                   value={
