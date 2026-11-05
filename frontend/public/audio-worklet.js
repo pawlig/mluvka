@@ -43,8 +43,13 @@ class MluvkaAudio extends AudioWorkletProcessor {
     this.lookaheadAt = 0;
     this.fade = 0;
     this.tail = 0;
+    // Mobilní strop 320 ms = 300 ms jitter + jeden rámec pro dekódování/render.
     this.target = sampleRate * 0.06;
     this.arrival = undefined;
+    this.mobile = false;
+    this.gaps = [];
+    this.lastRisk = 0;
+    this.adaptAt = 0;
     this.filtered = sampleRate * 0.05;
     this.integral = 0;
     this.correction = 0;
@@ -64,23 +69,28 @@ class MluvkaAudio extends AudioWorkletProcessor {
       if (data.pcm) {
         if (this.arrival !== undefined) {
           const gap = this.clock - this.arrival;
-          this.target = Math.max(
-            this.target,
-            Math.min(sampleRate * 0.1, gap + sampleRate * 0.02),
-          );
+          this.gaps.push({ at: this.clock, gap });
+          // Rychlá reakce i na řídkou špičku, kterou p95 ještě nevidí.
+          if (gap > sampleRate * 0.04) {
+            this.lastRisk = this.clock;
+            this.target = Math.max(this.target, Math.min(sampleRate * 0.32, gap + sampleRate * 0.04));
+          }
         }
         this.arrival = this.clock;
         this.playResampler.push(new Int16Array(data.pcm), (v) => {
           this.ring[this.write++ % this.ring.length] = v / 32768;
         });
-        if (this.write - this.read > sampleRate * 0.3) {
-          this.read = this.write - sampleRate * 0.06;
+        if (this.write - this.read > Math.max(sampleRate * 0.6, this.target + sampleRate * 0.3)) {
+          this.read = this.write - this.target;
           this.tail = this.last;
           this.fade = 0;
           this.port.postMessage({ dropped: true });
         }
       }
-      if (data.settings) Object.assign(this, data.settings);
+      if (data.settings) {
+        Object.assign(this, data.settings);
+        if (data.settings.mobile && !this.started) this.target = sampleRate * 0.32;
+      }
       if (data.resetMetrics) {
         this.maxJump = 0;
         this.outputEnergy = 0;
@@ -89,8 +99,10 @@ class MluvkaAudio extends AudioWorkletProcessor {
       if (data.flush) {
         this.read = this.write = 0;
         this.playing = this.started = false;
-        this.target = sampleRate * 0.06;
+        this.target = sampleRate * (this.mobile ? 0.32 : 0.06);
         this.arrival = undefined;
+        this.gaps = [];
+        this.lastRisk = this.clock;
         this.filtered = sampleRate * 0.05;
         this.integral = this.correction = 0;
         this.playResampler = new Resampler(48000, sampleRate);
@@ -146,6 +158,17 @@ class MluvkaAudio extends AudioWorkletProcessor {
       this.tail = this.last;
     }
     const seconds = output.length / sampleRate;
+    if (this.clock - this.adaptAt >= sampleRate) {
+      this.adaptAt = this.clock;
+      this.gaps = this.gaps.filter((v) => this.clock - v.at < sampleRate * 30);
+      const sorted = this.gaps.map((v) => v.gap).sort((a, b) => a - b);
+      const p95 = sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0;
+      const desired = Math.min(sampleRate * 0.32, Math.max(sampleRate * 0.06, p95 + sampleRate * 0.04));
+      this.target = Math.max(this.target, desired);
+      // Po zlepšení spojení klesá latence nejvýš o 2 ms za sekundu.
+      if (this.clock - this.lastRisk > sampleRate * 30)
+        this.target = Math.max(desired, this.target - sampleRate * 0.002);
+    }
     this.filtered +=
       (this.write - this.read - this.filtered) * (1 - Math.exp(-seconds));
     if (this.playing) {
@@ -180,6 +203,8 @@ class MluvkaAudio extends AudioWorkletProcessor {
           this.playing = false;
           this.tail = this.last;
           this.fade = 0;
+          this.lastRisk = this.clock;
+          this.target = Math.min(sampleRate * 0.32, this.target + sampleRate * 0.06);
           this.port.postMessage({ underrun: true });
         }
         sample = this.tail * Math.max(0, 1 - ++this.fade / ramp);
@@ -197,24 +222,12 @@ class MluvkaAudio extends AudioWorkletProcessor {
       this.outputSamples++;
     }
     this.clock += output.length;
-    if (
-      this.opus &&
-      this.started &&
-      !this.playing &&
-      this.write - this.read < this.target &&
-      this.clock - this.plcAt >= sampleRate * 0.02
-    ) {
-      const next = this.plcAt + sampleRate * 0.02;
-      this.plcAt = this.clock - next < sampleRate * 0.02 ? next : this.clock;
-      this.target = Math.min(
-        sampleRate * 0.1,
-        this.target + sampleRate * 0.02,
-      );
-      (this.codecPort || this.port).postMessage({ plc: true });
-    }
+    // TCP zpoždění není ztracený Opus paket. PLC vyrábí dekodér pouze pro
+    // prokázanou díru v pořadí; jinak by pozdější hlas nahradilo umělé ticho.
     if (this.clock % sampleRate < output.length)
       this.port.postMessage({
         stats: {
+          renderQuantum: output.length,
           bufferMs: ((this.write - this.read) / sampleRate) * 1000,
           targetBufferMs: (this.target / sampleRate) * 1000,
           driftCorrection: this.correction * 100,

@@ -1,8 +1,10 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 export default defineConfig({
+  define: { "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim()) },
   plugins: [
     {
       name: "mluvka-sw-version",

@@ -1973,3 +1973,13 @@ html {
   padding-right: 90px;
 
 }
+
+.audio-diagnostics { font-size: 16px; line-height: 1.45; }
+.audio-diagnostics summary { cursor: pointer; font-weight: 600; }
+.audio-diagnostics dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
+.audio-diagnostics dt, .audio-diagnostics dd { margin: 0; overflow-wrap: anywhere; }
+.audio-diagnostics dd { font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) {
+  .audio-diagnostics dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .audio-diagnostics dd { margin-bottom: 10px; }
+}

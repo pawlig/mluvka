@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChatMessage as MessageBody } from "./ChatMessage";
 import { ImageComposer } from "./ImageComposer";
 import { AudioEngine } from "./audio";
+import { audioDiagnostics, audioWebsocket } from "./audio-diagnostics";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
 import {
@@ -544,6 +545,7 @@ export function App() {
     }, 1000);
     socket.onopen = () => {
       if (ws.current !== socket) return;
+      audioWebsocket(socket.extensions);
       socket.send(
         JSON.stringify({
           type: "connect",
@@ -1969,10 +1971,7 @@ export function App() {
                   {label}
                 </label>
               ))}
-              <details>
-                <summary>Diagnostika zvuku</summary>
-                <AudioDebug />
-              </details>
+              <AudioDebug />
               <button
                 className="text-button"
                 onClick={() => {
@@ -2215,34 +2214,37 @@ export function App() {
 }
 
 function AudioDebug() {
-  const [stats, setStats] = useState(window.__mluvkaStats);
+  const [stats, setStats] = useState(audioDiagnostics);
+  const [copied, setCopied] = useState("");
   useEffect(() => {
-    const timer = setInterval(
-      () => setStats({ ...window.__mluvkaStats }),
-      1000,
-    );
+    const timer = setInterval(() => setStats(audioDiagnostics()), 1000);
     return () => clearInterval(timer);
   }, []);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(audioDiagnostics(), null, 2));
+      setCopied("Diagnostika zkopírována");
+    } catch { setCopied("Kopírování se nezdařilo. Povolte přístup ke schránce."); }
+  };
   return (
-    <pre className="audio-debug">
-      {JSON.stringify(
-        {
-          codec: stats.codec,
-          underruns: stats.underruns,
-          bufferMs: Math.round(stats.bufferMs),
-          targetBufferMs: Math.round(stats.targetBufferMs),
-          driftPercent: stats.driftCorrection.toFixed(3),
-          droppedFrames: stats.droppedFrames,
-          droppedCaptureFrames: stats.droppedCaptureFrames,
-          maxJump: stats.maxJump.toFixed(4),
-          upKbps: stats.upKbps.toFixed(1),
-          downKbps: stats.downKbps.toFixed(1),
-          plcFrames: stats.plcFrames,
-          lostFrames: stats.lostFrames,
-        },
-        null,
-        2,
-      )}
-    </pre>
+    <details className="audio-diagnostics">
+      <summary>Diagnostika zvuku</summary>
+      <p>Technické údaje za posledních 30 s, bez údajů o serveru a účastnících.</p>
+      <dl>
+        <dt>Buffer / cíl</dt><dd>{stats.bufferMs} / {stats.targetBufferMs} ms</dd>
+        <dt>Podtečení za minutu / celkem</dt><dd>{stats.underrunsLastMinute} / {stats.underruns}</dd>
+        <dt>PLC / ztracené / zahozené</dt><dd>{stats.plcFrames} / {stats.lostFrames} / {stats.droppedFrames}</dd>
+        <dt>Mezera p95 / max</dt><dd>{stats.incomingGapP95Ms} / {stats.incomingGapMaxMs} ms</dd>
+        <dt>Dekódování průměr / max</dt><dd>{stats.decodeAverageMs} / {stats.decodeMaxMs} ms</dd>
+        <dt>Vzorkovací frekvence / quantum</dt><dd>{stats.sampleRate ?? "—"} Hz / {stats.renderQuantum ?? "—"} vzorků</dd>
+        <dt>Latence základní / výstupní</dt><dd>{stats.baseLatency === null ? "—" : (stats.baseLatency * 1000).toFixed(1)} / {stats.outputLatency === null ? "—" : (stats.outputLatency * 1000).toFixed(1)} ms</dd>
+        <dt>Kodek / výstup</dt><dd>{stats.codec} / {stats.outputRoute}</dd>
+        <dt>Síť / stav zvuku</dt><dd>{stats.effectiveType ?? "nezjištěno"} / {stats.contextState}</dd>
+        <dt>Build</dt><dd>{stats.build}</dd>
+        <dt>Prohlížeč</dt><dd>{stats.userAgent}</dd>
+      </dl>
+      <button type="button" onClick={() => void copy()}>Zkopírovat diagnostiku</button>
+      <p role="status">{copied}</p>
+    </details>
   );
 }

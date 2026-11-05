@@ -122,7 +122,7 @@ pub fn normalize_server(input: &str) -> Result<String, String> {
 struct Socket {
     input: futures_util::stream::SplitStream<WebSocket>,
     control: mpsc::Sender<Message>,
-    audio: mpsc::Sender<Message>,
+    audio: mpsc::Sender<(Message, Instant)>,
     pending_mute: Option<(bool, bool)>,
 }
 impl Socket {
@@ -132,7 +132,7 @@ impl Socket {
 }
 async fn send(ws: &mut Socket, msg: Message) -> Result<(), String> {
     if matches!(msg, Message::Binary(_)) {
-        match ws.audio.try_send(msg) {
+        match ws.audio.try_send((msg, Instant::now())) {
             Ok(()) => Ok(()),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 tracing::debug!(ws_audio_drop = true, "Plná fronta zvuku");
@@ -414,18 +414,65 @@ pub async fn run(
 ) {
     let (mut sink, input) = ws.split();
     let (control, mut controls) = mpsc::channel(256);
-    let (audio, mut frames) = mpsc::channel(16);
+    let (audio, mut frames) = mpsc::channel::<(Message, Instant)>(16);
     let mut writer = tokio::spawn(async move {
+        let mut produced = None;
+        let mut written = None;
+        let mut producer_gaps = Vec::with_capacity(1600);
+        let mut writer_gaps = Vec::with_capacity(1600);
+        let mut queue_max_ms = 0.0_f64;
+        let mut bytes = 0_usize;
+        let mut frames_count = 0_usize;
+        let mut report_at = Instant::now();
         loop {
-            let msg = tokio::select! { biased;
-                msg = controls.recv() => match msg { Some(msg) => msg, None => break },
-                msg = frames.recv() => match msg { Some(msg) => msg, None => break },
+            let (msg, queued_at) = tokio::select! { biased;
+                msg = controls.recv() => match msg { Some(msg) => (msg, None), None => break },
+                msg = frames.recv() => match msg { Some((msg, at)) => (msg, Some(at)), None => break },
             };
+            if let Some(at) = queued_at {
+                if let Some(previous) = produced {
+                    producer_gaps.push(at.duration_since(previous).as_secs_f64() * 1000.0);
+                }
+                produced = Some(at);
+                queue_max_ms = queue_max_ms.max(at.elapsed().as_secs_f64() * 1000.0);
+                if let Message::Binary(ref data) = msg {
+                    bytes += data.len();
+                }
+                frames_count += 1;
+            }
+            // SinkExt::send flushuje každý rámec; žádná 200ms dávka v aplikaci.
             if !matches!(
                 timeout(Duration::from_secs(2), sink.send(msg)).await,
                 Ok(Ok(()))
             ) {
                 break;
+            }
+            if queued_at.is_some() {
+                let now = Instant::now();
+                if let Some(previous) = written {
+                    writer_gaps.push(now.duration_since(previous).as_secs_f64() * 1000.0);
+                }
+                written = Some(now);
+            }
+            if frames_count > 0 && report_at.elapsed() >= Duration::from_secs(30) {
+                producer_gaps.sort_by(f64::total_cmp);
+                writer_gaps.sort_by(f64::total_cmp);
+                let summary = |values: &[f64]| {
+                    let limits = [25.0, 50.0, 100.0, 200.0, 300.0, 400.0, f64::INFINITY];
+                    json!({"p95Ms": values.get(values.len().saturating_mul(95) / 100).copied().unwrap_or(0.0),
+                        "maxMs": values.last().copied().unwrap_or(0.0),
+                        "histogram": limits.iter().enumerate().map(|(i, upper)| values.iter().filter(|v| **v <= *upper && (i == 0 || **v > limits[i - 1])).count()).collect::<Vec<_>>()})
+                };
+                // Jen agregovaná čísla, žádná adresa, text TS ani identita.
+                let timing = json!({"producer":summary(&producer_gaps), "writer":summary(&writer_gaps),
+                    "queueMaxMs":queue_max_ms, "averageFrameBytes":bytes / frames_count});
+                tracing::info!(audio_timing = %timing, "Časování zvuku za 30 s");
+                producer_gaps.clear();
+                writer_gaps.clear();
+                bytes = 0;
+                frames_count = 0;
+                queue_max_ms = 0.0;
+                report_at = Instant::now();
             }
         }
         let _ = timeout(Duration::from_millis(100), sink.close()).await;

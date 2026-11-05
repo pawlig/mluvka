@@ -218,7 +218,7 @@ Prohlížeč neumí TS3 UDP protokol a kryptografii. Rust používá
 [ReSpeak/tsclientlib](https://github.com/ReSpeak/tsclientlib) s pevným rev
 `ee3bc6f45a7137db7793ba5593a321df400d53e5`, ostatní závislosti fixuje Cargo.lock.
 `AudioHandler` dekóduje, bufferuje a mixuje hlasy. Vstupní Opus má mono 48 kHz, 20 ms,
-OpusVoice; frontend zpracovává zvuk v AudioWorkletu s adaptivním přehrávacím bufferem 60–90 ms.
+OpusVoice; frontend zpracovává zvuk v AudioWorkletu s adaptivním přehrávacím bufferem (na čistém desktopu přibližně 60 ms, při jitteru až 320 ms).
 Záložní C# varianta nebyla potřeba. [Úplný WS protokol](docs/protokol.md).
 
 ## Známá omezení
@@ -261,12 +261,18 @@ volbách; uživatel jej pak může znovu zapnout. Vlastní kompresor −18 dBFS 
 150 ms a předstihem limiteru 5 ms běží stále, VAD měří před ním. Předběh 100 ms zachová slabý začátek slova,
 hold 400 ms a rampy omezují lupnutí na hranicích vysílání.
 
-Nastavení → Diagnostika zvuku ukazuje podtečení, buffer, korekci driftu, nouzové zahození,
-maximální skok, kb/s a WS PLC rámce. Totéž je v `window.__mluvkaStats`.
-Přehrávání má cíl 60 ms (při měřeném jitteru až 100 ms) a plynule opravuje rozdíl hodin.
-Aktuální výsledky přejímky a její omezení jsou v [ověření audia](docs/overeni-audia.md).
-Dekodér posílá PCM přímo do workletu přes MessagePort; o PLC worklet žádá přímo Worker,
-aby zdržení hlavního vlákna nepřerušilo přehrávání. SIGTERM/SIGINT čistě odpojí TS
+**Nastavení → Diagnostika zvuku → Zkopírovat diagnostiku** zkopíruje JSON pro hlášení
+problému. Nechte panel běžet během praskání a pošlete zkopírovaný text s modelem telefonu.
+Kopie obsahuje pouze technické údaje: buffer/cíl, podtečení za minutu i celkem, PLC/ztráty,
+mezery doručení za posledních 30 s, čas dekódování, latence a vzorkování zařízení, cestu
+výstupu, prohlížeč a commit buildu. Neobsahuje adresu TS, přezdívky, UID ani přihlašovací údaje.
+
+Na čistém desktopu začíná buffer na 60 ms; jitter jej může zvýšit až na 320 ms.
+Mobil začíná s rezervou 320 ms, po 30 s klidu cíl pomalu klesá. Dekodér zpracovává
+přijaté pakety ihned ve Workeru a posílá PCM přímo do workletu přes MessagePort.
+PLC se použije pro prokázanou díru v pořadí, nikoli pro pouhé opoždění TCP.
+Aktuální výsledky jsou v [ověření audia](docs/overeni-audia.md).
+SIGTERM/SIGINT čistě odpojí TS
 relace a prohlížeče po aktualizaci obnoví hovor. Globální limit připojování omezuje flood
 při současném reconnectu; skutečný flood blokuje cíl na 120 s.
 ## Upozornění a nepřečtené zprávy

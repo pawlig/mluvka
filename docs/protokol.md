@@ -82,22 +82,25 @@ dávka má nejvýše 8 rámců a doplňuje se rychlostí 50 rámců/s, v Opus i 
 TS `AudioHandler` řadí pakety podle jejich ID a při chybějícím paketu volá Opus PLC
 (`decode_float(None, …)`), případně FEC; po třech ztrátách ukončí daný hlas. Mix se
 průměruje ze sterea a měkce omezuje až nad 0,8. Každý 20ms tick se odbaví (`Burst`); mezi doháněnými rámci dostane writer prostor vyprázdnit frontu.
-Pořadí `0x04` umožňuje Workeru doplnit zahozené WS rámce pomocí PLC. Worklet žádá o dočasné PLC
-až po skutečném podtečení, nikoli při poklesu rezervy. PCM se vrací přes přímý MessagePort,
-nezávisle na hlavním vlákně; opožděný skutečný rámec obnoví stav dekodéru. Doplnění pro deadline neposouvá
-pořadí na drátu: falešně pozdní pakety se nesmějí trvale odmítat. Po delším výpadku se doplňuje nejvýše 10 rámců.
+Pořadí `0x04` umožňuje Workeru doplnit zahozené WS rámce pomocí PLC. Pouhé zpoždění
+TCP PLC nevyvolává. Worker dekóduje všechny doručené pakety ihned, PCM vrací přes
+přímý MessagePort do přehrávací rezervy, nezávisle na hlavním vlákně. Po skutečné
+díře v pořadí se doplňuje nejvýše 10 rámců.
 
-Přehrávání začíná po 60 ms; při měřeném jitteru roste cíl nejvýše na 100 ms. PI regulátor mění lineární interpolaci nejvýše ±1,05 %,
-aby zvládl i testovaný drift ±1 %; žádné celé rámce se běžně nezahazují. Při >300 ms
-se buffer nouzově srovná na 60 ms s prolnutím. Podtečení i obnovení mají 5 ms rampu.
+Desktop začíná na 60 ms, mobil na 320 ms. Cíl zvyšuje p95 mezer za 30 s + 40 ms,
+rychlá reakce na jednotlivou špičku a podtečení; strop je 320 ms. Po 30 s bez špiček
+klesá nejvýše o 2 ms/s. Čistý desktop má cíl ≤90 ms. PI regulátor mění lineární
+interpolaci nejvýše ±1,05 %, aby zvládl drift ±1 %. Nouzové srovnání s prolnutím
+nastává až při překročení 600 ms nebo cíle + 300 ms. Podtečení i obnovení mají 5ms rampu.
+Mobil používá nativní vzorkování AudioContextu a latencyHint playback; desktop interactive.
 
-Diagnostika v Nastavení a `window.__mluvkaStats`: `receivedFrames`, `sentFrames`,
-`rms` (dekódovaný příjem před hlasitostí), `micRms` (před kompresorem), `underruns`,
-`droppedFrames` (nouzové srovnání), `droppedCaptureFrames` (starý vstup / překročená odchozí dávka), `bufferMs`, `targetBufferMs`, `driftCorrection` (procenta), `maxJump`
-(maximum rozdílu sousedních výstupních vzorků), `upKbps`, `downKbps` (binární WS
-payload včetně typů/pořadí, bez TCP/TLS), `plcFrames` (včetně dočasného doplnění po podtečení), `lostFrames` (skutečné mezery
-pořadí na WS), `codec`, `uid`, `sampleRate`. TS ztráty se řeší uvnitř `AudioHandler`;
-tyto dva PLC čítače je nezahrnují.
+`window.__mluvkaStats` obsahuje počty rámců, RMS, podtečení, zahození, buffer/cíl,
+korekci driftu, skok sousedních vzorků, kb/s, PLC/ztráty, kodek, vzorkování a render quantum.
+Interní UID slouží testům a není součástí kopie diagnostiky. Nastavení → Diagnostika zvuku
+kopíruje výslovný seznam bezpečných technických polí, včetně 30s histogramu mezer,
+časů dekódování, latencí a verze buildu. TS ztráty řeší uvnitř `AudioHandler`;
+WS PLC čítače je nezahrnují. Backend každých 30 s loguje pouze číselné histogramy
+mezer mixu a dokončených flushů WS, čekání ve frontě a průměrnou délku audio rámce.
 
 ## Limity
 

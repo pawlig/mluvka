@@ -1,0 +1,53 @@
+{
+  "scenario": "VM: stejné FIFO dávky 20ms rámců, náhodné mezery 50–300 ms a každá 17. 400 ms, 15 s náběh + 60 s",
+  "gaps": {
+    "p95Ms": 400,
+    "maxMs": 400,
+    "histogram": [
+      {
+        "upToMs": 25,
+        "count": 0
+      },
+      {
+        "upToMs": 50,
+        "count": 0
+      },
+      {
+        "upToMs": 100,
+        "count": 72
+      },
+      {
+        "upToMs": 200,
+        "count": 145
+      },
+      {
+        "upToMs": 300,
+        "count": 154
+      },
+      {
+        "upToMs": 400,
+        "count": 23
+      },
+      {
+        "upToMs": null,
+        "count": 0
+      }
+    ]
+  },
+  "before": {
+    "underruns": 88,
+    "plcRequests": 464,
+    "droppedFrames": 33,
+    "minBufferMs": 0.021583533261339955,
+    "maxBufferMs": 294.9375396321411,
+    "targetBufferMs": 100
+  },
+  "after": {
+    "underruns": 0,
+    "plcRequests": 0,
+    "droppedFrames": 0,
+    "minBufferMs": 15.858908143010922,
+    "maxBufferMs": 455.7008497100469,
+    "targetBufferMs": 320
+  }
+}

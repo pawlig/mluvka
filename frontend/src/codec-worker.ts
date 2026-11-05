@@ -11,14 +11,14 @@ let encoder: OpusEncoderHandle | undefined,
 let expected: number | undefined;
 let concealed = 0;
 let playPort: MessagePort | undefined;
-function output(pcm: Int16Array, plc = false) {
+function output(pcm: Int16Array, plc = false, decodeMs?: number) {
   const rms = Math.sqrt(
     pcm.reduce((sum, x) => sum + (x / 32768) ** 2, 0) / pcm.length,
   );
   if (playPort) {
     playPort.postMessage({ pcm: pcm.buffer }, [pcm.buffer]);
-    postMessage({ decoded: true, rms, plc });
-  } else postMessage({ pcm: pcm.buffer, plc }, { transfer: [pcm.buffer] });
+    postMessage({ decoded: true, rms, plc, decodeMs });
+  } else postMessage({ pcm: pcm.buffer, plc, decodeMs }, { transfer: [pcm.buffer] });
 }
 function conceal() {
   if (decoder && expected !== undefined) {
@@ -82,10 +82,11 @@ self.onmessage = async ({ data }) => {
       concealed = Math.max(0, concealed - delta - 1);
       expected = (sequence + 1) >>> 0;
       try {
+        const started = performance.now();
         const pcm = decoder.decode(packet.subarray(5), { frameSize: 960 });
         // I pozdní paket aktualizuje prediktor. Již přehrané PLC ale nezvětší
         // buffer druhou kopií stejného časového úseku.
-        if (!alreadyPlayed) output(pcm);
+        if (!alreadyPlayed) output(pcm, false, performance.now() - started);
         else postMessage({ resynced: true });
       } catch {
         if (!alreadyPlayed) output(decoder.decodePacketLoss(960), true);

@@ -5,6 +5,7 @@ import {
   jitterChecks,
   installAudioProbe,
   toneCheck,
+  mobileAudioCheck,
   vadCheck,
   networkCheck,
   slowReceiverCheck,
@@ -770,6 +771,9 @@ try {
       query,
     ));
     await slowReceiverCheck(browser, a, b, ok, process.env.E2E_CODEC || "opus", networkProfile, query);
+    await audioStep(() => mobileAudioCheck({ browser, base, ok, codec: process.env.E2E_CODEC || "opus", privateValues: [tsAddress, "Adam", "Bára", password], login: async (page, nick) => {
+      await fillLogin(page, nick); await connected(page); await moveToProtected(page);
+    } }));
     await b.locator(".client-row").filter({ hasText: "Adam" }).click();
     await b.getByLabel("Lokálně ztlumit", { exact: true }).check();
     await b.getByRole("button", { name: "Zavřít uživatele" }).click();
@@ -920,6 +924,12 @@ try {
     ok,
     restartBackend,
   });
+  const timing = backendOutput.split("\n").flatMap((line) => {
+    const match = /audio_timing=(\{.*\})/.exec(line.replace(/\u001b\[[0-9;]*m/g, ""));
+    if (!match) return [];
+    try { return [JSON.parse(match[1])]; } catch { return []; }
+  });
+  if (timing.length) ok("Backend: histogram mezer mixu a WS writeru bez osobních údajů", { timing });
   expect(errors).toEqual([]);
   ok("Žádné JS výjimky ani chyby konzole v obou relacích");
   writeFileSync(

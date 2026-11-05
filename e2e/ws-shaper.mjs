@@ -3,7 +3,12 @@ import net from "node:net";
 import { performance } from "node:perf_hooks";
 
 const sockets = new Set();
-let latency = 0, bytesPerSecond = Infinity;
+let latency = 0, bytesPerSecond = Infinity, jitter = false;
+let seed = 1291, gateCount = 0;
+function jitterGap() {
+  seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  return ++gateCount % 17 === 0 ? 400 : 50 + seed / 4294967296 * 250;
+}
 let inputAt, outputAt, inputGapMs = 0, outputGapMs = 0;
 const server = net.createServer((client) => {
   const upstream = net.connect({
@@ -16,7 +21,7 @@ const server = net.createServer((client) => {
   client.setNoDelay(true);
   upstream.setNoDelay(true);
   let header = Buffer.alloc(0), ready = false, next = 0, nextWriteAt = 0, queued = 0;
-  let timer, blocked = false, ending = false;
+  let timer, blocked = false, ending = false, releasing = false;
   const queue = [];
   const close = () => {
     clearTimeout(timer);
@@ -28,6 +33,11 @@ const server = net.createServer((client) => {
   const pump = () => {
     timer = undefined;
     if (blocked || client.destroyed) return;
+    if (queue.length && jitter && !releasing) {
+      releasing = true;
+      timer = setTimeout(pump, jitterGap());
+      return;
+    }
     while (queue.length) {
       const delay = Math.max(queue[0].at, nextWriteAt) - performance.now();
       if (delay > 0.5) {
@@ -46,6 +56,7 @@ const server = net.createServer((client) => {
         return;
       }
     }
+    releasing = false;
     if (ending) client.end();
   };
   client.on("drain", () => { blocked = false; pump(); });
@@ -94,6 +105,7 @@ const server = net.createServer((client) => {
 process.on("message", (message) => {
   if (message.type === "profile") {
     latency = message.latency;
+    jitter = !!message.jitter;
     bytesPerSecond = message.bitsPerSecond ? message.bitsPerSecond / 8 : Infinity;
     process.send?.({ configured: true });
   }

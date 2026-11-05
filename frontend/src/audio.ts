@@ -1,3 +1,4 @@
+import { audioArrival, audioDecoded, audioEnvironment, audioUnderrun, resetAudioArrival } from "./audio-diagnostics";
 import type { Settings } from "./types";
 type SinkContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
 export class AudioEngine {
@@ -87,15 +88,18 @@ export class AudioEngine {
   }
   private async open() {
     if (!this.context) {
+      const mobile = matchMedia("(pointer: coarse)").matches;
+      const latencyHint = mobile ? "playback" : "interactive";
       try {
         this.context = new AudioContext({
-          sampleRate: 48000,
-          latencyHint: "interactive",
+          ...(mobile ? {} : { sampleRate: 48000 }),
+          latencyHint,
         });
       } catch {
-        this.context = new AudioContext({ latencyHint: "interactive" });
+        this.context = new AudioContext({ latencyHint });
       }
       window.__mluvkaStats.sampleRate = this.context.sampleRate;
+      audioEnvironment(this.context, () => this.player?.srcObject ? "<audio> / MediaStreamDestination" : "přímo / AudioDestinationNode");
       const startingContext = this.context;
       await startingContext.audioWorklet.addModule("/audio-worklet.js");
       if (this.context !== startingContext) return;
@@ -105,6 +109,7 @@ export class AudioEngine {
         outputChannelCount: [1],
         channelCount: 1,
       });
+      this.node.port.postMessage({ settings: { mobile } });
       this.output = this.context.createGain();
       this.node.connect(this.output);
       this.notifyGain = this.context.createGain();
@@ -134,7 +139,10 @@ export class AudioEngine {
       );
       this.linkCodec();
       this.node.port.onmessage = ({ data }) => {
-        if (data.underrun) window.__mluvkaStats.underruns++;
+        if (data.underrun) {
+          window.__mluvkaStats.underruns++;
+          audioUnderrun();
+        }
         if (data.dropped) window.__mluvkaStats.droppedFrames++;
         if (data.stats) Object.assign(window.__mluvkaStats, data.stats);
         if (data.plc && this.ready && this.codec === "opus")
@@ -292,6 +300,7 @@ export class AudioEngine {
             resolve();
           }
           if (data.failed) fail();
+          if (data.decodeMs !== undefined) audioDecoded(data.decodeMs);
           if (data.encoded && this.ready && this.codec === "opus")
             this.emitFrame(data.encoded);
           if (data.lost) window.__mluvkaStats.lostFrames += data.lost;
@@ -328,6 +337,7 @@ export class AudioEngine {
     };
   }
   negotiate(codec: string) {
+    resetAudioArrival();
     this.codec = codec === "opus" && this.worker ? "opus" : "pcm";
     window.__mluvkaStats.codec = this.codec;
     this.worker?.postMessage({ reset: true });
@@ -550,6 +560,7 @@ export class AudioEngine {
   receive(frame: ArrayBuffer) {
     this.downBytes += frame.byteLength;
     const type = new Uint8Array(frame)[0];
+    if (type === 4 || type === 2) audioArrival();
     if (type === 4 && frame.byteLength > 5 && this.codec === "opus") {
       this.worker?.postMessage({ decode: frame }, [frame]);
       return;

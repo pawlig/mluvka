@@ -131,6 +131,7 @@ declare global {
       droppedCaptureFrames: number;
       uid: string;
       sampleRate: number;
+      renderQuantum?: number;
       bufferMs: number;
       targetBufferMs: number;
       driftCorrection: number;

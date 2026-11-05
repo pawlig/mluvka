@@ -84,6 +84,49 @@ export function jitterChecks(ok) {
       driftPercent: node.correction * 100,
     });
   }
+  // Čistý desktop má nízký cíl i po minutě; mobilní adaptace jej nezvýší plošně.
+  {
+    const { node } = processor();
+    for (let t = 0; t < 48000 * 10; t += 128) {
+      if (t % 1920 < 128 || t % 1920 >= 960 && t % 1920 < 1088)
+        node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } });
+      node.process([], [[new Float32Array(128)]]);
+    }
+    assert.ok(node.target / 48 <= 90);
+    ok("Čistý desktop: adaptivní cíl zůstává do 90 ms", { targetBufferMs: node.target / 48 });
+  }
+  {
+    const { node, events } = processor();
+    node.port.onmessage({ data: { settings: { mobile: true, opus: true } } });
+    let seed = 1291, gates = 0, frame = 0, phase = 0;
+    const gap = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return ++gates % 17 === 0 ? 400 : 50 + seed / 4294967296 * 250;
+    };
+    let next = gap(), min = Infinity, max = 0;
+    const out = new Float32Array(128);
+    for (let t = 0; t < 48000 * 75; t += 128) {
+      while (next * 48 <= t) {
+        while (frame * 20 <= next) {
+          const pcm = Int16Array.from({ length: 960 }, () => Math.round(16000 * Math.sin(phase++ * 2 * Math.PI * 440 / 48000)));
+          node.port.onmessage({ data: { pcm: pcm.buffer } });
+          frame++;
+        }
+        next += gap();
+      }
+      node.process([], [[out]]);
+      if (t <= 48000 * 15) events.length = 0;
+      else { const ms = (node.write - node.read) / 48; min = Math.min(min, ms); max = Math.max(max, ms); }
+    }
+    const underruns = events.filter((v) => v.underrun).length;
+    const dropped = events.filter((v) => v.dropped).length;
+    const plc = events.filter((v) => v.plc).length;
+    assert.equal(underruns, 0); assert.equal(dropped, 0); assert.equal(plc, 0);
+    assert.ok(node.target / 48 <= 320);
+    ok("Mobilní buffer ve VM: jitter 50–300 / 400 ms, 60 s po náběhu", {
+      underruns, droppedFrames: dropped, plcRequests: plc, minBufferMs: min, maxBufferMs: max, targetBufferMs: node.target / 48,
+    });
+  }
   const { node, events } = processor();
   const tone = Int16Array.from({ length: 960 }, (_, i) =>
     Math.round(16384 * Math.cos((i * 2 * Math.PI * 440) / 48000)),
@@ -278,6 +321,8 @@ export async function toneCheck(a, b, ok, codec, profile) {
     dominantHz,
     rmsDifferenceDb,
     maxDownKbps: maxDown,
+    targetBufferMs: measurement.stats.targetBufferMs,
+    diagnostics: await diagnosticCheck(b, ok),
   };
   measured(name, details, () => {
     expect(measurement.stats.codec).toBe(codec);
@@ -285,7 +330,12 @@ export async function toneCheck(a, b, ok, codec, profile) {
     expect(measurement.stats.underruns).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
-    expect(max).toBeLessThanOrEqual(120);
+    // Nové zadání dovoluje vyšší cíl při skutečně naměřeném jitteru.
+    // Původní meze zůstávají pro čistý desktop, nulové podtečení platí vždy.
+    if (measurement.binaryGapMs <= 50) {
+      expect(max).toBeLessThanOrEqual(120);
+      expect(measurement.stats.targetBufferMs).toBeLessThanOrEqual(90);
+    } else expect(max).toBeLessThanOrEqual(400);
     expect(measurement.stats.maxJump).toBeLessThan(0.3);
     expect(Math.abs(dominantHz - 440)).toBeLessThanOrEqual(5);
     expect(Math.abs(rmsDifferenceDb)).toBeLessThanOrEqual(1.5);
@@ -572,8 +622,8 @@ export async function shapeSocket(page) {
   let sequence = 0;
   const profile = {
     cdp, connections: 0, inputGapMs: 0, outputGapMs: 0,
-    configure(latency, bitsPerSecond) {
-      child.send({ type: "profile", latency, bitsPerSecond });
+    configure(latency, bitsPerSecond, jitter = false) {
+      child.send({ type: "profile", latency, bitsPerSecond, jitter });
     },
     reset() {
       this.inputGapMs = this.outputGapMs = 0;
@@ -747,6 +797,7 @@ export async function codecRecoveryCheck(ok) {
   const audioSource = stripTypeScriptTypes(
     readFileSync(new URL("../frontend/src/audio.ts", import.meta.url), "utf8"),
   )
+    .replace(/import\s*\{[^}]*\}\s*from\s*"\.\/audio-diagnostics";/, "")
     .replace("export class AudioEngine", "class AudioEngine")
     .replaceAll("import.meta.url", '"http://test.invalid/audio.ts"');
   let clock = 0,
@@ -783,4 +834,81 @@ export async function codecRecoveryCheck(ok) {
   ok(
     "Opus Worker: 30 PLC rámců nezablokuje pozdější zvuk; skutečná mezera se počítá samostatně",
   );
+}
+
+export async function diagnosticCheck(page, ok, privateValues = []) {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "Nastavení", exact: true }).click();
+  const panel = page.locator(".audio-diagnostics");
+  await panel.locator("summary").click();
+  await expect(panel).toContainText("Buffer / cíl");
+  await panel.getByRole("button", { name: "Zkopírovat diagnostiku" }).click();
+  await expect(panel.getByRole("status")).toHaveText("Diagnostika zkopírována");
+  const text = await page.evaluate(() => navigator.clipboard.readText());
+  const diagnostic = JSON.parse(text);
+  for (const key of ["bufferMs", "targetBufferMs", "underruns", "underrunsLastMinute", "plcFrames", "droppedFrames", "incomingGapP95Ms", "incomingGapMaxMs", "decodeAverageMs", "decodeMaxMs", "sampleRate", "baseLatency", "outputLatency", "renderQuantum", "codec", "outputRoute", "effectiveType", "userAgent", "build"])
+    expect(diagnostic).toHaveProperty(key);
+  for (const key of Object.keys(diagnostic)) expect(key).not.toMatch(/server|nickname|uid|password|token|identity/i);
+  for (const value of privateValues) if (value) expect(text).not.toContain(value);
+  expect(diagnostic.build).toMatch(/^[a-f0-9]{7,40}$/);
+  expect(diagnostic.renderQuantum).toBeGreaterThan(0);
+  await page.evaluate((value) => { window.testAudioDiagnostics = value; }, diagnostic);
+  if (page.viewportSize()?.width === 390) await page.screenshot({ path: `docs/screenshots/diagnostika-mobil-${diagnostic.codec}.png` });
+  await page.getByRole("button", { name: "Hotovo", exact: true }).click();
+  ok("Diagnostika zvuku: panel, schránka, technická pole a soukromí", { codec: diagnostic.codec, outputRoute: diagnostic.outputRoute });
+  return diagnostic;
+}
+export async function mobileAudioCheck({ browser, base, login, ok, codec, privateValues }) {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 }, deviceScaleFactor: 3,
+    isMobile: true, hasTouch: true, permissions: ["microphone"],
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+  });
+  await installAudioProbe(context);
+  await context.addInitScript(() => {
+    localStorage.setItem("mluvka.settingsVersion", "2");
+    localStorage.setItem("mluvka.settings", JSON.stringify({ mode: "ptt", beep: false, echo: false, noise: false }));
+  });
+  const page = await context.newPage();
+  let profile;
+  try {
+    await page.goto(base);
+    await login(page, "Mobilní diagnostika");
+    profile = await shapeSocket(page);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect.poll(() => profile.connections).toBeGreaterThan(0);
+    await expect(page.locator(".connection-status")).toHaveText("Připojeno", { timeout: 45000 });
+    const cdp = profile.cdp;
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+    profile.configure(80, 1500000, true);
+    // Adaptace se měří po náběhu linky, nikoli při záměrné změně profilu.
+    await page.waitForTimeout(15000);
+    await page.evaluate(() => {
+      Object.assign(window.__mluvkaStats, { underruns: 0, plcFrames: 0, lostFrames: 0, droppedFrames: 0 });
+      window.testAudioNode.port.postMessage({ resetMetrics: true });
+    });
+    profile.reset();
+    await page.waitForTimeout(60000);
+    await profile.snapshot();
+    const diagnostic = await diagnosticCheck(page, ok, [...privateValues, "Mobilní diagnostika"]);
+    const stats = await page.evaluate(() => ({ ...window.__mluvkaStats, uid: undefined }));
+    const name = `Mobilní zvuk / ${codec}: CPU 4×, jitter 50–300 / 400 ms, 60 s`;
+    const details = { underruns: stats.underruns, plcFrames: stats.plcFrames, lostFrames: stats.lostFrames, droppedFrames: stats.droppedFrames,
+      inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs, diagnostic };
+    measured(name, details, () => {
+      expect(stats.codec).toBe(codec);
+      expect(stats.underruns).toBe(0);
+      expect(stats.plcFrames).toBe(0);
+      expect(stats.lostFrames).toBe(0);
+      expect(stats.droppedFrames).toBe(0);
+      expect(stats.targetBufferMs).toBeLessThanOrEqual(320);
+      expect(diagnostic.outputRoute).toContain("<audio>");
+      expect(profile.outputGapMs).toBeGreaterThanOrEqual(390);
+    });
+    ok(name, details);
+  } finally {
+    await profile?.cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }).catch(() => {});
+    await context.close();
+    await profile?.close();
+  }
 }
