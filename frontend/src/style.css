@@ -65,6 +65,13 @@ textarea {
   padding: 12px 14px;
   transition: border-color 0.15s;
 }
+/* Posuvník nesmí zdědit rámeček a odsazení textových polí — dráha by nešla do kraje. */
+input[type="range"] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
 input::placeholder,
 textarea::placeholder {
   color: #727c6d;
