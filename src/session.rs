@@ -170,10 +170,14 @@ fn command(name: &str, args: &[(&str, String)]) -> OutCommand {
 }
 const SHARE_DESCRIPTION: &str = "🖥 sdílí obrazovku";
 fn is_description(cmd: &OutCommand) -> bool {
-    cmd.0.content().starts_with(b"clientupdate client_description=")
+    let content = cmd.0.content();
+    content.starts_with(b"clientedit ")
+        && content.windows(b" client_description=".len()).any(|w| w == b" client_description=")
 }
 // Popis klienta v TS po dobu sdílení; po skončení se vrátí původní (i prázdný).
+// Vlastní popis mění `clientedit` (clientupdate ho odmítne jako ParameterInvalid).
 fn sync_share_description(
+    own: u16,
     active: &mut bool,
     original: &str,
     sharing: bool,
@@ -185,7 +189,10 @@ fn sync_share_description(
     *active = sharing;
     commands.retain(|cmd| !is_description(cmd));
     let text = if sharing { SHARE_DESCRIPTION } else { original };
-    commands.push_back(command("clientupdate", &[("client_description", text.to_owned())]));
+    commands.push_back(command(
+        "clientedit",
+        &[("clid", own.to_string()), ("client_description", text.to_owned())],
+    ));
 }
 fn password_hash(password: &str) -> String {
     if password.is_empty() {
@@ -1491,7 +1498,7 @@ async fn connected(
                             if let Err(message) = sharing.handle(&value, s.len()) {
                                 json_send(ws, json!({"type":"share_error","v":1,"message":message,"request":value["type"]})).await?;
                             } else if let Some(kind @ ("share_start" | "share_stop")) = value["type"].as_str() {
-                                sync_share_description(&mut description_active, &original_description, kind == "share_start", &mut commands);
+                                sync_share_description(own_client.0, &mut description_active, &original_description, kind == "share_start", &mut commands);
                             }
                             continue;
                         }
@@ -1591,7 +1598,7 @@ async fn connected(
                         let state = sharing.snapshot(snapshot(con)?);
                         // Přepnutí kanálu ukončí sdílení bez share_stop; popis se vrátí podle stavu.
                         let own_sharing = state["clients"].as_array().and_then(|list| list.iter().find(|c| c["id"] == state["self"])).is_some_and(|c| c["sharing"].as_bool() == Some(true));
-                        sync_share_description(&mut description_active, &original_description, own_sharing, &mut commands);
+                        sync_share_description(own_client.0, &mut description_active, &original_description, own_sharing, &mut commands);
                         json_send(ws, state).await?;
                         if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
                     },
@@ -1759,18 +1766,20 @@ mod tests {
     fn share_description_follows_sharing_state() {
         let mut commands = VecDeque::new();
         let mut active = false;
-        sync_share_description(&mut active, "původní", false, &mut commands);
+        sync_share_description(7, &mut active, "původní", false, &mut commands);
         assert!(commands.is_empty());
-        sync_share_description(&mut active, "původní", true, &mut commands);
-        sync_share_description(&mut active, "původní", true, &mut commands);
+        sync_share_description(7, &mut active, "původní", true, &mut commands);
+        sync_share_description(7, &mut active, "původní", true, &mut commands);
         assert_eq!(commands.len(), 1);
         assert!(is_description(&commands[0]));
-        sync_share_description(&mut active, "původní", false, &mut commands);
+        let sent = String::from_utf8_lossy(commands[0].0.content()).into_owned();
+        assert!(sent.starts_with("clientedit clid=7 client_description="), "{sent}");
+        sync_share_description(7, &mut active, "původní", false, &mut commands);
         // Nepotvrzená změna se sloučí; zůstane jen návrat původního popisu.
         assert_eq!(commands.len(), 1);
         assert!(!String::from_utf8_lossy(commands[0].0.content()).contains("sd"));
-        sync_share_description(&mut active, "", true, &mut commands);
-        sync_share_description(&mut active, "", false, &mut commands);
+        sync_share_description(7, &mut active, "", true, &mut commands);
+        sync_share_description(7, &mut active, "", false, &mut commands);
         assert_eq!(commands.len(), 1);
     }
     #[test]
