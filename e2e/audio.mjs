@@ -431,11 +431,12 @@ export async function vadCheck({ browser, base, login, ok, codec }) {
     }
     await login(a, "VAD tón");
     await login(b, "VAD poslech");
+    // Sdílené 45s okno může odložit nový TS handshake déle než původních 40 s.
     await expect(a.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 40000,
+      timeout: 90000,
     });
     await expect(b.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 40000,
+      timeout: 90000,
     });
     await a.waitForTimeout(3000);
     expect(await a.evaluate(() => window.__mluvkaStats.sentFrames)).toBe(0);
@@ -520,8 +521,10 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
   const cdp = profile.cdp;
   profile.configure?.(80, 1500000);
   await cdp.send("Network.emulateNetworkConditions", {
-    offline: false, latency: 80,
-    downloadThroughput: 1500000 / 8, uploadThroughput: 1500000 / 8,
+    offline: false,
+    latency: 80,
+    downloadThroughput: 1500000 / 8,
+    uploadThroughput: 1500000 / 8,
   });
   await b.waitForTimeout(5000);
   await b.evaluate(() => {
@@ -593,7 +596,7 @@ export async function slowReceiverCheck(browser, a, b, ok, codec, profile, query
     await cdp.send("Debugger.resume").catch(() => {});
   }
   await expect(b.locator(".connection-status")).toHaveText("Připojeno", {
-    timeout: 40000,
+    timeout: 90000,
   });
   await expect
     .poll(() => b.evaluate(() => window.__mluvkaStats.rms), { timeout: 15000 })
@@ -735,7 +738,7 @@ export async function fallbackCheck(browser, base, login, ok) {
     expect(await page.evaluate(() => window.__mluvkaStats.sampleRate)).toBe(0);
     await login(page, "PCM záloha");
     await expect(page.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 45000,
+      timeout: 90000,
     });
     expect(await page.evaluate(() => window.__mluvkaStats.codec)).toBe("pcm");
     await expect
@@ -831,12 +834,36 @@ export async function codecRecoveryCheck(ok) {
     .replaceAll("import.meta.url", '"http://test.invalid/audio.ts"');
   let clock = 0,
     sent = 0;
-  const testWindow = {};
+  const testWindow = new EventTarget();
+  let micCalls = 0,
+    stopped = 0;
+  const testNavigator = {
+    permissions: { query: async () => ({ state: "granted" }) },
+    mediaDevices: {
+      removeEventListener() {},
+      enumerateDevices: async () => [],
+      getUserMedia: async () => {
+        micCalls++;
+        const track = {
+          readyState: "live",
+          enabled: true,
+          addEventListener() {},
+          getSettings: () => ({}),
+          stop() {
+            this.readyState = "ended";
+            stopped++;
+          },
+        };
+        return { getTracks: () => [track], getAudioTracks: () => [track] };
+      },
+    },
+  };
   const Engine = new Function(
     "window",
     "performance",
+    "navigator",
     `${audioSource}\nreturn AudioEngine;`,
-  )(testWindow, { now: () => clock });
+  )(testWindow, { now: () => clock }, testNavigator);
   const engine = new Engine(
     {},
     () => {},
@@ -858,6 +885,85 @@ export async function codecRecoveryCheck(ok) {
     sent,
     58,
     "běžných 50 rámců/s musí pokračovat po zahození dávky",
+  );
+  const attachContext = (target = engine) => {
+    target.context = {
+      state: "running",
+      removeEventListener() {},
+      close: async () => {},
+      resume: async () => {},
+      createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
+    };
+    target.node = { disconnect() {} };
+  };
+  attachContext();
+  await engine.changeInput();
+  assert.equal(micCalls, 1);
+  const retained = engine.stream;
+  await engine.close();
+  assert.equal(stopped, 0, "odpojení drží mikrofon pro další připojení");
+  assert.equal(retained.getAudioTracks()[0].enabled, false);
+  attachContext();
+  await engine.changeInput();
+  assert.equal(micCalls, 1, "nové připojení použije původní MediaStream");
+  assert.equal(engine.stream, retained);
+  assert.equal(retained.getAudioTracks()[0].enabled, true);
+  await engine.changeInput(true);
+  assert.equal(
+    micCalls,
+    2,
+    "ztracené zařízení nebo ruční retry smí otevřít nový vstup",
+  );
+  assert.equal(stopped, 1);
+  // Uživatel může nechat výzvu otevřenou déle než dvousekundový recover.
+  // Zamítnutí pak nesmí odemknout další automaticky zařazenou žádost.
+  const blocked = new Engine(
+    {},
+    () => {},
+    () => {},
+  );
+  attachContext(blocked);
+  const originalGet = testNavigator.mediaDevices.getUserMedia;
+  let deny,
+    permissionRequests = 0;
+  testNavigator.mediaDevices.getUserMedia = () => {
+    permissionRequests++;
+    return new Promise((_, reject) => {
+      deny = reject;
+    });
+  };
+  const waitingPermission = blocked.changeInput();
+  await new Promise(setImmediate);
+  const automaticRecovery = blocked.recover();
+  deny(new DOMException("denied", "NotAllowedError"));
+  await waitingPermission;
+  await new Promise(setImmediate);
+  assert.equal(
+    permissionRequests,
+    1,
+    "recover nesmí zařadit další výzvu při čekání na oprávnění",
+  );
+  assert.equal(blocked.inputUnavailable, true);
+  await automaticRecovery;
+  testNavigator.mediaDevices.getUserMedia = originalGet;
+  const stoppedBeforeHide = stopped;
+  const cached = new Event("pagehide");
+  Object.defineProperty(cached, "persisted", { value: true });
+  testWindow.dispatchEvent(cached);
+  assert.equal(
+    stopped,
+    stoppedBeforeHide,
+    "návrat z BFCache má zachovat mikrofon",
+  );
+  testWindow.dispatchEvent(new Event("pagehide"));
+  assert.equal(
+    stopped,
+    stoppedBeforeHide + 1,
+    "skutečné zavření stránky uvolní mikrofon",
+  );
+  assert.equal(engine.stream, undefined);
+  ok(
+    "Mikrofon: stream se drží přes odpojení, skutečná ztráta zařízení jej obnoví a zavření stránky uvolní",
   );
   ok("Uplink: dávka nejvýše 8 rámců a dále 50 rámců/s i po zdržení prohlížeče");
   ok(

@@ -7,7 +7,7 @@ function observe(page) {
   return page;
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-async function connected(page, timeout = 30000) {
+async function connected(page, timeout = 90000) {
   try {
     await expect(page.locator(".connection-status")).toHaveText("Připojeno", {
       timeout,
@@ -321,7 +321,7 @@ export async function mobileChecks({
   bad.page.on("websocket", () => wsCount++);
   await bad.page.reload();
   await expect(bad.page.getByRole("alert")).toContainText("Nesprávné heslo", {
-    timeout: 30000,
+    timeout: 90000,
   });
   await expect(
     bad.page.getByLabel("Heslo serveru", { exact: false }),
@@ -331,7 +331,11 @@ export async function mobileChecks({
   await bad.context.close();
   ok("Trvalá chyba bad_password: formulář, fokus hesla, právě 1 WS za 10 s");
   await safeUpdate(page, context, base, root, ok);
+  let disconnectedSockets = 0;
+  page.on("websocket", () => disconnectedSockets++);
   await page.reload();
+  await wait(3000);
+  expect(disconnectedSockets).toBe(0);
   await expect(page.getByLabel("Přezdívka", { exact: true })).toBeVisible();
   expect(await page.locator(".connection-status").textContent()).toBe(
     "Připraveno k hovoru",
@@ -629,7 +633,7 @@ export async function mobileChecks({
   ok(
     "AudioContext 44100 Hz: hlas A → B i B → A; suspend → překryv → gesto resume bez odpojení TS",
   );
-  for (const event of ["ended", "mute"]) {
+  for (const event of ["ended"]) {
     const count = await audioPage.evaluate(() => window.testStreams.length);
     await audioPage.evaluate((event) => {
       const track = window.testStreams.at(-1).getAudioTracks()[0];
@@ -645,7 +649,7 @@ export async function mobileChecks({
       .toBeGreaterThan(0.02);
   }
   ok(
-    "Ukončená/ztlumená mikrofonní stopa: nové getUserMedia, hlas pokračuje bez odpojení TS",
+    "Ukončená mikrofonní stopa: nové getUserMedia, hlas pokračuje bez odpojení TS",
   );
   const beforeDeviceChange = await audioPage.evaluate(
     () => window.testStreams.length,

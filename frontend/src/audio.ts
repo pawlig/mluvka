@@ -5,7 +5,47 @@ export class AudioEngine {
   context?: SinkContext;
   player?: HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
   mediaOutput?: MediaStreamAudioDestinationNode;
+  private directOutput = false;
+  private outputWatch?: ReturnType<typeof setInterval>;
+  private playerTime = 0;
+  private playerProgressAt = 0;
   onBlocked: (blocked: boolean) => void = () => {};
+  onInputUnavailable: (unavailable: boolean) => void = () => {};
+  onOutputBlocked: (blocked: boolean) => void = () => {};
+  inputUnavailable = false;
+  onPermissionHelp: () => void = () => {};
+  private captureConfig = "";
+  private microphoneLifetime = 0;
+  private releaseMicrophone = () => {
+    ++this.microphoneLifetime;
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = undefined;
+    this.captureConfig = "";
+  };
+  private deferredInput = false;
+  private inputFailed() {
+    this.inputUnavailable = true;
+    this.onInputUnavailable(true);
+  }
+  setCallActive(active: boolean) {
+    const session = (
+      navigator as Navigator & {
+        audioSession?: { type: string };
+      }
+    ).audioSession;
+    if (session) {
+      try {
+        session.type = active ? "play-and-record" : "auto";
+      } catch {
+        /* Starší Safari. */
+      }
+    }
+  }
+  async retryMicrophone() {
+    this.inputUnavailable = false;
+    this.deferredInput = false;
+    await this.changeInput(true);
+  }
   recovering?: Promise<void>;
   startPromise?: Promise<void>;
   retryInput?: ReturnType<typeof setTimeout>;
@@ -43,6 +83,7 @@ export class AudioEngine {
   transmitting = false;
   inputRequest = 0;
   private inputQueue: Promise<void> = Promise.resolve();
+  private inputBusy = 0;
   onLevel: (level: number, talking: boolean) => void;
   onFrame: (data: ArrayBuffer) => void;
   constructor(
@@ -51,6 +92,9 @@ export class AudioEngine {
     onFrame: AudioEngine["onFrame"],
   ) {
     this.settings = settings;
+    window.addEventListener("pagehide", (event) => {
+      if (!event.persisted) this.releaseMicrophone();
+    });
     this.onLevel = onLevel;
     this.onFrame = onFrame;
     window.__mluvkaStats = {
@@ -75,7 +119,6 @@ export class AudioEngine {
       codec: "pcm",
       notifySounds: 0,
       notifyPokes: 0,
-
     };
   }
   start(): Promise<void> {
@@ -132,6 +175,9 @@ export class AudioEngine {
         this.player.autoplay = true;
         this.player.srcObject = this.mediaOutput.stream;
         document.body.append(this.player);
+        this.playerTime = this.player.currentTime;
+        this.playerProgressAt = performance.now();
+        this.outputWatch = setInterval(() => this.checkOutput(), 1000);
         void this.playOutput();
       } else this.output.connect(this.context.destination);
       this.context.addEventListener("statechange", this.stateChanged);
@@ -209,7 +255,10 @@ export class AudioEngine {
     void this.resume();
     if (!this.context) return;
     if (this.settings.output) await this.setOutput(this.settings.output);
-    if (!this.stream) await this.changeInput();
+    if (!this.inputUnavailable) {
+      if (document.hidden && !this.stream) this.deferredInput = true;
+      else await this.changeInput();
+    }
     await this.update(this.settings);
     this.checkState();
   }
@@ -352,14 +401,22 @@ export class AudioEngine {
     this.lastVoice = -Infinity;
     this.transmitting = false;
   }
-  changeInput(): Promise<void> {
+  changeInput(reopen = false): Promise<void> {
+    ++this.inputBusy;
     const request = ++this.inputRequest;
     const context = this.context,
       node = this.node,
       settings = this.settings;
     const pending = this.inputQueue
       .catch(() => {})
-      .then(() => this.openInput(request, context, node, settings));
+      .then(() => this.openInput(request, context, node, settings, reopen))
+      .catch(() => {
+        if (request === this.inputRequest && this.context === context)
+          this.inputFailed();
+      })
+      .finally(() => {
+        --this.inputBusy;
+      });
     this.inputQueue = pending;
     return pending;
   }
@@ -368,6 +425,7 @@ export class AudioEngine {
     context: SinkContext | undefined,
     node: AudioWorkletNode | undefined,
     s: Settings,
+    reopen: boolean,
   ) {
     if (
       !context ||
@@ -376,6 +434,24 @@ export class AudioEngine {
       request !== this.inputRequest
     )
       return;
+    const config = JSON.stringify([s.input, s.echo, s.noise, s.autoGain]);
+    if (
+      this.stream
+        ?.getAudioTracks()
+        .some((track) => track.readyState === "live") &&
+      this.captureConfig === config &&
+      !reopen
+    ) {
+      this.stream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      this.source?.disconnect();
+      this.source = context.createMediaStreamSource(this.stream);
+      this.source.connect(node);
+      this.deferredInput = false;
+      this.checkState();
+      return;
+    }
     const actual = this.stream?.getAudioTracks()[0]?.getSettings();
     if (
       actual &&
@@ -401,6 +477,29 @@ export class AudioEngine {
       },
       video: false,
     };
+    // Permissions API není na starších Safari dostupné. Nejde o vlastní výzvu;
+    // již udělené oprávnění pouze přeskočí jednorázovou nápovědu.
+    let permission: PermissionState | undefined;
+    try {
+      permission = (
+        await navigator.permissions?.query({
+          name: "microphone" as PermissionName,
+        })
+      )?.state;
+    } catch {
+      /* Safari bez podpory microphone v Permissions API. */
+    }
+    if (permission !== "granted" && navigator.maxTouchPoints > 0) {
+      try {
+        if (!localStorage.getItem("mluvka.microphone-help")) {
+          localStorage.setItem("mluvka.microphone-help", "1");
+          this.onPermissionHelp();
+        }
+      } catch {
+        /* Soukromý režim nemusí dovolit úložiště. */
+      }
+    }
+    const lifetime = this.microphoneLifetime;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -408,7 +507,7 @@ export class AudioEngine {
       if (
         !s.input ||
         !(error instanceof DOMException) ||
-        !["NotFoundError", "OverconstrainedError"].includes(error.name)
+        error.name !== "OverconstrainedError"
       ) {
         this.checkState();
         throw error;
@@ -417,14 +516,19 @@ export class AudioEngine {
       (constraints.audio as MediaTrackConstraints).deviceId = undefined;
       stream = await navigator.mediaDevices.getUserMedia(constraints);
     }
-    if (request !== this.inputRequest || this.context !== context) {
+    if (lifetime !== this.microphoneLifetime) {
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
     this.source?.disconnect();
-    this.stream?.getTracks().forEach((t) => t.stop());
+    if (this.stream !== stream)
+      this.stream?.getTracks().forEach((t) => t.stop());
+    this.captureConfig = config;
     clearTimeout(this.retryInput);
     this.stream = stream;
+    this.inputUnavailable = false;
+    this.deferredInput = false;
+    this.onInputUnavailable(false);
     for (const track of stream.getAudioTracks()) {
       const reopen = () => {
         if (this.stream !== stream) return;
@@ -434,7 +538,14 @@ export class AudioEngine {
         }, 250);
       };
       track.addEventListener("ended", reopen);
-      track.addEventListener("mute", reopen);
+      // iOS pozastaví stopu na pozadí. Čekáme na unmute, neotevíráme další capturer.
+      track.addEventListener("unmute", this.checkState);
+    }
+    if (request !== this.inputRequest || this.context !== context) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      return;
     }
     this.source = context.createMediaStreamSource(stream);
     this.source.connect(node);
@@ -442,28 +553,24 @@ export class AudioEngine {
   }
   private async setOutput(id: string) {
     if (this.player?.setSinkId) await this.player.setSinkId(id);
-    else if (this.context?.setSinkId) await this.context.setSinkId(id);
+    // Záložní přímá cesta musí respektovat stejný vybraný výstup.
+    if (this.context?.setSinkId) await this.context.setSinkId(id);
+    await this.playOutput();
   }
   private stateChanged = () => {
     this.checkState();
     if (
-      document.visibilityState === "visible" &&
-      this.context?.state !== "running"
+      this.context &&
+      this.context.state !== "running" &&
+      this.context.state !== "closed"
     )
       void this.resume();
   };
   checkState = () => {
     const context = this.context;
-    this.onBlocked(
-      !!context &&
-        (context.state !== "running" ||
-          !!this.player?.paused ||
-          !this.stream ||
-          this.stream
-            .getAudioTracks()
-            .some((t) => t.readyState === "ended" || t.muted)),
-    );
+    this.onBlocked(!!context && context.state !== "running");
   };
+
   async resume() {
     const context = this.context;
     if (!context) return;
@@ -472,58 +579,99 @@ export class AudioEngine {
     void context.resume().then(this.checkState).catch(this.checkState);
     await this.playOutput();
   }
+  private useDirectOutput(direct: boolean) {
+    if (
+      !this.context ||
+      !this.output ||
+      !this.player ||
+      this.directOutput === direct
+    )
+      return;
+    if (direct) {
+      this.player.muted = true;
+      this.output.connect(this.context.destination);
+    } else {
+      this.output.disconnect(this.context.destination);
+      this.player.muted = false;
+    }
+    this.directOutput = direct;
+    this.onOutputBlocked(direct);
+  }
+  private checkOutput() {
+    const player = this.player;
+    if (!player || !this.context) return;
+    const now = performance.now();
+    const progressed = player.currentTime > this.playerTime + 0.001;
+    if (progressed) {
+      this.playerTime = player.currentTime;
+      this.playerProgressAt = now;
+      if (!player.paused && !player.error) this.useDirectOutput(false);
+    }
+    if (this.context.state !== "running") {
+      this.playerProgressAt = now;
+      return;
+    }
+    // Tichá místnost není porucha: fallback až při kladném signálu před
+    // výstupem a zastavených hodinách přehrávače. Obě cesty nikdy nehrají naráz.
+    const stalled =
+      now - this.playerProgressAt > 3000 &&
+      window.__mluvkaStats.outputRms > 0.001;
+    if (player.paused || player.error || stalled) this.useDirectOutput(true);
+  }
   async playOutput() {
-    if (!this.player) return;
+    const player = this.player;
+    if (!player) return;
     try {
-      await this.player.play();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "NotAllowedError") {
-        this.checkState();
-        return;
+      await player.play();
+      if (this.player === player) {
+        this.checkOutput();
+        if (!this.directOutput) {
+          player.muted = false;
+          this.onOutputBlocked(false);
+        }
       }
-      // Nepodporovaná MediaStream cesta: přímý výstup, žádný dvojitý poslech.
-      if (this.context && this.output && this.mediaOutput) {
-        this.output.disconnect(this.mediaOutput);
-        this.output.connect(this.context.destination);
-      }
-      this.player.srcObject = null;
-      this.player.remove();
-      this.player = undefined;
-      this.mediaOutput = undefined;
+    } catch {
+      // Zachováme přehrávač pro další gesto, mezitím lze slyšet přímý výstup.
+      if (this.player === player) this.useDirectOutput(true);
     }
     this.checkState();
   }
   recover(forceInput = false) {
     if (this.recovering) return this.recovering;
+    const context = this.context;
     this.recovering = (async () => {
-      if (!this.context) return;
+      if (!context || this.context !== context) return;
       void this.resume();
-      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (this.inputUnavailable || this.inputBusy > 0) return; // Neopakovat ani během čekající výzvy k oprávnění.
       const track = this.stream?.getAudioTracks()[0];
+      const devices = await navigator.mediaDevices?.enumerateDevices();
+      if (this.context !== context) return;
       const selectedGone =
         !!track?.getSettings().deviceId &&
+        !!devices &&
         !devices.some(
-          (d) =>
-            d.kind === "audioinput" &&
-            d.deviceId === track.getSettings().deviceId,
+          (device) =>
+            device.kind === "audioinput" &&
+            device.deviceId === track.getSettings().deviceId,
         );
+      if (document.hidden && (!track || track.readyState === "ended")) {
+        this.deferredInput = true;
+        return;
+      }
+      // Mute stopy na pozadí je dočasné přerušení systému.
+      if (track?.muted && document.hidden) return;
       if (
         forceInput ||
+        this.deferredInput ||
         !track ||
         track.readyState === "ended" ||
         track.muted ||
         selectedGone
       )
-        await this.changeInput();
+        await this.changeInput(forceInput || selectedGone || !!track?.muted);
     })()
       .catch(() => {
-        if (!this.context) return;
-        this.onBlocked(true);
-        clearTimeout(this.retryInput);
-        // Návrat zařízení po hovoru může trvat několik sekund.
-        this.retryInput = setTimeout(() => {
-          void this.recover(true);
-        }, 2000);
+        if (context && this.context === context) this.inputFailed();
       })
       .finally(() => {
         this.recovering = undefined;
@@ -648,7 +796,12 @@ export class AudioEngine {
       // Chyba načtení upozornění nesmí přerušit hovor.
     }
   }
-  async close() {
+  async close(releaseMicrophone = false) {
+    this.setCallActive(false);
+    this.inputUnavailable = false;
+    this.deferredInput = false;
+    this.onInputUnavailable(false);
+    this.onOutputBlocked(false);
     this.worker?.terminate();
     this.worker = undefined;
     this.codecReady = undefined;
@@ -663,6 +816,9 @@ export class AudioEngine {
       this.deviceChange,
     );
     this.context?.removeEventListener("statechange", this.stateChanged);
+    clearInterval(this.outputWatch);
+    this.outputWatch = undefined;
+    this.directOutput = false;
     if (this.player) {
       this.player.pause();
       this.player.srcObject = null;
@@ -675,13 +831,15 @@ export class AudioEngine {
     this.notifyBuffers = undefined;
     this.lastNotify = -Infinity;
     this.onBlocked(false);
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream?.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
+    if (releaseMicrophone) this.releaseMicrophone();
     this.source?.disconnect();
     this.node?.disconnect();
     const context = this.context;
     this.context = undefined;
     this.node = undefined;
-    this.stream = undefined;
     this.source = undefined;
     this.ptt = false;
     await context?.close();

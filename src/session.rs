@@ -57,6 +57,10 @@ enum Control {
         channel_password: String,
         identity: Option<String>,
         #[serde(default)]
+        microphone: bool,
+        #[serde(default)]
+        deafen: bool,
+        #[serde(default)]
         audio: AudioOptions,
     },
     Move {
@@ -128,6 +132,9 @@ struct Socket {
     control: mpsc::Sender<Message>,
     audio: mpsc::Sender<(Message, Instant)>,
     pending_mute: Option<(bool, bool)>,
+    ban_seconds: Option<u64>,
+    cooldown_until: Option<Instant>,
+    ts_departed: bool,
 }
 impl Socket {
     async fn recv(&mut self) -> Option<Result<Message, axum::Error>> {
@@ -192,6 +199,14 @@ fn ts_variant(err: &tsclientlib::Error) -> (&'static str, Option<tsproto_types::
             })
             .unwrap_or(("ConnectFailed", None)),
         E::ConnectTs(code) => ("ConnectTs", Some(*code)),
+        E::ConnectBanned { .. } => (
+            "ConnectBanned",
+            Some(tsproto_types::errors::Error::ConnectFailedBanned),
+        ),
+        E::ConnectFloodPrevention => (
+            "ConnectFloodPrevention",
+            Some(tsproto_types::errors::Error::BanFlooding),
+        ),
         E::CommandError(e) => ("CommandError", Some(e.error)),
         E::IdentityLevel(_) => ("IdentityLevel", None),
         E::ResolveAddress(_) => ("ResolveAddress", None),
@@ -216,6 +231,13 @@ fn ts_variant(err: &tsclientlib::Error) -> (&'static str, Option<tsproto_types::
 fn ts_error(err: &tsclientlib::Error) -> String {
     use tsproto_types::errors::Error as T;
     let (variant, code) = ts_variant(err);
+    if variant == "ConnectFloodPrevention" {
+        tracing::warn!(
+            code = "0x0d03",
+            wire_code = "0x0d01",
+            "Handshake flood prevention — normalizovaný flood kód"
+        );
+    }
     // Debug pouze nad číselným enumem, nikdy nad chybou s adresou/serverovým textem.
     if let Some(code) = code {
         tracing::warn!(ts_error = %format!("{variant}({code:?})"), code = %format!("0x{:04x}", code as u32), "Chyba TS");
@@ -223,8 +245,9 @@ fn ts_error(err: &tsclientlib::Error) -> String {
         tracing::warn!(ts_error = variant, "Chyba TS");
     }
     match code {
-        Some(T::ConnectFailedBanned) => "Server vás odmítl: zákaz přístupu (ban).",
-        Some(T::BanFlooding | T::ClientIsFlooding) => "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.",
+        Some(T::ConnectFailedBanned) => "Server vás odmítl: zákaz přístupu (ban). Dobu vypršení server neuvedl.",
+        Some(T::ClientIsFlooding) => "Server omezuje počet zpráv. Odesílám pomaleji.",
+        Some(T::BanFlooding) => "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.",
         Some(T::ChannelInvalidPassword) => "Nesprávné heslo kanálu.",
         Some(T::ServerInvalidPassword | T::ClientInvalidPassword) => "Nesprávné heslo serveru.",
         Some(T::ClientNicknameInuse) => "Přezdívka je obsazená nebo není povolená.",
@@ -251,57 +274,207 @@ fn is_nickname_error(err: &tsclientlib::Error) -> bool {
 fn retryable_address(err: &tsclientlib::Error) -> bool {
     ts_variant(err).1.is_none() && ts_variant(err).0 != "IdentityLevel"
 }
-// Sdílený limit podle cílové IP a portu (i při různých DNS aliasech).
-#[derive(Default)]
+// Cílová IP a port sjednotí DNS aliasy i všechny relace kontejneru.
+fn env_positive(name: &str, fallback: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(fallback)
+}
+fn env_nonzero(name: &str, fallback: u32) -> u32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(fallback)
+}
 struct AttemptBudget {
-    times: VecDeque<Instant>,
-    blocked_until: Option<Instant>,
+    next_connect: Option<Instant>,
+    connects: VecDeque<Instant>,
+    connects_blocked_until: Option<Instant>,
+    commands_after: Option<Instant>,
+    tokens: f64,
+    updated: Instant,
+    counts: HashMap<String, u64>,
+}
+impl Default for AttemptBudget {
+    fn default() -> Self {
+        Self {
+            next_connect: None,
+            connects: VecDeque::new(),
+            connects_blocked_until: None,
+            commands_after: None,
+            tokens: 20.0,
+            updated: Instant::now(),
+            counts: HashMap::new(),
+        }
+    }
 }
 impl AttemptBudget {
-    fn reserve(&mut self, now: Instant) -> Option<Duration> {
-        if let Some(until) = self.blocked_until
-            && until > now
-        {
-            return Some(until.duration_since(now));
+    fn pause(&self, now: Instant) -> Option<Duration> {
+        self.connects_blocked_until
+            .filter(|until| *until > now)
+            .map(|until| until.duration_since(now))
+    }
+    fn reserve(
+        &mut self,
+        now: Instant,
+        spacing: Duration,
+        window: Duration,
+        burst: usize,
+    ) -> Option<Duration> {
+        if let Some(delay) = self.pause(now) {
+            return Some(delay);
         }
+        // Samotný rozestup 3 s na výchozím TS3 nestačí: čtvrtý/pátý handshake
+        // z jedné IP dostává 0x0d01 bez záznamu v banlistu. Omezíme i delší dávku.
         while self
-            .times
+            .connects
             .front()
-            .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(30))
+            .is_some_and(|first| now.duration_since(*first) >= window)
         {
-            self.times.pop_front();
+            self.connects.pop_front();
         }
-        if self.times.len() >= 6 {
-            return Some(Duration::from_secs(30).saturating_sub(now.duration_since(self.times[0])));
+        if self.connects.len() >= burst {
+            return Some(window.saturating_sub(now.duration_since(self.connects[0])));
         }
-        self.times.push_back(now);
+        if let Some(next) = self.next_connect.filter(|next| *next > now) {
+            return Some(next.duration_since(now));
+        }
+        self.next_connect = Some(now + spacing);
+        self.connects.push_back(now);
         None
+    }
+    fn command(&mut self, now: Instant, rate: f64) -> bool {
+        if self.commands_after.is_some_and(|until| until > now) {
+            return false;
+        }
+        self.tokens = (self.tokens
+            + now.saturating_duration_since(self.updated).as_secs_f64() * rate)
+            .min(20.0);
+        self.updated = now;
+        if self.tokens < 1.0 {
+            return false;
+        }
+        self.tokens -= 1.0;
+        true
     }
 }
 fn budgets() -> &'static Mutex<HashMap<SocketAddr, AttemptBudget>> {
     static ALL: OnceLock<Mutex<HashMap<SocketAddr, AttemptBudget>>> = OnceLock::new();
     ALL.get_or_init(Mutex::default)
 }
+const FLOOD_MESSAGE: &str =
+    "Server dočasně zablokoval připojení z této IP za příliš mnoho pokusů. Zkuste to za pár minut.";
 fn block_flood(addr: SocketAddr) {
+    let mut all = budgets().lock().expect("budgets");
+    let budget = all.entry(addr).or_default();
+    budget.connects_blocked_until = Some(Instant::now() + Duration::from_secs(120));
+    tracing::warn!(server = %addr, pause_seconds = 120, "Antiflood pauza nových připojení; živé TS relace pokračují");
+}
+// Příkazový flood je odmítnutý příkaz, nikoli ztracené TS spojení.
+fn is_flood(error: &tsclientlib::Error) -> bool {
+    ts_variant(error).0 != "CommandError"
+        && ts_variant(error).1 == Some(tsproto_types::errors::Error::BanFlooding)
+}
+fn is_command_flood(error: &tsclientlib::Error) -> bool {
+    ts_variant(error).0 == "CommandError"
+        && ts_variant(error).1.is_some_and(|code| {
+            matches!(
+                code,
+                tsproto_types::errors::Error::ClientIsFlooding
+                    | tsproto_types::errors::Error::BanFlooding
+            )
+        })
+}
+fn slow_commands(addr: SocketAddr, code: u32) {
+    let mut all = budgets().lock().expect("budgets");
+    let budget = all.entry(addr).or_default();
+    budget.commands_after = Some(Instant::now() + Duration::from_secs(5));
+    budget.tokens = 0.0;
+    budget.updated = budget.commands_after.expect("command pause");
+    tracing::warn!(server = %addr, code = %format!("0x{code:04x}"), pause_seconds = 5, "Zpomalení fronty příkazů, TS relace pokračuje");
+}
+// TS účtuje body za příkaz, nikoli jen počet paketů. Konzervativní lokální
+// rozpočet ponechá rezervu pod výchozími 150 body a rozpouští dlouhé série chatu.
+struct CommandPoints {
+    available: f64,
+    updated: Instant,
+}
+impl CommandPoints {
+    fn new(now: Instant) -> Self {
+        Self {
+            available: 60.0,
+            updated: now,
+        }
+    }
+    fn cost(name: &str) -> f64 {
+        match name {
+            "channelsubscribeall" | "clientmove" => 25.0,
+            "clientupdate" => 5.0,
+            _ => 10.0,
+        }
+    }
+    fn ready(&mut self, now: Instant, name: &str) -> bool {
+        self.available = (self.available
+            + now.saturating_duration_since(self.updated).as_secs_f64() * 5.0)
+            .min(60.0);
+        self.updated = now;
+        self.available >= Self::cost(name)
+    }
+    fn spend(&mut self, name: &str) {
+        self.available -= Self::cost(name);
+    }
+}
+fn flood_deadline(addr: SocketAddr) -> Option<Instant> {
     budgets()
         .lock()
         .expect("budgets")
-        .entry(addr)
-        .or_default()
-        .blocked_until = Some(Instant::now() + Duration::from_secs(120));
+        .get(&addr)
+        .and_then(|budget| budget.connects_blocked_until)
+}
+fn connections_paused(addr: SocketAddr) -> bool {
+    budgets()
+        .lock()
+        .expect("budgets")
+        .get(&addr)
+        .is_some_and(|budget| budget.pause(Instant::now()).is_some())
+}
+fn command_slot(addr: SocketAddr, name: &str, client: ClientId, session_count: u64) -> bool {
+    let mut all = budgets().lock().expect("budgets");
+    let budget = all.entry(addr).or_default();
+    if !budget.command(Instant::now(), env_positive("TS_CMD_RATE", 5.0)) {
+        return false;
+    }
+    let count = budget.counts.entry(name.to_owned()).or_default();
+    *count += 1;
+    tracing::debug!(server = %addr, client = client.0, ts_command = name, count = *count, session_count, "Odeslaný TS příkaz");
+    true
 }
 async fn connection_budget(addr: SocketAddr) {
     loop {
+        let window = Duration::from_millis(u64::from(env_nonzero("TS_CONNECT_WINDOW_MS", 45000)));
         let delay = {
             let mut all = budgets().lock().expect("budgets");
             let now = Instant::now();
-            all.retain(|_, b| {
-                b.blocked_until.is_some_and(|t| t > now)
-                    || b.times
+            all.retain(|_, budget| {
+                budget.pause(now).is_some()
+                    || budget
+                        .connects
                         .back()
-                        .is_some_and(|t| now.duration_since(*t) < Duration::from_secs(30))
+                        .is_some_and(|last| now.saturating_duration_since(*last) < window)
+                    || budget.next_connect.is_some_and(|next| {
+                        now.saturating_duration_since(next) < Duration::from_secs(120)
+                    })
+                    || now.saturating_duration_since(budget.updated) < Duration::from_secs(120)
             });
-            all.entry(addr).or_default().reserve(now)
+            all.entry(addr).or_default().reserve(
+                now,
+                Duration::from_secs_f64(env_positive("TS_CONNECT_INTERVAL_MS", 3000.0) / 1000.0),
+                window,
+                env_nonzero("TS_CONNECT_BURST", 3) as usize,
+            )
         };
         match delay {
             Some(delay) => tokio::time::sleep(delay).await,
@@ -309,14 +482,49 @@ async fn connection_budget(addr: SocketAddr) {
         }
     }
 }
+async fn queue_notice(ws: &mut Socket, addr: SocketAddr) -> Result<(), String> {
+    let remaining = flood_deadline(addr)
+        .map(|until| {
+            until
+                .saturating_duration_since(Instant::now())
+                .as_secs_f64()
+                .ceil() as u64
+        })
+        .unwrap_or(0);
+    let message = if remaining > 0 {
+        format!(
+            "Čekám na volné místo, server omezuje počet připojení… Pauza nových připojení {:02}:{:02}.",
+            remaining / 60,
+            remaining % 60
+        )
+    } else {
+        "Čekám na volné místo, server omezuje počet připojení…".to_owned()
+    };
+    json_send(
+        ws,
+        json!({"type":"notice", "code":"connect_queue", "message":message}),
+    )
+    .await
+}
 async fn wait_budget(ws: &mut Socket, addr: SocketAddr) -> Result<(), String> {
     let budget = connection_budget(addr);
     tokio::pin!(budget);
-    let mut heartbeat = interval(Duration::from_secs(5));
+    let mut heartbeat = interval(Duration::from_secs(1));
+    let notice_after = tokio::time::sleep(Duration::from_millis(300));
+    tokio::pin!(notice_after);
+    let mut show_notice = false;
     loop {
         tokio::select! {
+            biased;
             _ = &mut budget => return Ok(()),
-            _ = heartbeat.tick() => json_send(ws, json!({"type":"pong"})).await?,
+            _ = &mut notice_after, if !show_notice => {
+                show_notice = true;
+                queue_notice(ws, addr).await?;
+            },
+            _ = heartbeat.tick() => {
+                json_send(ws, json!({"type":"pong"})).await?;
+                if show_notice { queue_notice(ws, addr).await?; }
+            },
             msg = ws.recv() => match msg {
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return Err("Webové spojení bylo uzavřeno.".into()),
                 Some(Ok(Message::Text(text))) if text.len() > 16 * 1024 => return Err("Příliš velká řídicí zpráva.".into()),
@@ -376,6 +584,12 @@ fn error_code(message: &str) -> &'static str {
         "request_failed"
     }
 }
+fn retryable_code(code: &str) -> bool {
+    !matches!(
+        code,
+        "bad_password" | "banned" | "not_allowed" | "invalid" | "kicked"
+    )
+}
 fn error_message(message: &str, fatal: bool) -> Value {
     let code = error_code(message);
     let field = match code {
@@ -385,7 +599,7 @@ fn error_message(message: &str, fatal: bool) -> Value {
         "nickname" => "nickname",
         _ => "server",
     };
-    json!({"type":"error", "code":code, "message":message, "fatal":fatal, "field":field})
+    json!({"type":"error", "code":code, "message":message, "fatal":fatal, "retryable":fatal && retryable_code(code), "field":field})
 }
 // Nové spojení stejné identity převezme relaci teprve po UDP odpojení staré.
 // Weak záznamy neuchovávají klíče ani relace po odpojení.
@@ -488,12 +702,26 @@ pub async fn run(
         control,
         audio,
         pending_mute: None,
+        ban_seconds: None,
+        cooldown_until: None,
+        ts_departed: false,
     };
     if !*shutdown.borrow()
         && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads, &shares).await
     {
         tracing::warn!(session_end = error_code(&message), "Relace končí chybou");
-        let _ = json_send(&mut ws, error_message(&message, true)).await;
+        let mut error = error_message(&message, true);
+        if let Some(seconds) = ws.ban_seconds {
+            error["ban_seconds"] = seconds.into();
+        }
+        if let Some(until) = ws.cooldown_until {
+            error["cooldown_seconds"] = (until
+                .saturating_duration_since(Instant::now())
+                .as_secs_f64()
+                .ceil() as u64)
+                .into();
+        }
+        let _ = json_send(&mut ws, error).await;
     }
     drop(ws);
     if timeout(Duration::from_millis(300), &mut writer)
@@ -529,6 +757,8 @@ async fn session(
         channel,
         channel_password,
         identity,
+        microphone,
+        deafen,
         audio,
     } = serde_json::from_str(&first).map_err(|_| "Neplatné údaje připojení.")?
     else {
@@ -570,16 +800,21 @@ async fn session(
     .await
     .map_err(|_| "Identitu se nepodařilo vytvořit.")??;
     json_send(ws, json!({"type":"identity", "identity":identity_text(&id), "uid":id.key().to_pub().get_uid().to_string(), "level":id.level()})).await?;
-    let slot = identity_slot(format!("{server}/{}", id.key().to_pub().get_uid()));
+    let slot = identity_slot(format!("{addr}/{}", id.key().to_pub().get_uid()));
     slot.changed
         .send_modify(|version| *version = version.wrapping_add(1));
     let mut superseded = slot.changed.subscribe();
     let _guard = slot.gate.lock().await;
     if superseded.has_changed().unwrap_or(true) {
+        json_send(ws, json!({"type":"notice", "code":"session_replaced", "message":"Spojení převzalo jiné okno Mluvky."})).await?;
         return Ok(());
     }
     tokio::select! {
         result = wait_budget(ws, addr) => result?,
+        _ = superseded.changed() => {
+            json_send(ws, json!({"type":"notice", "code":"session_replaced", "message":"Spojení převzalo jiné okno Mluvky."})).await?;
+            return Ok(());
+        },
         _ = shutdown.changed() => {
             let _ = json_send(ws, json!({"type":"notice", "code":"server_restart", "message":"Mluvka se aktualizuje — připojuji znovu…"})).await;
             return Ok(());
@@ -588,12 +823,15 @@ async fn session(
     if *shutdown.borrow() {
         return Ok(());
     }
+    let (connect_mic, connect_deaf) = ws.pending_mute.unwrap_or((microphone, deafen));
     let mut con = Connection::build(addr)
         .identity(id.clone())
         .name(nickname.clone())
         .password(password.clone())
         .channel(channel.clone())
         .channel_password(channel_password.clone())
+        .input_muted(connect_mic)
+        .output_muted(connect_deaf)
         .connect()
         .map_err(|e| ts_error(&e))?;
     let result = tokio::select! {
@@ -608,10 +846,18 @@ async fn session(
       result = async {
     let mut renamed = false;
     let mut initial_mute = ws.pending_mute.take();
-    let deadline = Instant::now() + Duration::from_secs(25);
+    let mut deadline = Instant::now() + Duration::from_secs(25);
+    let mut flood_check = interval(Duration::from_millis(100));
     loop {
         let event = tokio::select! {
             event = next_event(&mut con) => event,
+            _ = flood_check.tick() => {
+                if connections_paused(addr) {
+                    ws.cooldown_until = flood_deadline(addr);
+                    return Err(FLOOD_MESSAGE.into());
+                }
+                continue;
+            },
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Ping(p))) => send(ws, Message::Pong(p)).await?,
@@ -642,32 +888,38 @@ async fn session(
                 // Knihovna vytvořila nový handshake future, ale ještě jej nepollovala.
                 // I zvýšení identity proto spotřebuje společný limit připojení.
                 wait_budget(ws, addr).await?;
+                deadline = Instant::now() + Duration::from_secs(25);
                 if let Some(id) = con.get_options().get_identity() {
                     json_send(ws, json!({"type":"identity", "identity":identity_text(id),"uid":id.key().to_pub().get_uid().to_string(),"level":id.level()})).await?;
                 }
             }
             Some(Err(e)) => {
-                if ts_variant(&e).1.is_some_and(|c| matches!(c, tsproto_types::errors::Error::BanFlooding | tsproto_types::errors::Error::ClientIsFlooding)) { block_flood(addr); }
+                if is_flood(&e) { block_flood(addr); ws.cooldown_until = flood_deadline(addr); }
+                if let tsclientlib::Error::ConnectBanned { retry_after_seconds } = &e { ws.ban_seconds = Some(*retry_after_seconds); }
                 let _ = ts_error(&e);
                 if !renamed && is_nickname_error(&e) {
                     renamed = true;
                     let name = format!("{}1", nickname.chars().take(29).collect::<String>());
                     json_send(ws, json!({"type":"notice", "message":format!("Přezdívka je obsazená, zkouším {name}.")})).await?;
                     wait_budget(ws, addr).await?;
+                    deadline = Instant::now() + Duration::from_secs(25);
                     con = Connection::build(addr)
                         .identity(id.clone())
                         .name(name)
                         .password(password.clone())
                         .channel(channel.clone())
                         .channel_password(channel_password.clone())
+                        .input_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).0)
+                        .output_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).1)
                         .connect()
                         .map_err(|e| ts_error(&e))?;
                 } else if retryable_address(&e) && address_index + 1 < addresses.len() {
                     address_index += 1;
                     addr = addresses[address_index];
                     wait_budget(ws, addr).await?;
-                    con = Connection::build(addr).identity(id.clone()).name(nickname.clone()).password(password.clone()).channel(channel.clone()).channel_password(channel_password.clone()).connect().map_err(|e| ts_error(&e))?;
-                } else { return Err(ts_error(&e)); }
+                    deadline = Instant::now() + Duration::from_secs(25);
+                    con = Connection::build(addr).identity(id.clone()).name(nickname.clone()).password(password.clone()).channel(channel.clone()).channel_password(channel_password.clone()).input_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).0).output_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).1).connect().map_err(|e| ts_error(&e))?;
+                } else { return Err(if ws.ban_seconds.is_some() { "Server vás odmítl: zákaz přístupu (ban).".into() } else { ts_error(&e) }); }
             }
             None => return Err("Server ukončil spojení.".into()),
             _ => {}
@@ -686,27 +938,46 @@ async fn session(
     let sharing = shares.join(server.clone(), &snapshot(&con)?, ws.control.clone());
     json_send(ws, json!({"type":"share_session","v":1,"session":sharing.id,"token":sharing.token})).await?;
     sharing.publish();
-    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio, &mut file_context, &sharing).await
+    connected(ws, &mut con, addr, initial_mute, renamed.then_some(nickname.as_str()), &audio, &mut file_context, &sharing).await
       } => result,
     };
     // I při chybě WS je nutné dokončit UDP odpojení a zahodit identitu v paměti.
     // Po odmítnutí handshake je spojovací future knihovny již dokončená;
     // její další poll by panikoval. UDP disconnect potřebuje jen navázaná TS relace.
-    if con.get_state().is_ok()
-        && con
-            .disconnect(
-                DisconnectOptions::new()
-                    .reason(tsclientlib::Reason::Clientdisconnect)
-                    .message(if *shutdown.borrow() {
-                        "Mluvka se aktualizuje"
-                    } else {
-                        "Odpojení z Mluvky"
-                    }),
-            )
-            .is_ok()
+    // Server už potvrdil odchod (kick/ban/ukončení); další disconnect by
+    // jen čekal na neexistujícího klienta a oddaloval oznámení chyby prohlížeči.
+    if !ws.ts_departed
+        && let Ok(book) = con.get_state()
     {
-        let _ = timeout(Duration::from_secs(2), async {
-            while con.events().next().await.is_some() {}
+        let client = book.own_client;
+        // Ruční odpojení musí přečkat i krátké zpomalení příkazů. Nová relace
+        // stejného UID stále čeká na gate; při shutdown platí společný 3s deadline.
+        let disconnect_deadline = Duration::from_secs(if *shutdown.borrow() { 2 } else { 10 });
+        let _ = timeout(disconnect_deadline, async {
+            loop {
+                if command_slot(addr, "clientdisconnect", client, 1) {
+                    break;
+                }
+                // Čekání na token nesmí zastavit pollování TS.
+                tokio::select! {
+                    event = next_event(&mut con) => if !matches!(event, Some(Ok(_))) { return; },
+                    _ = tokio::time::sleep(Duration::from_millis(20)) => {},
+                }
+            }
+            if con
+                .disconnect(
+                    DisconnectOptions::new()
+                        .reason(tsclientlib::Reason::Clientdisconnect)
+                        .message(if *shutdown.borrow() {
+                            "Mluvka se aktualizuje"
+                        } else {
+                            "Odpojení z Mluvky"
+                        }),
+                )
+                .is_ok()
+            {
+                while con.events().next().await.is_some() {}
+            }
         })
         .await;
     }
@@ -728,30 +999,41 @@ struct FileContext<'a> {
     files: &'a mut mpsc::Receiver<crate::ts_file::Download>,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn connected(
     ws: &mut Socket,
     con: &mut Connection,
+    addr: SocketAddr,
     initial_mute: Option<(bool, bool)>,
     restore_nickname: Option<&str>,
     options: &AudioOptions,
     file_context: &mut FileContext<'_>,
     sharing: &crate::signal::Lease,
 ) -> Result<(), String> {
-    let (mut microphone, mut deafen) = initial_mute.unwrap_or_default();
-    if initial_mute.is_some() {
-        command(
+    let book = con.get_state().map_err(|e| ts_error(&e))?;
+    // První BookEvents mohou obsahovat jen server. Vlastní klient přijde později.
+    let server_mute = book
+        .clients
+        .get(&book.own_client)
+        .map(|own| (own.input_muted, own.output_muted))
+        .unwrap_or_else(|| {
+            (
+                con.get_options().get_input_muted(),
+                con.get_options().get_output_muted(),
+            )
+        });
+    let (mut microphone, mut deafen) = initial_mute.unwrap_or(server_mute);
+    let mut commands = VecDeque::new();
+    if (microphone, deafen) != server_mute {
+        commands.push_back(command(
             "clientupdate",
             &[
                 ("client_input_muted", u8::from(microphone).to_string()),
                 ("client_output_muted", u8::from(deafen).to_string()),
             ],
-        )
-        .send_with_result(con)
-        .map_err(|e| ts_error(&e))?;
+        ));
     }
-    command("channelsubscribeall", &[])
-        .send_with_result(con)
-        .map_err(|e| ts_error(&e))?;
+    commands.push_back(command("channelsubscribeall", &[]));
     json_send(ws, json!({"type":"hello", "audio":{"codec":if options.opus() {"opus"} else {"pcm"}, "version":1, "quality": options.quality}})).await?;
     json_send(ws, sharing.snapshot(snapshot(con)?)).await?;
     let mut audio = AudioHandler::<ClientId>::new();
@@ -785,7 +1067,13 @@ async fn connected(
     let mut last_pong = Instant::now();
     let own_client = con.get_state().map_err(|e| ts_error(&e))?.own_client;
     let mut restore_nickname = restore_nickname;
-    let mut pending = HashMap::new();
+    let mut nickname_attempts = 0u32;
+    let mut nickname_after = Instant::now() + Duration::from_secs(10);
+    let mut pending: HashMap<_, (Instant, OutCommand)> = HashMap::new();
+    let mut points = CommandPoints::new(Instant::now());
+    let mut slowing = false;
+    let mut mute_unconfirmed = false;
+    let mut command_counts = HashMap::new();
     let mut downloads: HashMap<
         tsclientlib::FiletransferHandle,
         tokio::sync::oneshot::Sender<Result<tsclientlib::FileDownloadResult, String>>,
@@ -821,7 +1109,11 @@ async fn connected(
                         if control_count > 40 { return Err("Příliš mnoho řídicích zpráv.".into()); }
                         let ctrl: Control = serde_json::from_str(&s).map_err(|_| "Neplatná řídicí zpráva.")?;
                         let cmd = match ctrl {
-                            Control::Move { channel, password } => { if !password.is_empty() { file_context.passwords.insert(channel, password.clone()); } audio.reset(); Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
+                            Control::Move { channel, password } => {
+                                let book = con.get_state().map_err(|e| ts_error(&e))?;
+                                if book.clients.get(&book.own_client).is_some_and(|c| c.channel.0 == channel) { continue; }
+                                if !password.is_empty() { file_context.passwords.insert(channel, password.clone()); }
+                                audio.reset(); Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
                             Control::Chat { target, client, text } => {
                                 if text.trim().is_empty() || text.len() > 4000 { json_send(ws,error_message("Zpráva musí mít 1–4000 bajtů.", false)).await?; continue; }
                                 let target = match target.as_str() { "server" => MessageTarget::Server, "channel" => MessageTarget::Channel, "private" if client.is_some() => MessageTarget::Client(ClientId(client.unwrap())), _ => return Err("Neplatný cíl zprávy.".into()) };
@@ -831,6 +1123,10 @@ async fn connected(
                             Control::Mute { microphone: mic, deafen: deaf } => {
                                 microphone = mic; deafen = deaf;
                                 if deaf { audio.reset(); }
+                                // Sloučit čekající změny mikrofonu, neposílat mezistavy bez změny.
+                                commands.retain(|cmd| !cmd.0.content().starts_with(b"clientupdate client_input_muted="));
+                                let book = con.get_state().map_err(|e| ts_error(&e))?;
+                                if book.clients.get(&book.own_client).map(|client| (client.input_muted, client.output_muted)).unwrap_or_else(|| (con.get_options().get_input_muted(), con.get_options().get_output_muted())) == (mic, deaf) && !mute_unconfirmed { continue; }
                                 Some(command("clientupdate", &[("client_input_muted",u8::from(mic).to_string()),("client_output_muted",u8::from(deaf).to_string())]))
                             },
                             Control::Peer { uid, volume, muted } => {
@@ -843,7 +1139,10 @@ async fn connected(
                             Control::Music { action, arg } => { if let Some(ev) = music.request(&action, arg.as_deref()) { json_send(ws, ev).await?; } None },
                             Control::Connect { .. } => return Err("Spojení už je připojené.".into()),
                         };
-                        if let Some(cmd) = cmd { let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?; pending.insert(handle, Instant::now()); }
+                        if let Some(cmd) = cmd {
+                            if commands.len() >= 128 { json_send(ws,error_message("Fronta požadavků je plná. Zkuste to později.", false)).await?; }
+                            else { commands.push_back(cmd); }
+                        }
                     },
                     Message::Binary(data) => {
                         audio_count += 1;
@@ -882,6 +1181,7 @@ async fn connected(
                         for e in events {
                             if let Event::PropertyRemoved { id: tsclientlib::events::PropertyId::Client(id), ref extra, .. } = e
                                 && id == own_client {
+                                ws.ts_departed = true;
                                 return Err(ts_departure(extra.reason).into());
                             }
                             if let Event::Message { target, invoker, message } = e {
@@ -890,7 +1190,7 @@ async fn connected(
                                 let handled = music.on_message(kind == "channel", peer, invoker.id, own_client, &message, Instant::now());
                                 if let Some(ev) = handled.event { json_send(ws, ev).await?; }
                                 if !handled.show_in_chat { continue; }
-                                json_send(ws,json!({"type":if kind == "poke" {"poke"} else {"chat"},"target":kind,"client":client,"from":invoker.id.0,"name":invoker.name,"text":message})).await?;
+                                json_send(ws,json!({"type":if kind == "poke" {"poke"} else {"chat"},"target":kind,"client":client,"from":invoker.id.0,"uid":invoker.uid.map(|u| u.to_string()),"name":invoker.name,"text":message})).await?;
                             }
                         }
                         json_send(ws, sharing.snapshot(snapshot(con)?)).await?;
@@ -905,17 +1205,67 @@ async fn connected(
                         let pref = con.get_state().ok().and_then(|b| b.clients.get(&from)).and_then(|c| c.uid.as_ref()).and_then(|u| peers.get(&u.to_string())).copied().unwrap_or((1.0,false));
                         if !deafen && !pref.1 { let _ = audio.handle_packet(from,packet); if let Some(q) = audio.get_mut_queues().get_mut(&from) { q.volume = pref.0; } }
                     },
-                    Some(Ok(StreamItem::MessageResult(handle, result))) => { pending.remove(&handle); if let Err(e) = result { json_send(ws,error_message(&ts_error(&tsclientlib::Error::CommandError(e)), false)).await?; } },
+                    Some(Ok(StreamItem::MessageResult(handle, result))) => {
+                        let sent = pending.remove(&handle);
+                        // Knihovna mění lokální mute optimisticky už při odeslání.
+                        // Odmítnutí proto nesmí deduplikací zrušit potřebný retry.
+                        if sent.as_ref().is_some_and(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")) {
+                            mute_unconfirmed = result.is_err();
+                        }
+                        if let Err(e) = result {
+                            let error = tsclientlib::Error::CommandError(e);
+                            if is_command_flood(&error) {
+                                let _ = ts_error(&error);
+                                slow_commands(addr, ts_variant(&error).1.expect("command flood") as u32);
+                                points.available = 0.0;
+                                if let Some((_, cmd)) = sent { commands.push_front(cmd); }
+                                slowing = true;
+                                json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
+                            } else { json_send(ws,error_message(&ts_error(&error), false)).await?; }
+                        } else if slowing && commands.is_empty() {
+                            slowing = false;
+                            json_send(ws,json!({"type":"notice", "code":"command_ready", "message":"Zprávy byly odeslány."})).await?;
+                        }
+                    },
                     Some(Ok(StreamItem::DisconnectedTemporarily(reason))) => {
                         tracing::warn!(ts_event = match reason { tsclientlib::TemporaryDisconnectReason::Timeout(_) => "Timeout", tsclientlib::TemporaryDisconnectReason::Serverstop => "Serverstop" }, "TS spojení přerušeno");
                         return Err(match reason { tsclientlib::TemporaryDisconnectReason::Serverstop => "TS server ukončil spojení.", _ => "Spojení s TS serverem se přerušilo. Připojte se znovu." }.into());
                     },
-                    Some(Err(e)) => return Err(ts_error(&e)),
+                    Some(Err(e)) => {
+                        if is_command_flood(&e) {
+                            let _ = ts_error(&e);
+                            slow_commands(addr, ts_variant(&e).1.expect("command flood") as u32);
+                            points.available = 0.0;
+                            // TS někdy chybu vrátí bez return_code. Díky jednomu
+                            // čekajícímu potvrzení víme, který příkaz opakovat.
+                            if let Some((_, (_, cmd))) = pending.drain().next() {
+                                mute_unconfirmed |= cmd.0.content().starts_with(b"clientupdate client_input_muted=");
+                                commands.push_front(cmd);
+                            }
+                            slowing = true;
+                            json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
+                        } else {
+                            if is_flood(&e) { block_flood(addr); ws.cooldown_until = flood_deadline(addr); }
+                            return Err(ts_error(&e));
+                        }
+                    },
                     None => return Err("TS server ukončil spojení.".into()),
                     _ => {}
                 }
             },
             scheduled = tick.tick() => {
+                if pending.is_empty() && let Some(cmd) = commands.front() {
+                    let name = String::from_utf8_lossy(cmd.0.content()).split(' ').next().unwrap_or("unknown").to_owned();
+                    let count = command_counts.get(&name).copied().unwrap_or(0) + 1;
+                    if points.ready(Instant::now(), &name) && command_slot(addr, &name, own_client, count) {
+                        points.spend(&name);
+                        command_counts.insert(name, count);
+                        let cmd = commands.pop_front().expect("queued command");
+                        let retry = OutCommand(cmd.0.clone());
+                        let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?;
+                        pending.insert(handle, (Instant::now(), retry));
+                    }
+                }
                 let lateness = scheduled.elapsed();
                 if lateness > Duration::from_millis(80) {
                     tracing::debug!(tick_delay_ms = lateness.as_millis(), "Zpožděný takt zvuku");
@@ -953,11 +1303,11 @@ async fn connected(
                 let (music_send, music_events) = music.tick(Instant::now());
                 for ev in music_events { json_send(ws, ev).await?; }
                 if let Some((bot, text)) = music_send {
+                    // Přes stejnou frontu jako ostatní příkazy, aby platilo omezení rychlosti serveru.
                     let cmd = con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text);
-                    let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?;
-                    pending.insert(handle, Instant::now());
+                    if commands.len() < 128 { commands.push_back(cmd); }
                 }
-                if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
+                if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { mute_unconfirmed |= pending.values().any(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")); pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {
                 if last_pong.elapsed() >= BROWSER_TIMEOUT { return Err("Prohlížeč přestal odpovídat.".into()); }
@@ -967,8 +1317,11 @@ async fn connected(
                     let book = con.get_state().map_err(|e| ts_error(&e))?;
                     if book.clients.get(&book.own_client).is_some_and(|c| c.name == name) {
                         restore_nickname = None;
-                    } else if !book.clients.values().any(|c| c.name == name && c.id != book.own_client) {
-                        let _ = command("clientupdate", &[("client_nickname",name.to_owned())]).send_with_result(con);
+                    } else if nickname_attempts < 3 && Instant::now() >= nickname_after
+                        && !book.clients.values().any(|c| c.name == name && c.id != book.own_client) {
+                        commands.push_back(command("clientupdate", &[("client_nickname",name.to_owned())]));
+                        nickname_attempts += 1;
+                        nickname_after = Instant::now() + Duration::from_secs(10 * 2u64.pow(nickname_attempts));
                     }
                 }
             }
@@ -1017,18 +1370,82 @@ mod tests {
         }
     }
     #[test]
+    fn command_flood_does_not_disconnect_and_points_limit_bursts() {
+        let err = tsclientlib::Error::CommandError(tsclientlib::CommandError {
+            error: tsproto_types::errors::Error::ClientIsFlooding,
+            missing_permission: None,
+        });
+        assert!(!is_flood(&err));
+        assert!(is_command_flood(&err));
+        assert_ne!(error_code(&ts_error(&err)), "flood");
+        let now = Instant::now();
+        let mut points = CommandPoints::new(now);
+        for _ in 0..6 {
+            assert!(points.ready(now, "sendtextmessage"));
+            points.spend("sendtextmessage");
+        }
+        assert!(!points.ready(now, "sendtextmessage"));
+        assert!(points.ready(now + Duration::from_secs(2), "sendtextmessage"));
+    }
+    #[test]
     fn backend_budget_and_flood_are_shared_and_bounded() {
         let now = Instant::now();
         let mut budget = AttemptBudget::default();
-        for _ in 0..6 {
-            assert!(budget.reserve(now).is_none());
-        }
-        assert_eq!(budget.reserve(now), Some(Duration::from_secs(30)));
-        assert!(budget.reserve(now + Duration::from_secs(30)).is_none());
-        budget.blocked_until = Some(now + Duration::from_secs(150));
+        let spacing = Duration::from_secs(3);
+        let window = Duration::from_secs(45);
+        assert!(budget.reserve(now, spacing, window, 3).is_none());
+        assert_eq!(budget.reserve(now, spacing, window, 3), Some(spacing));
+        assert!(budget.reserve(now + spacing, spacing, window, 3).is_none());
+        assert!(
+            budget
+                .reserve(now + spacing * 2, spacing, window, 3)
+                .is_none()
+        );
         assert_eq!(
-            budget.reserve(now + Duration::from_secs(30)),
+            budget.reserve(now + spacing * 3, spacing, window, 3),
+            Some(Duration::from_secs(36))
+        );
+        assert!(
+            budget
+                .reserve(now + Duration::from_secs(45), spacing, window, 3)
+                .is_none()
+        );
+        for _ in 0..20 {
+            assert!(budget.command(now, 5.0));
+        }
+        assert!(!budget.command(now, 5.0));
+        assert!(budget.command(now + Duration::from_millis(200), 5.0));
+        budget.connects_blocked_until = Some(now + Duration::from_secs(150));
+        assert_eq!(
+            budget.reserve(now + Duration::from_secs(30), spacing, window, 3),
             Some(Duration::from_secs(120))
+        );
+        assert!(budget.command(now + Duration::from_secs(30), 5.0));
+    }
+    #[test]
+    fn connection_window_and_burst_are_configurable() {
+        let now = Instant::now();
+        let mut budget = AttemptBudget::default();
+        let spacing = Duration::from_millis(10);
+        let window = Duration::from_secs(10);
+        assert!(budget.reserve(now, spacing, window, 1).is_none());
+        assert_eq!(
+            budget.reserve(now + spacing, spacing, window, 1),
+            Some(window - spacing)
+        );
+        assert!(budget.reserve(now + window, spacing, window, 1).is_none());
+        let mut budget = AttemptBudget::default();
+        for i in 0..5 {
+            assert!(
+                budget
+                    .reserve(now + spacing * i, spacing, window, 5)
+                    .is_none()
+            );
+        }
+        assert!(
+            budget
+                .reserve(now + spacing * 5, spacing, window, 5)
+                .is_some()
         );
     }
     #[test]
@@ -1050,13 +1467,15 @@ mod tests {
         );
         assert_eq!(
             error_code(&ts_error(&E::ConnectTs(T::ClientIsFlooding))),
-            "flood"
+            "request_failed"
         );
         let nested = E::ConnectFailed {
             address: "ban".into(),
             errors: vec![E::ConnectTs(T::BanFlooding)],
         };
         assert_eq!(error_code(&ts_error(&nested)), "flood");
+        assert_eq!(error_code(&ts_error(&E::ConnectFloodPrevention)), "flood");
+        assert!(is_flood(&E::ConnectFloodPrevention));
     }
     #[test]
     fn runtime_errors_and_kicks_have_specific_messages() {
@@ -1105,7 +1524,16 @@ mod tests {
             ("Server je plný.", "full"),
         ] {
             assert_eq!(error_code(message), code);
+            assert_eq!(
+                error_message(message, true)["retryable"],
+                !["bad_password", "banned", "not_allowed", "invalid", "kicked"].contains(&code)
+            );
+            assert_eq!(error_message(message, false)["retryable"], false);
         }
+        assert_eq!(
+            error_message("Byli jste vyhozeni ze serveru.", true)["code"],
+            "kicked"
+        );
         assert_eq!(
             error_message("Nesprávné heslo kanálu.", true)["field"],
             "channel_password"

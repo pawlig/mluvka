@@ -680,8 +680,6 @@ summary span {
 .message-avatar {
   width: 33px;
   height: 33px;
-  background: #303b29;
-  color: #bbd19f;
 }
 .message-meta {
   display: flex;
@@ -2070,4 +2068,57 @@ html {
 @media (max-width: 420px) {
   .audio-diagnostics dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .audio-diagnostics dd { margin-bottom: 10px; }
+}
+.color-palette {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.color-palette button {
+  min-width: 0;
+  min-height: 40px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  font-weight: 800;
+}
+.color-palette button[aria-pressed="true"] {
+  border-color: #fff;
+}
+.user-colors {
+  width: 100%;
+}
+.peer-modal {
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+.tab-avatar {
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+}
+.avatar[role="button"] {
+  cursor: pointer;
+}
+.audio-banners {
+  /* Lišty zabírají vlastní místo nad ovládáním, i při jeho mobilní výšce. */
+  flex-shrink: 0;
+  margin: 8px auto;
+  width: min(94vw, 540px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.microphone-banner {
+  padding: 12px;
+  background: #293122;
+  border: 1px solid #80946c;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.microphone-banner button {
+  white-space: nowrap;
 }

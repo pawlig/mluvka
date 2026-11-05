@@ -89,6 +89,7 @@ export interface Peer {
   muted: boolean;
 }
 export interface ChatMessage {
+  uid?: string;
   target: string;
   client?: number;
   from: number;
@@ -148,7 +149,6 @@ declare global {
       codec: "pcm" | "opus";
       notifySounds: number;
       notifyPokes: number;
-
     };
   }
 }

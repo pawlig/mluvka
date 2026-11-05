@@ -193,6 +193,7 @@ npm run e2e
 ```
 
 E2E používá Playwright s vlastním headless Chrome, dvěma prázdnými kontexty a falešným mikrofonem.
+Nové připojení v E2E může čekat až 90 s kvůli sdílenému 45s oknu TS handshake.
 Běhy různých pracovních stromů na stejném počítači spouštějte sériově: místní TS3
 bez licence odmítá další instanci přes local accounting.
 Na Macu použije `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`, jinde Playwright
@@ -321,7 +322,7 @@ PLC se použije pro prokázanou díru v pořadí, nikoli pro pouhé opoždění 
 Aktuální výsledky jsou v [ověření audia](docs/overeni-audia.md).
 SIGTERM/SIGINT čistě odpojí TS
 relace a prohlížeče po aktualizaci obnoví hovor. Globální limit připojování omezuje flood
-při současném reconnectu; skutečný flood blokuje cíl na 120 s.
+při současném reconnectu; handshake flood pozastaví nová připojení k cíli na 120 s.
 ## Upozornění a nepřečtené zprávy
 
 V Nastavení jsou samostatné zvuky pro kanál, server, soukromé zprávy a šťouchnutí
@@ -406,3 +407,93 @@ E2E sdílení používá skutečné WebRTC a lokální coturn (`brew install cot
 3479 a 49220–49260/udp. `npm run e2e` sestaví frontend s testovacím relay přepínačem a přidá testovací
 canvas capture jen injekcí Playwrightu. Po ověření spusťte `npm run build` pro produkční dist.
 TS3 E2E spouštějte pod sdíleným zámkem podle zadání worktree; žádná druhá TS3 instance nesmí běžet souběžně.
+
+## Pro správce TS serveru
+
+Všichni uživatelé jednoho backendu Mluvky přicházejí ze stejné veřejné IP kontejneru.
+TS antiflood sčítá body za tuto IP, takže může dočasně zablokovat celou skupinu.
+Backend proto sdílí frontu pro cílovou IP:port: `TS_CMD_RATE=5` příkazů/s, burst 20,
+`TS_CONNECT_INTERVAL_MS=3000` mezi připojeními, `TS_CONNECT_WINDOW_MS=45000` a `TS_CONNECT_BURST=3` omezují počet handshake
+v klouzavém okně na cíl (výchozí 3 za 45 s). Samotné 3 s při měření na TS3 3.13.7 vedly k odmítnutí páté relace
+`0x0d01` bez položky v banlistu; delší okno brání i této handshake ochraně. Hodnoty musí být kladná čísla.
+TS3 používá pro handshake flood i `0x0d01` s přesným doplňkem `flood prevention, please try again later`.
+Lokální oprava tsclientlib zachová tento bezpečný příznak (upstream doplněk zahazoval).
+Backend jej zařadí jako flood `0x0d03`, v logu uvede i původní `wire_code=0x0d01`.
+Skutečný ban bez tohoto přesného příznaku zůstává trvalý. Při odmítnutí handshake se na 120 s pozastaví pouze nová připojení k cíli;
+fronta ukazuje zbývající pauzu a potom připojuje postupně. Už připojené relace si
+ponechají hlas, chat i WS. Odmítnutý příkaz má samostatné krátké zpomalení s opakováním,
+bez odpojení. Hláška fronty se objeví až při čekání delším než 300 ms. Pro diagnostiku nastavte `RUST_LOG=mluvka=debug`: `ts_command`
+a `count` měří aplikační příkazy podle druhu a cíle, `client` a `session_count` po připojeních.
+Argumenty s osobními údaji se nelogují.
+Interní handshake a keepalive knihovny do tohoto počtu nepatří.
+
+Doporučené řešení na důvěryhodném TS serveru je samostatná serverová skupina pro
+identity Mluvky s `b_client_ignore_antiflood`. Přes přihlášený ServerQuery, po `use 1`:
+
+```text
+servergroupadd name=Mluvka type=1
+servergroupaddperm sgid=<vrácené_sgid> permsid=b_client_ignore_antiflood permvalue=1 permnegated=0 permskip=0
+servergroupaddclient sgid=<vrácené_sgid> cldbid=<databázové_id_identity>
+```
+
+Přidávejte jen důvěryhodné identity; oprávnění obchází ochranu proti zahlcení.
+Alternativně správce upraví limity podle počtu uživatelů a zatížení. Nejprve si
+uložte původní hodnoty ze `serverinfo`; příklad zvýšení (nikoli univerzální doporučení):
+
+```text
+serverinfo
+serveredit virtualserver_antiflood_points_needed_ip_block=1000 virtualserver_antiflood_points_needed_command_block=500
+clientlist -ip -uid
+clientinfo clid=<id_připojeného_klienta_Mluvky>
+```
+
+`connection_client_ip` v `clientinfo` ukazuje adresu viděnou TS (při NAT veřejnou
+odchozí IP hostitele). V síti Docker zjistíte vnitřní IP kontejneru příkazem
+`docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' <kontejner>`;
+pro antiflood rozhoduje adresa viděná TS, nikoli nutně tato vnitřní IP.
+
+## Hovor na pozadí
+
+Na mobilu/tabletu s `pointer: coarse` vede výstup přes skutečně hrající,
+neztlumený `<audio>` s MediaStreamem z AudioContext. Desktop s jemným ukazatelem
+používá přímý výstup, i když má dotykový displej. Při odmítnutém `play()` nebo
+zastaveném přehrávači navzdory přicházejícímu hlasu se obnoví přímá záložní cesta.
+Po rozběhnutí přehrávače se vrátí mobilní cesta; nikdy nehrají obě současně. Při přerušení se kontext pokouší obnovit i na pozadí.
+Media Session zůstává během hovoru `playing`; play/pause na zamčené obrazovce
+přepínají mikrofon. Safari s dostupným `navigator.audioSession` používá
+`play-and-record` i během reconnectu a po ukončení hovoru `auto` ([WebKit: Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/),
+[Media Session](https://www.w3.org/TR/mediasession/)).
+
+Android: zkuste Chrome i instalovanou PWA. Povolte mikrofon a přehrávání, připojte
+se do kanálu s mluvícím druhým účastníkem, přepněte do jiné aplikace a na minutu
+zamkněte displej. Měli byste dál slyšet; v režimu Pořád zapnuto/VAD lze podle systému
+i mluvit. Pro Chrome vypněte omezení baterie v nastavení Androidu.
+
+iOS: stejnou zkoušku proveďte v Safari a v PWA přidané na plochu. WebKit a iOS mohou
+webovou aplikaci po čase uspat nebo přerušit mikrofon; nepřetržitý hovor na zamčeném
+fyzickém telefonu nelze zaručit samotným webovým kódem. Při návratu se spojení obnoví;
+pokud mikrofon na pozadí nešel otevřít, hovor pokračuje poslechem a vstup se zkusí
+po návratu. Zamítnutý/chybějící mikrofon má lištu se samostatným ručním „Zkusit znovu“.
+
+Živost backend ověřuje nativními WS ping/pong rámci bez JS časovačů stránky.
+Po návratu z pozadí či zmrazení má klient 5 s milosti; v popředí nadále rozpoznává
+20 s bez dat. Reconnect běží i na pozadí. Headless Chromium emulace ověřuje tok
+rámců, RMS a stejné WS/TS ID; omezení baterie, audio session a zámek iOS vyžadují
+zkoušku na fyzických telefonech.
+
+Barvu uživatele změníte přes jeho avatar nebo dlouhé podržení ve stromu → Barva….
+Platí jen u vás, ukládá se podle TS identity do `mluvka.colors`; přejmenování ji nezmění.
+
+### Povolení mikrofonu
+
+Otevřená stránka drží jeden mikrofonní stream a znovu jej použije při odpojení,
+připojení i reconnectu. Po odpojení jsou stopy vypnuté a odpojené od zpracování;
+při zavření stránky se uvolní. Změna zařízení nebo parametrů zpracování může
+vyžadovat nové otevření. Permissions API, kde je dostupné, ověří stav oprávnění.
+Dotykový klient při dosud neuděleném oprávnění jednou ukáže nápovědu pro jeho
+trvalé povolení. Uložení oprávnění při příštím otevření stránky řídí prohlížeč.
+
+Návod k trvalému povolení: [Safari na iPhonu](https://support.apple.com/guide/iphone/iphb01fc3c85/ios)
+(Nastavení → Aplikace → Safari → Mikrofon → Povolit; na starších iOS rovnou Safari)
+a [Chrome na Androidu](https://support.google.com/chrome/answer/2693767?co=GENIE.Platform%3DAndroid&hl=cs)
+(Nastavení → Nastavení webu → Mikrofon → vybrat web → Povolit).

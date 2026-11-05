@@ -28,3 +28,7 @@ tsproto = { git = "https://github.com/ReSpeak/tsclientlib", rev = "ee3bc6f45a713
 [profile.release]
 strip = true
 lto = "thin"
+
+# Preserve TS3's explicit handshake flood marker; upstream drops the extra message.
+[patch."https://github.com/ReSpeak/tsclientlib"]
+tsclientlib = { path = "vendor/tsclientlib" }

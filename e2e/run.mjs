@@ -1,6 +1,7 @@
 // Skutečný TS3 + dvě izolované relace Chrome. Testovací hesla vznikají jen v paměti.
 import { installSharingCapture, sharingChecks } from "./sdileni.mjs";
 import { chromium, expect } from "@playwright/test";
+import { mobileRegressionChecks, floodRecoveryChecks, banUiChecks } from "./regrese-mobil.mjs";
 import { mobileChecks, pwaChecks } from "./mobil.mjs";
 import {
   jitterChecks,
@@ -165,7 +166,7 @@ async function fillLogin(page, nickname, pass = password) {
 }
 async function connected(page) {
   await expect(page.locator(".connection-status")).toHaveText("Připojeno", {
-    timeout: 45000,
+    timeout: 90000,
   });
 }
 async function moveToProtected(page) {
@@ -202,7 +203,7 @@ async function earlyBackendMessages() {
     const clientId = await new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => reject(Error("TS nepřijal předčasné WS zprávy")),
-        30000,
+        90000,
       );
       const fail = () => {
         clearTimeout(timer);
@@ -404,12 +405,14 @@ function startBackend() {
       PUBLIC_URL: base,
       TS_FILE_MAX_MB: "1",
       MAX_SESSIONS: "12",
+      RUST_LOG: "mluvka=debug",
+      NO_COLOR: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
   for (const output of [backend.stdout, backend.stderr])
     output.on("data", (data) => {
-      backendOutput = (backendOutput + data.toString()).slice(-200000);
+      backendOutput = (backendOutput + data.toString()).slice(-10000000);
       if (process.env.E2E_DEBUG) process.stderr.write(data);
     });
   backend.on("error", () => {});
@@ -483,10 +486,17 @@ try {
   await wait(250);
   await query.cmd(`login serveradmin ${admin}`);
   await query.cmd("use 1");
+  // Pouze vlastní izolovaná TS3 instance: po neúspěšném testu nesmí přetrvat ban.
+  const oldBans = await query.cmd("banlist").catch(() => "");
+  for (const [, id] of oldBans.matchAll(/\bbanid=(\d+)/g)) await query.cmd(`bandel banid=${id}`);
   await query.cmd("servernotifyregister event=server");
+  // Oba transporty sdílejí jednu TS3 instanci. Vyčistit skóre předchozího
+  // testu, pak testovat s výchozími limity a úbytkem 5 bodů za tick.
+  await query.cmd("serveredit virtualserver_antiflood_points_tick_reduce=100000");
+  await wait(1500);
   await query.cmd("servernotifyregister event=textserver");
   await query.cmd(
-    `serveredit virtualserver_name=Mluvka\\s·\\szkušebna virtualserver_password=${password} virtualserver_needed_identity_security_level=8 virtualserver_antiflood_points_needed_command_block=10000 virtualserver_antiflood_points_needed_ip_block=10000`,
+    `serveredit virtualserver_name=Mluvka\\s·\\szkušebna virtualserver_password=${password} virtualserver_needed_identity_security_level=8 virtualserver_antiflood_points_needed_command_block=150 virtualserver_antiflood_points_needed_ip_block=250 virtualserver_antiflood_points_tick_reduce=5`,
   );
   await query.cmd(
     "servergroupaddperm sgid=8 permsid=b_client_server_textmessage_send permvalue=1 permnegated=0 permskip=0",
@@ -520,7 +530,7 @@ try {
   });
   expect((await fetch(base)).status).toBe(200);
   ok("HTTP frontend a /healthz → 200 ok");
-  if (!process.env.E2E_FOCUS) {
+  if (!process.env.E2E_FOCUS && !process.env.E2E_REGRESSION_ONLY) {
     await securityChecks(base, ok);
     await earlyBackendMessages();
   }
@@ -555,7 +565,6 @@ try {
     args: [
       "--use-fake-device-for-media-stream",
       "--disable-audio-output",
-      "--disable-background-media-suspend",
       "--use-fake-ui-for-media-stream",
       `--use-file-for-fake-audio-capture=${wavPath}`,
       "--autoplay-policy=no-user-gesture-required",
@@ -584,16 +593,18 @@ try {
   };
   await shaperChecks(ok);
   await jitterShaperCheck(ok);
-  await codecRecoveryCheck(ok);
-  resamplingChecks(ok);
-  jitterChecks(ok);
-  if (!process.env.E2E_FOCUS) {
+  if (!process.env.E2E_FLOOD_ONLY) {
+    await codecRecoveryCheck(ok);
+    resamplingChecks(ok);
+    jitterChecks(ok);
+  }
+  if (!process.env.E2E_FOCUS && !process.env.E2E_REGRESSION_ONLY) {
     await pwaChecks({ browser, base, root, ok });
     await restoredTransmission("always", false);
     await restoredTransmission("vad", false);
     await restoredTransmission("always", true);
   }
-  if (!process.env.E2E_TAIL) {
+  if (!process.env.E2E_TAIL && !process.env.E2E_REGRESSION_ONLY) {
     const aContext = await browser.newContext({
         permissions: ["microphone"],
         viewport: { width: 1440, height: 900 },
@@ -642,7 +653,7 @@ try {
     await b.goto(base);
     await fillLogin(a, "Adam", "zamerne-nespravne");
     await expect(a.getByRole("alert")).toContainText("Nesprávné heslo", {
-      timeout: 30000,
+      timeout: 90000,
     });
     await expect(a.getByRole("button", { name: /Připojit se/ })).toBeEnabled();
     ok("Špatné heslo → česká chyba");
@@ -689,8 +700,9 @@ try {
     await moveToProtected(a);
     await moveToProtected(b);
     ok("Přesun obou relací do kanálu s heslem");
-    await sharingChecks({ a, b, browser, base, root, query, login: fillLogin, connected, moveToProtected, password, channelPassword, tsAddress, ok });
-    if (!process.env.E2E_FOCUS) {
+    if (!process.env.E2E_FLOOD_ONLY && !process.env.E2E_REGRESSION_ONLY)
+      await sharingChecks({ a, b, browser, base, root, query, login: fillLogin, connected, moveToProtected, password, channelPassword, tsAddress, ok });
+    if (!process.env.E2E_FOCUS && !process.env.E2E_REGRESSION_ONLY) {
       await notificationChecks({ a, b, bContext, root, query, moveToProtected, ok });
       await invitationChecks({
         a, browser, base, root, password, channelPassword,
@@ -922,25 +934,27 @@ try {
     await bContext.close();
     await networkProfile.close?.();
   }
-  await vadCheck({
-    browser,
-    base,
-    login: fillLogin,
-    ok,
-    codec: process.env.E2E_CODEC || "opus",
-  });
-  await fallbackCheck(browser, base, fillLogin, ok);
-  await mobileChecks({
-    browser,
-    base,
-    root,
-    password,
-    channelPassword,
-    query,
-    ok,
-    restartBackend,
-  });
-  if (!process.env.E2E_FOCUS || process.env.E2E_FOCUS === "files") {
+  if (!process.env.E2E_REGRESSION_ONLY) {
+    await vadCheck({
+      browser,
+      base,
+      login: fillLogin,
+      ok,
+      codec: process.env.E2E_CODEC || "opus",
+    });
+    await fallbackCheck(browser, base, fillLogin, ok);
+    await mobileChecks({
+      browser,
+      base,
+      root,
+      password,
+      channelPassword,
+      query,
+      ok,
+      restartBackend,
+    });
+  }
+  if ((!process.env.E2E_FOCUS || process.env.E2E_FOCUS === "files") && !process.env.E2E_FLOOD_ONLY && !process.env.E2E_REGRESSION_ONLY) {
     // Velké souborové payloady a jejich GC patří až za měření latence zvuku.
     const fileContexts = await Promise.all(
       [0, 1].map(() => browser.newContext({
@@ -977,6 +991,10 @@ try {
     try { return [JSON.parse(match[1])]; } catch { return []; }
   });
   if (timing.length) ok("Backend: histogram mezer mixu a WS writeru bez osobních údajů", { timing });
+  if (!process.env.E2E_FLOOD_ONLY) await banUiChecks({ browser, base, login: fillLogin, ok });
+  if (!process.env.E2E_FLOOD_ONLY)
+    await mobileRegressionChecks({ browser, base, query, password, login: fillLogin, ok, backendLog: () => backendOutput, root });
+  await floodRecoveryChecks({ browser, base, query, login: fillLogin, ok, backendLog: () => backendOutput });
   expect(errors).toEqual([]);
   ok("Žádné JS výjimky ani chyby konzole v obou relacích");
   writeFileSync(
@@ -1005,6 +1023,7 @@ try {
       );
     } catch {}
   }
+  writeFileSync(resolve(temp, "backend-diagnostika.log"), backendOutput);
   if (process.env.E2E_DEBUG) console.error("Backend diagnostika", backendOutput);
   process.exitCode = 1;
 } finally {

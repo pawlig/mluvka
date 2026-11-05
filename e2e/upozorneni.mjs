@@ -101,7 +101,7 @@ export async function notificationChecks({
   await send(a, "Soukromé upozornění");
   await expect(badge(b, "Adam")).toHaveText("1");
   await expect.poll(() => sounds(b)).toBe(privateBefore + 1);
-  await b.getByRole("button", { name: /^Adam/ }).click();
+  await b.locator(".chat-tabs").getByRole("button", { name: /^Adam/ }).click();
   await expect(badge(b, "Adam")).toHaveCount(0);
   await tab(b, "Kanál").click();
   ok("Soukromá zpráva vytvoří odznak a zvuk; otevření ji přečte");

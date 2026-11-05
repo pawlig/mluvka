@@ -96,7 +96,7 @@ export async function invitationChecks({
     await c.getByLabel("Přezdívka", { exact: true }).fill("Cyril");
     await c.getByRole("button", { name: "Připojit", exact: true }).click();
     await expect(c.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 30000,
+      timeout: 90000,
     });
     await expect(c.locator(".room-title h1")).toHaveText("Večerní parta");
     const saved = await c.evaluate(() =>
@@ -156,7 +156,7 @@ export async function invitationChecks({
     );
     await c.getByRole("button", { name: "Připojit", exact: true }).click();
     await expect(c.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 30000,
+      timeout: 90000,
     });
     await expect(c.locator(".room-title h1")).toHaveText("Večerní parta");
     expect(leaked).toBe(false);

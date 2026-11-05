@@ -120,25 +120,28 @@ mezer mixu a dokončených flushů WS, čekání ve frontě a průměrnou délku
 
 `code` je strojový kód, text `message` je český a neobsahuje původní text TS paketu.
 `field` určuje vstup formuláře (`server`, `password`, `channel_password`, `nickname`) pro fokus.
+`retryable` určuje možnost automatického návratu po trvalé chybě (`kicked`: false).
 `fatal: true` znamená ukončení relace; `fatal: false` odmítnutý příkaz v běžícím spojení.
 
 | `code`          | Význam                                | Opakování připojení po ukončení |
 | --------------- | ------------------------------------- | ------------------------------- |
 | `bad_password`  | Heslo serveru nebo kanálu             | ne                              |
 | `banned`        | TS `ConnectFailedBanned` (0x0d01)     | ne                              |
-| `flood`         | TS `BanFlooding` / `ClientIsFlooding` | nejdříve za 120 s               |
+| `flood`         | TS handshake `BanFlooding` / `ConnectFloodPrevention` | nejdříve za 120 s               |
 | `not_allowed`   | Nepovolený server / oprávnění         | ne                              |
 | `invalid`       | Neplatné údaje či protokol            | ne                              |
 | `nickname`      | Obsazená či odmítnutá přezdívka       | ano                             |
 | `request_failed` | Odmítnutý požadavek / jiná chyba | běžící relaci nepřerušuje |
 | `unreachable`   | Nedostupný server / transport         | ano                             |
 | `timeout`       | Vypršel čas                           | ano                             |
-| `kicked`        | Vyhození ze serveru                   | ano                             |
+| `kicked`        | Vyhození ze serveru                   | ne — ruční „Připojit znovu“                             |
 | `server_closed` | TS server ukončil spojení             | ano                             |
 | `full`          | Plný server                           | ano                             |
 
-Po nečekaném ukončení frontend používá prodlevy 1 → 2 → 4 → 8 → 15 s, dále 15 s.
-Na pozadí nové pokusy nespouští; při `online` a návratu do popředí pokus uspíší.
+Po nečekaném ukončení WS frontend první návrat rozloží náhodně do 0–10 s. Další pokusy přidávají exponenciální prodlevu 2 → 4 → 8 → 16 → 30 s a jitter 0–10 s; nejvýše tedy 40 s. Návrat viditelnosti tento termín nepředbíhá.
+Pokusy pokračují i na pozadí. `online` zachová otevřené spojení, které přijalo data v posledních 5 s.
+Po návratu z pozadí či zmrazení platí 5 s milosti před 20s hlídáním mrtvého spojení v popředí.
+Backend posílá protokolové WS ping/pong, jejichž obsluha nezávisí na JS časovači stránky.
 Ruční odpojení/zrušení vypne opakování i auto-start po reloadu stejného tabu (`sessionStorage`).
 Trvalá chyba připojení vrátí formulář. Odmítnutí přesunu/chatového příkazu běžící hovor neruší.
 
@@ -162,8 +165,10 @@ TS odmítnutí (heslo/ban) se na jiné IP neopakuje. Loguje se jen název varian
 SIGINT i SIGTERM rozešlou `notice` s `code: "server_restart"`, poté UDP
 `clientdisconnect` s explicitním `reasonid=8` (`Reason::Clientdisconnect`) a zprávou „Mluvka se aktualizuje“.
 Stejný explicitní důvod se používá i při běžném odpojení nebo chybě WS; bez něj knihovna důvod neposílá. Na dokončení se čeká nejvýše
-3 s. Klient obnovuje stejnou identitu, přezdívku a kanál po 3 → 6 → 12 → 15 s;
-aktualizace se nepočítá jako trvalá chyba. Čekání na WS zápis nikdy neblokuje pollování
+3 s při shutdown celého backendu. Ruční odpojení čeká až 10 s, aby dokončilo
+UDP disconnect i po 5s příkazovém zpomalení; nová relace stejného UID do té doby
+nezahájí handshake. Klient obnovuje stejnou identitu, přezdívku a kanál s jitterem
+popsaným výše; aktualizace se nepočítá jako trvalá chyba. Čekání na WS zápis nikdy neblokuje pollování
 TS událostí ani ping/ACK.
 ## Obrázky přes HTTP
 
@@ -315,3 +320,30 @@ Data channel `label:"mluvka.v1", protocol:"mluvka.v1"` je vyhrazený pro budouc�
 Budoucí `kind` streamu/verze vyžadují výslovné rozšíření validace backendu i klienta.
 Debug okno a `window.__mluvkaShareStats` uvádějí šířku/výšku, fps, kb/s (`bitrate`),
 `framesDecoded` a vybraný ICE typ `host/srflx/relay` (relay má přednost, pokud ho používá jedna strana).
+
+Aplikační TS příkazy čekají ve frontě (nejvýše 128 na relaci). Sdílený token bucket pro cílovou
+IP:port má burst 20 a `TS_CMD_RATE` příkazů/s (výchozí 5). Navázání včetně nového pokusu po
+zvýšení identity respektuje `TS_CONNECT_INTERVAL_MS` (výchozí 3000) a nejvýše 3 handshaky za 45 s. `connect_queue` notice vysvětluje čekání.
+Odmítnutí handshake `BanFlooding` a explicitní `flood prevention` spustí 120s pauzu nových připojení k cíli; už připojené relace si ponechají hlas, chat i WS,
+nová připojení čekají ve frontě s odpočtem a po pauze se připojují postupně. V debug logu je `ts_command` a kumulativní
+`count` podle cíle a druhu příkazu; `client` a `session_count` rozlišují jednotlivá připojení. Hodnoty argumentů se nelogují. Interní handshake knihovny není aplikační příkaz.
+Chat/poke obsahuje navíc volitelné `uid` odesílatele; klient ho uchovává u zprávy i po odchodu uživatele.
+
+U hlasového handshake TS3 používá také kód 0x0d01 s `extra_message` přesně
+`flood prevention, please try again later`. Lokální oprava tsclientlib ho zachová jako bezpečný
+enum (žádný cizí text). Backend normalizuje tuto jednoznačnou dočasnou chybu na flood/0x0d03;
+v logu zachová `wire_code=0x0d01`. Ostatní 0x0d01 jsou nadále trvalé bany. Zdroj a rozdíly
+lokální kopie: `vendor/tsclientlib/MLUVKA-PATCH.md`.
+
+Příkazový `ClientIsFlooding` (0x020c) živou relaci neukončí: fronta cíle vyčká 5 s a odmítnutý příkaz opakuje. Klient dostane `command_slow`. Příkazy se potvrzují postupně; lokální bodový rozpočet (burst 60, obnova 5 bodů/s) tlumí delší série zpráv vedle společného limitu počtu příkazů.
+
+Počáteční `microphone` a `deafen` jsou volitelné položky `connect` (výchozí false),
+zaslané rovnou v TS `clientinit`. Bez další změny stavu se po handshake posílá jen
+jeden `channelsubscribeall`; seznamy kanálů a klientů přicházejí v oznámeních TS,
+žádné `clientlist` / `channellist` ani dodatečný `clientmove` se při připojení neposílají.
+
+Skutečný ban může obsahovat volitelné `ban_seconds` získané z odpovědi TS. UI
+odpočítává „Ban vyprší za mm:ss“ a po uplynutí nabízí jen ruční připojení.
+Bez doloženého času uvádí, že server dobu vypršení nesdělil. `cooldown_seconds`
+u chyby `flood` je naproti tomu zbývající **vlastní** ochranná pauza backendu;
+TS při handshake floodu délku banu neposílá. Čas pauzy se neprezentuje jako čas TS banu.

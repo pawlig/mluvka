@@ -1,5 +1,9 @@
 mod ice;
 mod music_bot;
+// Run the exact vendored handshake parser in the application's unit suite.
+#[cfg(test)]
+#[path = "../vendor/tsclientlib/src/flood_prevention.rs"]
+mod handshake_flood_tests;
 mod session;
 mod signal;
 mod ts_file;
