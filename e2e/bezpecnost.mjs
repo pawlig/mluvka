@@ -67,13 +67,13 @@ export async function securityChecks(base, ok) {
   });
   expect(originStatus).toBe(403);
   ok("Cizí Origin při WS upgradu → HTTP 403");
-  // Vlastní testovací backend má MAX_SESSIONS=6, zatím není připojený žádný TS klient.
+  // Vlastní testovací backend má MAX_SESSIONS=12, zatím není připojený žádný TS klient.
   if (!process.env.E2E_URL) {
     const slots = [];
     try {
-      for (let i = 0; i < 6; i++) slots.push(await open(base));
+      for (let i = 0; i < 12; i++) slots.push(await open(base));
       await expect(open(base)).rejects.toThrow("WS nebyl přijat");
-      ok("MAX_SESSIONS=6 odmítne sedmý současný WS");
+      ok("MAX_SESSIONS=12 odmítne třináctý současný WS");
     } finally {
       for (const slot of slots) slot.close();
     }

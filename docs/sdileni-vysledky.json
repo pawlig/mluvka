@@ -1,0 +1,238 @@
+{
+  "date": "2026-11-05T03:09:43.585Z",
+  "scope": "sharing",
+  "fullSuiteComplete": true,
+  "fullSuiteChecks": 208,
+  "runs": [
+    {
+      "codec": "opus",
+      "exitCode": 0
+    },
+    {
+      "codec": "pcm",
+      "exitCode": 0
+    }
+  ],
+  "sharingChecks": 34,
+  "results": [
+    {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Opožděný share_list nezastaví capture; sdílení čeká na share_started a divák se připojí",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Klepnutí na jméno otevírá panel uživatele; jeho tlačítko spustí sledování",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 31,
+      "framesAfter": 207,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 119,
+      "candidate": "host",
+      "framesDecoded": 207,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 7,
+      "framesAfter": 153,
+      "width": 1280,
+      "height": 720,
+      "fps": 29,
+      "bitrate": 100,
+      "candidate": "relay",
+      "framesDecoded": 153,
+      "runCodec": "opus"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Bez TURN_URLS: skutečný backend bez ICE serverů přenáší video přímo přes host kandidáta",
+      "result": "OK",
+      "framesBefore": 10,
+      "framesAfter": 158,
+      "width": 1280,
+      "height": 720,
+      "fps": 31,
+      "bitrate": 109,
+      "candidate": "host",
+      "framesDecoded": 158,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Bez TURN: chybějící offer skončí do 10 s českou chybou, uvolní místo a neopakuje watch",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Opožděný share_list nezastaví capture; sdílení čeká na share_started a divák se připojí",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Klepnutí na jméno otevírá panel uživatele; jeho tlačítko spustí sledování",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 31,
+      "framesAfter": 178,
+      "width": 1280,
+      "height": 720,
+      "fps": 29,
+      "bitrate": 176,
+      "candidate": "host",
+      "framesDecoded": 178,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 8,
+      "framesAfter": 155,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 105,
+      "candidate": "relay",
+      "framesDecoded": 155,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Bez TURN_URLS: skutečný backend bez ICE serverů přenáší video přímo přes host kandidáta",
+      "result": "OK",
+      "framesBefore": 12,
+      "framesAfter": 159,
+      "width": 1280,
+      "height": 720,
+      "fps": 31,
+      "bitrate": 105,
+      "candidate": "host",
+      "framesDecoded": 159,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Bez TURN: chybějící offer skončí do 10 s českou chybou, uvolní místo a neopakuje watch",
+      "result": "OK",
+      "runCodec": "pcm"
+    }
+  ],
+  "errors": []
+}

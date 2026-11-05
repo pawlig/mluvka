@@ -315,6 +315,7 @@ async fn wait_budget(ws: &mut Socket, addr: SocketAddr) -> Result<(), String> {
             _ = heartbeat.tick() => json_send(ws, json!({"type":"pong"})).await?,
             msg = ws.recv() => match msg {
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return Err("Webové spojení bylo uzavřeno.".into()),
+                Some(Ok(Message::Text(text))) if text.len() > 16 * 1024 => return Err("Příliš velká řídicí zpráva.".into()),
                 Some(Ok(Message::Text(text))) => match serde_json::from_str::<Control>(&text) {
                 Ok(Control::Disconnect) => return Err("Webové spojení bylo uzavřeno.".into()),
                 Ok(Control::Mute { microphone, deafen }) => ws.pending_mute = Some((microphone, deafen)),
@@ -411,6 +412,7 @@ pub async fn run(
     allowed: &[String],
     mut shutdown: watch::Receiver<bool>,
     uploads: Arc<crate::upload::Sessions>,
+    shares: Arc<crate::signal::Registry>,
 ) {
     let (mut sink, input) = ws.split();
     let (control, mut controls) = mpsc::channel(256);
@@ -484,7 +486,7 @@ pub async fn run(
         pending_mute: None,
     };
     if !*shutdown.borrow()
-        && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads).await
+        && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads, &shares).await
     {
         tracing::warn!(session_end = error_code(&message), "Relace končí chybou");
         let _ = json_send(&mut ws, error_message(&message, true)).await;
@@ -503,6 +505,7 @@ async fn session(
     allowed: &[String],
     shutdown: &mut watch::Receiver<bool>,
     uploads: &Arc<crate::upload::Sessions>,
+    shares: &Arc<crate::signal::Registry>,
 ) -> Result<(), String> {
     let first = timeout(Duration::from_secs(15), ws.recv())
         .await
@@ -512,6 +515,9 @@ async fn session(
     let Message::Text(first) = first else {
         return Err("Nejprve pošlete údaje připojení.".into());
     };
+    if first.len() > 16 * 1024 {
+        return Err("Příliš velká řídicí zpráva.".into());
+    }
     let Control::Connect {
         nickname,
         server,
@@ -605,6 +611,7 @@ async fn session(
             msg = ws.recv() => {
                 match msg {
                     Some(Ok(Message::Ping(p))) => send(ws, Message::Pong(p)).await?,
+                    Some(Ok(Message::Text(s))) if s.len() > 16 * 1024 => return Err("Příliš velká řídicí zpráva.".into()),
                     Some(Ok(Message::Text(s))) => match serde_json::from_str::<Control>(&s) {
                         Ok(Control::Mute { microphone, deafen }) => initial_mute = Some((microphone, deafen)),
                         Ok(Control::Disconnect) => return Ok(()),
@@ -621,7 +628,12 @@ async fn session(
             _ = tokio::time::sleep_until(deadline.into()) => { tracing::warn!(ts_error = "ConnectTimeout", "Chyba připojení"); return Err("Vypršel čas připojení. Server neodpovídá.".into()); },
         };
         match event {
-            Some(Ok(StreamItem::BookEvents(_))) => break,
+            Some(Ok(StreamItem::BookEvents(_))) => {
+                // Initserver nejprve vytvoří prázdnou TS knihu. Registr místností
+                // smí vzniknout až po notifycliententerview vlastního klienta.
+                let book = con.get_state().map_err(|e| ts_error(&e))?;
+                if book.clients.contains_key(&book.own_client) { break; }
+            },
             Some(Ok(StreamItem::IdentityLevelIncreased)) => {
                 // Knihovna vytvořila nový handshake future, ale ještě jej nepollovala.
                 // I zvýšení identity proto spotřebuje společný limit připojení.
@@ -667,7 +679,10 @@ async fn session(
         if let Some(client) = book.clients.get(&book.own_client) { file_context.passwords.insert(client.channel.0, channel_password.clone()); }
     }
     json_send(ws, json!({"type":"upload_token", "token":upload_lease.token})).await?;
-    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio, &mut file_context).await
+    let sharing = shares.join(server.clone(), &snapshot(&con)?, ws.control.clone());
+    json_send(ws, json!({"type":"share_session","v":1,"session":sharing.id,"token":sharing.token})).await?;
+    sharing.publish();
+    connected(ws, &mut con, initial_mute, renamed.then_some(nickname.as_str()), &audio, &mut file_context, &sharing).await
       } => result,
     };
     // I při chybě WS je nutné dokončit UDP odpojení a zahodit identitu v paměti.
@@ -716,6 +731,7 @@ async fn connected(
     restore_nickname: Option<&str>,
     options: &AudioOptions,
     file_context: &mut FileContext<'_>,
+    sharing: &crate::signal::Lease,
 ) -> Result<(), String> {
     let (mut microphone, mut deafen) = initial_mute.unwrap_or_default();
     if initial_mute.is_some() {
@@ -733,7 +749,7 @@ async fn connected(
         .send_with_result(con)
         .map_err(|e| ts_error(&e))?;
     json_send(ws, json!({"type":"hello", "audio":{"codec":if options.opus() {"opus"} else {"pcm"}, "version":1, "quality": options.quality}})).await?;
-    json_send(ws, snapshot(con)?).await?;
+    json_send(ws, sharing.snapshot(snapshot(con)?)).await?;
     let mut audio = AudioHandler::<ClientId>::new();
     let encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)
         .map_err(|_| "Opus enkodér nelze spustit.")?;
@@ -771,14 +787,30 @@ async fn connected(
         tokio::sync::oneshot::Sender<Result<tsclientlib::FileDownloadResult, String>>,
     > = HashMap::new();
     let mut rate_start = Instant::now();
-    let (mut control_count, mut audio_count) = (0, 0);
+    let (mut control_count, mut audio_count, mut signal_count) = (0, 0, 0);
     loop {
         tokio::select! {
             incoming = ws.recv() => {
                 let msg = match incoming { Some(Ok(msg)) => msg, _ => return Ok(()) };
-                if rate_start.elapsed() >= Duration::from_secs(1) { rate_start = Instant::now(); control_count = 0; audio_count = 0; }
+                if rate_start.elapsed() >= Duration::from_secs(1) { rate_start = Instant::now(); control_count = 0; audio_count = 0; signal_count = 0; }
                 match msg {
                     Message::Text(s) => {
+                        let value: Value = serde_json::from_str(&s).map_err(|_| "Neplatná řídicí zpráva.")?;
+                        if crate::signal::is_signal(value["type"].as_str().unwrap_or("")) {
+                            signal_count = u32::saturating_add(signal_count, 1);
+                            if signal_count > 120 {
+                                // Odpověď jen při prvním překročení; zahlcení nesmí shodit TS ani zaplnit frontu chybami.
+                                if signal_count == 121 {
+                                    json_send(ws, json!({"type":"share_error","v":1,"message":"Signalizaci posíláte příliš rychle.","request":value["type"]})).await?;
+                                }
+                                continue;
+                            }
+                            if let Err(message) = sharing.handle(&value, s.len()) {
+                                json_send(ws, json!({"type":"share_error","v":1,"message":message,"request":value["type"]})).await?;
+                            }
+                            continue;
+                        }
+                        if s.len() > 16 * 1024 { return Err("Příliš velká řídicí zpráva.".into()); }
                         control_count += 1;
                         if control_count > 40 { return Err("Příliš mnoho řídicích zpráv.".into()); }
                         let ctrl: Control = serde_json::from_str(&s).map_err(|_| "Neplatná řídicí zpráva.")?;
@@ -849,7 +881,7 @@ async fn connected(
                                 json_send(ws,json!({"type":if kind == "poke" {"poke"} else {"chat"},"target":kind,"client":client,"from":invoker.id.0,"name":invoker.name,"text":message})).await?;
                             }
                         }
-                        json_send(ws, snapshot(con)?).await?;
+                        json_send(ws, sharing.snapshot(snapshot(con)?)).await?;
                     },
                     Some(Ok(StreamItem::FileDownload(handle, result))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Ok(result)); } },
                     Some(Ok(StreamItem::FiletransferFailed(handle, error))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Err(crate::ts_file::transfer_error(&error))); } },

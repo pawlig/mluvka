@@ -1,4 +1,6 @@
+mod ice;
 mod session;
+mod signal;
 mod ts_file;
 mod upload;
 
@@ -20,6 +22,8 @@ use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 #[derive(Clone)]
 struct App {
     uploads: upload::Uploads,
+    shares: Arc<signal::Registry>,
+    ice: ice::Config,
     slots: Arc<Semaphore>,
     allowed: Arc<Vec<String>>,
     shutdown: watch::Sender<bool>,
@@ -49,6 +53,8 @@ async fn main() {
     let uploads = upload::Uploads::from_env().await;
     uploads.start_cleanup();
     let state = App {
+        shares: Arc::default(),
+        ice: ice::Config::from_env(),
         uploads,
         slots: slots.clone(),
         allowed: Arc::new(allowed),
@@ -58,6 +64,7 @@ async fn main() {
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/ws", get(upgrade))
+        .route("/api/ice", get(ice::get))
         .route("/api/upload", post(upload::upload))
         .route("/img/{name}", get(upload::image))
         .route("/f/{id}/{name}", get(upload::file))
@@ -144,8 +151,8 @@ async fn upgrade(
     let Ok(permit) = app.slots.clone().try_acquire_owned() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    ws.max_message_size(16 * 1024)
-        .max_frame_size(16 * 1024)
+    ws.max_message_size(32 * 1024)
+        .max_frame_size(32 * 1024)
         .on_upgrade(move |socket| async move {
             let _permit = permit;
             session::run(
@@ -153,6 +160,7 @@ async fn upgrade(
                 &app.allowed,
                 app.shutdown.subscribe(),
                 app.uploads.sessions,
+                app.shares,
             )
             .await;
         })

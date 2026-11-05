@@ -1,0 +1,240 @@
+.sharing-area:empty {
+  display: none;
+}
+.sharing-area {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+}
+.share-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.share-card > svg {
+  color: var(--accent);
+}
+.share-card > span {
+  flex: 1;
+}
+.share-card button,
+.share-start {
+  border-radius: 7px;
+  padding: 9px 12px;
+  color: #151816;
+  background: var(--accent);
+  font-weight: 800;
+}
+.share-error {
+  padding: 10px 20px;
+  color: var(--red);
+  font-size: 13px;
+}
+.share-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.share-controls select {
+  width: auto;
+  padding: 8px;
+  font-size: 11px;
+}
+.share-controls label {
+  margin: 0;
+  font-size: 10px;
+}
+.share-audio-choice {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 90px;
+}
+.share-audio-choice input {
+  width: 14px;
+  accent-color: var(--accent);
+}
+.share-start {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.share-live {
+  color: var(--accent);
+  font-size: 12px;
+}
+.share-stop {
+  color: var(--red);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px;
+  font-size: 12px;
+}
+.share-desktop-hint {
+  font-size: 10px;
+  color: var(--muted);
+}
+.share-player {
+  background: #0b0e0c;
+  color: #e9ede5;
+}
+.share-player-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: #a7b49d;
+}
+.share-status {
+  color: #d5f879;
+}
+.share-viewport {
+  position: relative;
+  width: 100%;
+  height: min(38vh, 380px);
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
+  background: #080a09;
+}
+.share-viewport video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+.share-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #919a8b;
+  font-size: 13px;
+  pointer-events: none;
+}
+.share-player-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 11px;
+}
+.share-player-tools label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  flex: 1;
+}
+.share-player-tools input {
+  width: 90px;
+  padding: 0;
+  accent-color: #d5f879;
+}
+.share-player-tools button {
+  min-height: 32px;
+}
+.share-viewport:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+}
+.client-icons .share-tree-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+@media (max-width: 700px) {
+  .share-card {
+    padding: 10px 12px;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .share-card button {
+    padding: 8px;
+    flex-shrink: 0;
+  }
+  .share-viewport {
+    height: 28vh;
+  }
+  .share-player-tools {
+    gap: 6px;
+    padding: 4px 10px;
+  }
+  .share-player-tools label {
+    font-size: 0;
+  }
+  .share-player-tools input {
+    width: 70px;
+  }
+}
+@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .share-player {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+  }
+  .share-player-heading,
+  .share-player-tools {
+    flex-shrink: 0;
+  }
+  .share-viewport {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+  .share-player-tools::after {
+    content: "Sevřením přiblížíte · dvojklepem 1× / 2×";
+    font-size: 10px;
+    color: #919a8b;
+  }
+}
+/* Sdílení využívá stávající řádek .bar-actions; panel je mimo lištu. */
+.share-controls {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+}
+.share-controls select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+.share-controls label {
+  font-size: 13px;
+}
+.share-audio-choice {
+  max-width: none;
+}
+.share-toggle.share-live {
+  color: var(--accent);
+}
+.share-desktop-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 4px;
+}
+.client-icons .share-tree-icon {
+  cursor: pointer;
+}
+.share-panel .share-live {
+  margin: 18px 0;
+  font-size: 14px;
+}
+@media (max-height: 500px) and (pointer: coarse) {
+  .share-desktop-hint {
+    display: none;
+  }
+}
