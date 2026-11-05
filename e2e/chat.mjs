@@ -495,6 +495,117 @@ export async function chatChecks({
   ok(
     "Upload API: 401 bez/po relaci, SVG/HTML 415, 10 MiB a GIF 8 MiB 413, jedenáctý upload 429",
   );
+  // Úprava odeslaných zpráv: ↑ v prázdném poli a tužka; na drátě nová zpráva s opravou.
+  const field = (page) => page.getByLabel("Zpráva", { exact: true });
+  const delivered = (text) => () => deliveryCounts.get(text) || 0;
+  const editBar = a.locator(".edit-bar");
+  const edited = (page, text) =>
+    page
+      .locator(".message")
+      .filter({ has: page.locator(".message-text", { hasText: text }) });
+  const correction = "✎ oprava „Ahoj všichni“: Ahoj všem";
+  await send("Ahoj všichni");
+  await field(a).focus();
+  await field(a).press("ArrowUp");
+  await expect(field(a)).toHaveValue("Ahoj všichni");
+  await expect(editBar).toContainText("Upravujete zprávu · Esc zrušit");
+  await expect(
+    a.getByRole("button", { name: "Uložit úpravu", exact: true }),
+  ).toBeVisible();
+  await field(a).fill("Ahoj všem");
+  await field(a).press("Enter");
+  await expect.poll(delivered(correction), { timeout: 15000 }).toBe(1);
+  await a.waitForTimeout(700);
+  for (const page of [a, b]) {
+    await expect(page.getByText("Ahoj všem", { exact: true })).toHaveCount(1);
+    await expect(edited(page, "Ahoj všem").locator(".message-edited")).toHaveText(
+      "upraveno",
+    );
+    await expect(page.getByRole("log")).not.toContainText("Ahoj všichni");
+    await expect(page.getByRole("log")).not.toContainText("✎ oprava");
+  }
+  await expect(editBar).toHaveCount(0);
+  await expect(field(a)).toHaveValue("");
+  await expect
+    .poll(() => query.messages.includes(correction), { timeout: 15000 })
+    .toBe(true);
+  // Zprávy s obrázkem tužku nemají, textové vlastní ano.
+  await expect(
+    edited(a, "Fotka bez polohy").getByRole("button", { name: "Upravit zprávu" }),
+  ).toHaveCount(0);
+  await expect(
+    edited(a, "Ahoj všem").getByRole("button", { name: "Upravit zprávu" }),
+  ).toHaveCount(1);
+  // Oprava bez původní zprávy (jiný odesílatel, příjemce originál neviděl) je běžná zpráva.
+  const orphan = "✎ oprava „Tohle nikdo neposlal“: Samotná oprava";
+  await query.cmd(
+    `sendtextmessage targetmode=3 target=1 msg=${escapeQuery(orphan)}`,
+  );
+  await expect(b.getByRole("log")).toContainText(orphan);
+  // Kanál: totéž přes ↑.
+  for (const page of [a, b])
+    await page
+      .locator(".chat-tabs")
+      .getByRole("button", { name: "Kanál", exact: true })
+      .click();
+  await send("Kanál první");
+  await field(a).focus();
+  await field(a).press("ArrowUp");
+  await expect(field(a)).toHaveValue("Kanál první");
+  await field(a).fill("Kanál druhý");
+  await field(a).press("Enter");
+  await expect
+    .poll(delivered("✎ oprava „Kanál první“: Kanál druhý"), { timeout: 15000 })
+    .toBe(1);
+  await a.waitForTimeout(700);
+  for (const page of [a, b]) {
+    await expect(page.getByText("Kanál druhý", { exact: true })).toHaveCount(1);
+    await expect(page.getByRole("log")).not.toContainText("Kanál první");
+  }
+  // Soukromá konverzace: tužkou starší zprávu, pořadí zůstane.
+  await a.locator(".client-row").filter({ hasText: "Bára" }).click();
+  await a.getByRole("button", { name: "Napsat zprávu" }).click();
+  await send("Soukromá první");
+  await send("Soukromá druhá");
+  await edited(a, "Soukromá první")
+    .getByRole("button", { name: "Upravit zprávu" })
+    .click();
+  await expect(field(a)).toHaveValue("Soukromá první");
+  await expect(editBar).toBeVisible();
+  await field(a).fill("Soukromá první upravená");
+  await field(a).press("Enter");
+  await expect
+    .poll(
+      delivered("✎ oprava „Soukromá první“: Soukromá první upravená"),
+      { timeout: 15000 },
+    )
+    .toBe(1);
+  await b
+    .locator(".chat-tabs")
+    .getByRole("button", { name: /^Adam(?: |$)/ })
+    .click();
+  await a.waitForTimeout(700);
+  for (const page of [a, b])
+    await expect(page.locator(".message-text")).toHaveText([
+      "Soukromá první upravená",
+      "Soukromá druhá",
+    ]);
+  // Esc úpravu zruší a nic se neodešle.
+  const total = () =>
+    [...deliveryCounts.values()].reduce((sum, value) => sum + value, 0);
+  const before = total();
+  await edited(a, "Soukromá druhá")
+    .getByRole("button", { name: "Upravit zprávu" })
+    .click();
+  await expect(field(a)).toHaveValue("Soukromá druhá");
+  await field(a).press("Escape");
+  await expect(editBar).toHaveCount(0);
+  await expect(field(a)).toHaveValue("");
+  await a.waitForTimeout(1500);
+  expect(total()).toBe(before);
+  ok(
+    "Úprava zpráv: ↑ a tužka, oprava na drátě, náhrada na místě i v soukromé konverzaci, štítek upraveno, Esc, osamocená oprava",
+  );
   for (const page of [a, b])
     await page
       .locator(".chat-tabs")

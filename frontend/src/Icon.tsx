@@ -53,6 +53,7 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
         <path d="M9 3H4v18h5m5-14 5 5-5 5m-7-5h13" />
       </>
     ),
+    edit: <path d="m4 20 1-5L16 4l4 4L9 19l-5 1Zm9-14 4 4" />,
     send: <path d="m3 3 19 9-19 9 4-9-4-9Zm4 9h15" />,
     close: <path d="m6 6 12 12M6 18 18 6" />,
     user: (
