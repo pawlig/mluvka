@@ -6,6 +6,8 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend ./frontend
+ARG VITE_BUILD_COMMIT
+ENV VITE_BUILD_COMMIT=${VITE_BUILD_COMMIT}
 RUN npm run build
 
 FROM rust:1.99-bookworm AS backend

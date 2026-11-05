@@ -7,6 +7,7 @@ import {
   jitterChecks,
   installAudioProbe,
   toneCheck,
+  summarizeAudioTiming,
   mobileAudioCheck,
   vadCheck,
   networkCheck,
@@ -990,7 +991,10 @@ try {
     if (!match) return [];
     try { return [JSON.parse(match[1])]; } catch { return []; }
   });
-  if (timing.length) ok("Backend: histogram mezer mixu a WS writeru bez osobních údajů", { timing });
+  if (timing.length) {
+    writeFileSync(resolve(temp, `audio-timing-${process.env.E2E_CODEC || "opus"}.json`), JSON.stringify(timing));
+    ok("Backend: histogram mezer mixu a WS writeru bez osobních údajů", { timing: summarizeAudioTiming(timing) });
+  }
   if (!process.env.E2E_FLOOD_ONLY) await banUiChecks({ browser, base, login: fillLogin, ok });
   if (!process.env.E2E_FLOOD_ONLY)
     await mobileRegressionChecks({ browser, base, query, password, login: fillLogin, ok, backendLog: () => backendOutput, root });

@@ -1,9 +1,51 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fork } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import { strict as assert } from "node:assert";
 import { expect } from "@playwright/test";
+
+// V repozitáři ponecháváme číselný souhrn; jednotlivá 30s okna jsou v tmp-ts3.
+export function summarizeAudioTiming(windows) {
+  const summaries = [...new Set(windows.map((w) => w.stage || "writer"))].map((stage) => {
+    const rows = windows.filter((w) => (w.stage || "writer") === stage);
+    const summary = { stage, windows: rows.length };
+    for (const key of new Set(rows.flatMap(Object.keys))) {
+      const values = rows.map((w) => w[key]).filter((v) => v && Array.isArray(v.histogram));
+      if (!values.length) continue;
+      const worst = values.reduce((a, b) => a.maxMs >= b.maxMs ? a : b);
+      const histogram = worst.histogram.map((_, i) => values.reduce((sum, v) => sum + v.histogram[i], 0));
+      summary[key] = { count: histogram.reduce((a, b) => a + b, 0), histogram,
+        maxMs: worst.maxMs, maxAtMs: worst.maxAtMs ?? null,
+        maxWindowP95Ms: Math.max(...values.map((v) => v.p95Ms)) };
+    }
+    if (stage === "writer") {
+      summary.queueMaxMs = Math.max(...rows.map((w) => w.queueMaxMs));
+      summary.averageFrameBytesRange = [Math.min(...rows.map((w) => w.averageFrameBytes)), Math.max(...rows.map((w) => w.averageFrameBytes))];
+    }
+    if (stage === "mix") summary.modes = [...new Set(rows.map((w) => w.mode || "thread"))];
+    return summary;
+  });
+  const mix = summaries.find((row) => row.stage === "mix"),
+    source = summaries.find((row) => row.stage === "source");
+  assert.ok(mix?.mixStart?.count > 0 && source?.sessionTick?.count > 0,
+    "Chybí měření mixStart/sessionTick ze stejného běhu");
+  mix.cadenceComparison = {
+    mixP95Ms: mix.mixStart.maxWindowP95Ms,
+    sessionP95Ms: source.sessionTick.maxWindowP95Ms,
+    mixGaps25to50: mix.mixStart.histogram[1],
+    sessionGaps25to50: source.sessionTick.histogram[1],
+    mixTickDelayP95Ms: mix.tickDelay.maxWindowP95Ms,
+    sessionTickDelayP95Ms: source.tickDelay.maxWindowP95Ms,
+  };
+  measured("Backend: kadence mixu není horší než takt relace", mix.cadenceComparison, () => {
+    assert.ok(mix.cadenceComparison.mixP95Ms <= mix.cadenceComparison.sessionP95Ms,
+      "mixStart p95 okna překročilo sessionTick p95 okna");
+    assert.ok(mix.cadenceComparison.mixGaps25to50 <= mix.cadenceComparison.sessionGaps25to50,
+      "Mix má víc mezer 25–50 ms než takt relace");
+  });
+  return summaries;
+}
 
 function measured(name, details, check) {
   try {
@@ -98,6 +140,29 @@ export function jitterChecks(ok) {
   }
   {
     const { node, events } = processor();
+    let frame = 0, peak = 0;
+    for (let t = 0; t < 48000 * 60; t += 128) {
+      // Jediná 120ms mezera po 5 s, poté FIFO dávka všech opožděných rámců.
+      if (t < 48000 * 5 || t >= 48000 * 5.12) {
+        while (frame * 960 <= t) {
+          node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } });
+          frame++;
+        }
+      }
+      node.process([], [[new Float32Array(128)]]);
+      peak = Math.max(peak, node.target / 48);
+    }
+    const underruns = events.filter((v) => v.underrun).length;
+    assert.equal(underruns, 1);
+    assert.ok(peak <= 150);
+    assert.ok(node.target / 48 <= 90);
+    assert.equal(events.filter((v) => v.dropped).length, 0);
+    ok("Desktop: jedno podtečení / 120ms špička, do 60 s cíl opět do 90 ms", {
+      underruns, peakTargetBufferMs: peak, targetBufferMs: node.target / 48,
+    });
+  }
+  {
+    const { node, events } = processor();
     node.port.onmessage({ data: { settings: { mobile: true, opus: true } } });
     let seed = 1291, gates = 0, frame = 0, phase = 0;
     const gap = () => {
@@ -129,6 +194,28 @@ export function jitterChecks(ok) {
     });
   }
   {
+    const phases = [];
+    for (const phaseMs of [0, 5, 10, 15]) {
+      const { node, events } = processor();
+      node.port.onmessage({ data: { settings: { mobile: true, opus: true } } });
+      let seed = 1291, gates = 0, frame = 0, min = Infinity;
+      const gap = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return ++gates % 17 === 0 ? 400 : 50 + seed / 4294967296 * 250; };
+      let next = 10000 + 80 + gap();
+      const send = () => { node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } }); frame++; };
+      for (let t = 0; t < 48000 * 85; t += 128) {
+        if (t < 48000 * 10) { while (frame * 960 + phaseMs * 48 <= t) send(); }
+        else while (next * 48 <= t) { while (frame * 20 + phaseMs <= next - 80) send(); next += gap(); }
+        node.process([], [[new Float32Array(128)]]);
+        if (t <= 48000 * 25) events.length = 0;
+        else min = Math.min(min, (node.write - node.read) / 48);
+      }
+      const underruns = events.filter((e) => e.underrun).length, droppedFrames = events.filter((e) => e.dropped).length;
+      assert.equal(underruns, 0); assert.equal(droppedFrames, 0);
+      phases.push({ phaseMs, underruns, droppedFrames, minBufferMs: min });
+    }
+    ok("Mobil VM: změna z čisté sítě na 80ms latenci a jitter 400 ms, čtyři fáze", { phases });
+  }
+  {
     const burst = processor();
     burst.node.port.onmessage({ data: { settings: { mobile: true } } });
     for (let i = 0; i < 30; i++) burst.node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } });
@@ -155,21 +242,25 @@ export function jitterChecks(ok) {
   }
   assert.ok(events.some((e) => e.underrun));
   // Samostatný test fade-out s konstantním vstupem: skok při podtečení < 0,01.
-  const fade = processor().node;
-  for (let i = 0; i < 3; i++)
+  const fadeCase = processor(), fade = fadeCase.node;
+  for (let i = 0; i < 4; i++)
     fade.port.onmessage({
       data: { pcm: new Int16Array(960).fill(16384).buffer },
     });
   last = 0;
   jump = 0;
+  let fadePeak = 0;
   for (let i = 0; i < 60; i++) {
     const out = new Float32Array(128);
     fade.process([], [[out]]);
     for (const x of out) {
+      fadePeak = Math.max(fadePeak, Math.abs(x));
       jump = Math.max(jump, Math.abs(x - last));
       last = x;
     }
   }
+  assert.ok(fadePeak > 0.49);
+  assert.ok(fadeCase.events.some((event) => event.underrun));
   assert.ok(jump < 0.01);
   ok("Podtečení a obnovení používají plynulé prolnutí", { fadeMaxJump: jump });
 }
@@ -199,7 +290,11 @@ export async function installAudioProbe(context) {
         super(...args);
         window.testAudioNode = this;
         window.testCapturedRms = [];
+        window.testPlaybackTrace = [];
+        window.testPlaybackUnderruns = [];
         this.port.addEventListener("message", ({ data }) => {
+          if (data.playbackTrace) window.testPlaybackTrace.push(...data.playbackTrace);
+          if (data.underrun) window.testPlaybackUnderruns.push(data.playbackAtMs);
           if (!data.pcm) return;
           const pcm = new Int16Array(data.pcm);
           window.testCapturedRms.push(
@@ -313,7 +408,9 @@ export async function toneCheck(a, b, ok, codec, profile) {
       max,
       maxDown,
     });
+  const strictDesktop = !profile.cdp;
   const timing = {
+    strictDesktop,
     binaryGapMs: measurement.binaryGapMs,
     path: profile.cdp ? "proxy" : "native",
     ...(profile.cdp ? {
@@ -343,9 +440,9 @@ export async function toneCheck(a, b, ok, codec, profile) {
     expect(measurement.stats.underruns).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
-    // Nové zadání dovoluje vyšší cíl při skutečně naměřeném jitteru.
-    // Původní meze zůstávají pro čistý desktop, nulové podtečení platí vždy.
-    if (measurement.binaryGapMs <= 50 && initialTargetBufferMs <= 90) {
+    // Nativní desktop vždy vyžaduje nízkou latenci, nezávisle na výsledku.
+    // Vyšší rezervu smí přijmout jen výslovně zapnutý síťový shaper.
+    if (strictDesktop) {
       expect(max).toBeLessThanOrEqual(120);
       expect(measurement.stats.targetBufferMs).toBeLessThanOrEqual(90);
     } else expect(max).toBeLessThanOrEqual(400);
@@ -1019,19 +1116,35 @@ export async function mobileAudioCheck({ browser, base, login, ok, codec, privat
     profile.configure(80, 0, true);
     // Adaptace se měří po náběhu linky, nikoli při záměrné změně profilu.
     await page.waitForTimeout(15000);
-    await page.evaluate(() => {
-      Object.assign(window.__mluvkaStats, { underruns: 0, plcFrames: 0, lostFrames: 0, droppedFrames: 0 });
-      window.testAudioNode.port.postMessage({ resetMetrics: true });
-    });
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const port = window.testAudioNode.port;
+      const timer = setTimeout(() => { port.removeEventListener("message", ready); reject(Error("Worklet nepotvrdil začátek měření.")); }, 5000);
+      const ready = ({ data }) => {
+        if (data.metricsResetAtMs === undefined) return;
+        clearTimeout(timer); port.removeEventListener("message", ready);
+        // FIFO portu nejprve vyřídí i události čekající z náběhu sítě.
+        Object.assign(window.__mluvkaStats, { underruns: 0, plcFrames: 0, lostFrames: 0, droppedFrames: 0 });
+        window.testPlaybackTrace = []; window.testPlaybackUnderruns = [];
+        window.testMeasurementAtMs = data.metricsResetAtMs;
+        window.testPlaybackInitialState = data.playbackState;
+        resolve();
+      };
+      port.addEventListener("message", ready);
+      port.postMessage({ resetMetrics: true, tracePlayback: true });
+    }));
     profile.reset();
-    await page.waitForTimeout(60000);
+    await page.waitForTimeout(120000);
     const stats = await page.evaluate(() => ({ ...window.__mluvkaStats, uid: undefined }));
+    await page.evaluate(() => window.testAudioNode.port.postMessage({ tracePlayback: false }));
+    await page.waitForTimeout(50);
+    const trace = await page.evaluate(() => ({ schema: 1, startAtMs: window.testMeasurementAtMs, initialState: window.testPlaybackInitialState, frames: window.testPlaybackTrace, underrunsAtMs: window.testPlaybackUnderruns }));
+    writeFileSync(new URL(`../tmp-ts3/mobile-playback-${codec}.json`, import.meta.url), JSON.stringify(trace));
     await profile.snapshot();
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
     const diagnostic = await diagnosticCheck(page, ok, [...privateValues, "Mobilní diagnostika"]);
-    const name = `Mobilní zvuk / ${codec}: CPU 4×, jitter 50–300 / 400 ms, 60 s`;
+    const name = `Mobilní zvuk / ${codec}: CPU 4×, jitter 50–300 / 400 ms, 120 s`;
     const details = { underruns: stats.underruns, plcFrames: stats.plcFrames, lostFrames: stats.lostFrames, droppedFrames: stats.droppedFrames,
-      inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs, diagnostic };
+      inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs, durationSeconds: 120, diagnostic };
     measured(name, details, () => {
       expect(stats.codec).toBe(codec);
       expect(stats.underruns).toBe(0);

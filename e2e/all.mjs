@@ -1,7 +1,7 @@
 // Úplné regresní kroky běží v obou vyjednaných transportech proti skutečnému TS3.
 import { localTurn } from "./turn.mjs";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, symlinkSync, rmSync, readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 const report = new URL("../docs/e2e-vysledky.json", import.meta.url);
@@ -37,9 +37,12 @@ try {
     throw Error("Sestavení testovacího frontendu selhalo.");
   const turn = await localTurn();
   const admin = randomBytes(18).toString("hex");
-  const directory =
-    process.env.TS3_DIR ||
-    resolve(import.meta.dirname, "../tmp-ts3/teamspeak3-server_mac");
+  const bundle = process.env.TS3_DIR || resolve(import.meta.dirname, "../tmp-ts3/teamspeak3-server_mac");
+  // default_voice_port se používá jen při vytvoření DB. Starší sdílená DB by
+  // ignorovala TS3_VOICE_PORT, proto má každý úplný běh vlastní prázdnou DB.
+  const directory = mkdtempSync(resolve(import.meta.dirname, "../tmp-ts3/ts3-e2e-"));
+  for (const name of ["ts3server", "sql", ...readdirSync(bundle).filter((name) => /^lib.*\.(dylib|so)$/.test(name))])
+    symlinkSync(resolve(bundle, name), resolve(directory, name));
   const server = spawn(
     resolve(directory, "ts3server"),
     [
@@ -77,6 +80,7 @@ try {
               ...turn.env,
               E2E_CODEC: codec,
               E2E_TS_ADMIN: admin,
+              TS3_DIR: directory,
             },
             stdio: "inherit",
           },
@@ -125,6 +129,7 @@ try {
         });
         server.kill("SIGTERM");
       });
+    rmSync(directory, { recursive: true, force: true });
   }
 } finally {
   // I po chybě testů obnovíme frontend bez testovacího relay přepínače.
