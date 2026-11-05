@@ -337,6 +337,16 @@ export async function sharingChecks({
   expect((await a.locator(".voice-bar").boundingBox()).height).toBeLessThan(
     110,
   );
+  for (const width of [1024, 768]) {
+    await a.setViewportSize({ width, height: 900 });
+    expect(
+      await a.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+    ).toBeLessThanOrEqual(1);
+    expect((await a.locator(".voice-bar").boundingBox()).height).toBeLessThan(
+      110,
+    );
+  }
+  await a.setViewportSize({ width: 1440, height: 900 });
   ok("Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon");
   await a.screenshot({
     path: resolve(root, "docs/screenshots/sdileni-desktop-sdilejici.png"),
