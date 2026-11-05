@@ -2,12 +2,12 @@
 # Plný build (Node + Rust). Používá ho GitHub Actions a výsledek posílá do ghcr.io/pawlig/mluvka.
 # Na Easypanelu se nestaví — tam jde jen ./Dockerfile, který hotový image stáhne.
 FROM node:26-bookworm-slim AS frontend
-ARG VITE_BUILD_COMMIT
-ENV VITE_BUILD_COMMIT=${VITE_BUILD_COMMIT}
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend ./frontend
+ARG VITE_BUILD_COMMIT
+ENV VITE_BUILD_COMMIT=${VITE_BUILD_COMMIT}
 RUN npm run build
 
 FROM rust:1.99-bookworm AS backend
