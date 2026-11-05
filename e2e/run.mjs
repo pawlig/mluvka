@@ -7,11 +7,14 @@ import {
   toneCheck,
   vadCheck,
   networkCheck,
+  slowReceiverCheck,
   shapeSocket,
+  closeShapers,
   fallbackCheck,
   codecRecoveryCheck,
 } from "./audio.mjs";
 import { resamplingChecks } from "./resampling.mjs";
+import { shaperChecks } from "./shaper.mjs";
 import { chatChecks } from "./chat.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { notificationChecks } from "./upozorneni.mjs";
@@ -34,6 +37,7 @@ const admin = process.env.E2E_TS_ADMIN || randomBytes(18).toString("hex"),
   password = randomBytes(12).toString("hex"),
   channelPassword = randomBytes(12).toString("hex");
 const tsDir = process.env.TS3_DIR || resolve(temp, "teamspeak3-server_mac");
+mkdirSync(temp, { recursive: true });
 const uploadDir = mkdtempSync(resolve(root, "tmp-ts3/mluvka-chat-upload-"));
 let ts, backend, browser, query;
 let backendOutput = "";
@@ -41,8 +45,7 @@ let pages = [];
 const results = [],
   errors = [];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-function ok(name, details = {}) {
-  results.push({ test: name, result: "OK", ...details });
+function writeReport() {
   writeFileSync(
     resolve(root, "docs/e2e-vysledky.json"),
     JSON.stringify(
@@ -51,7 +54,22 @@ function ok(name, details = {}) {
       2,
     ) + "\n",
   );
+}
+function ok(name, details = {}) {
+  results.push({ test: name, result: "OK", ...details });
+  writeReport();
   console.log(`OK · ${name}`);
+}
+async function audioStep(step) {
+  try {
+    await step();
+  } catch (error) {
+    if (!error.audioMeasurement) throw error;
+    results.push(error.audioMeasurement);
+    writeReport();
+    console.error("FAIL ·", JSON.stringify(error.audioMeasurement));
+    process.exitCode = 1;
+  }
 }
 async function eventually(fn, ms = 15000) {
   const deadline = Date.now() + ms;
@@ -550,6 +568,7 @@ try {
       });
     return context;
   };
+  await shaperChecks(ok);
   await codecRecoveryCheck(ok);
   resamplingChecks(ok);
   jitterChecks(ok);
@@ -583,7 +602,7 @@ try {
     });
     const a = await aContext.newPage(),
       b = await bContext.newPage();
-    const networkProfile = await shapeSocket(b);
+    let networkProfile = {};
     pages = [a, b];
     for (const p of [a, b]) {
       if (process.env.E2E_DEBUG)
@@ -731,8 +750,17 @@ try {
       "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       audible,
     );
-    await toneCheck(a, b, ok, process.env.E2E_CODEC || "opus", networkProfile);
-    await networkCheck(
+    await audioStep(() => toneCheck(a, b, ok, process.env.E2E_CODEC || "opus", networkProfile));
+    networkProfile = await shapeSocket(b);
+    // Routing zachytí až nová WS. Čistý tón proto používá skutečnou přímou cestu.
+    if (!process.env.E2E_NATIVE) {
+      await b.evaluate(() => window.dispatchEvent(new Event("online")));
+      await expect.poll(() => networkProfile.connections).toBeGreaterThan(0);
+      await connected(b);
+      expect(await b.evaluate(() => window.__mluvkaStats.codec)).toBe(process.env.E2E_CODEC || "opus");
+      ok("Síťový shaper se připojil až po měření nativního WS");
+    }
+    await audioStep(() => networkCheck(
       browser,
       a,
       b,
@@ -740,7 +768,8 @@ try {
       process.env.E2E_CODEC || "opus",
       networkProfile,
       query,
-    );
+    ));
+    await slowReceiverCheck(browser, a, b, ok, process.env.E2E_CODEC || "opus", networkProfile, query);
     await b.locator(".client-row").filter({ hasText: "Adam" }).click();
     await b.getByLabel("Lokálně ztlumit", { exact: true }).check();
     await b.getByRole("button", { name: "Zavřít uživatele" }).click();
@@ -871,6 +900,7 @@ try {
       .toBe(false);
     ok("Zavření prohlížeče odpojí jeho TS klienta");
     await bContext.close();
+    await networkProfile.close?.();
   }
   await vadCheck({
     browser,
@@ -943,5 +973,6 @@ try {
     ),
   );
   await Promise.race([browser?.close(), wait(5000)]);
+  await closeShapers();
   rmSync(uploadDir, { recursive: true, force: true });
 }

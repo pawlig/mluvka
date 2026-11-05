@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 const report = new URL("../docs/e2e-vysledky.json", import.meta.url);
+const partial = ["E2E_FOCUS", "E2E_TAIL", "E2E_NATIVE"].some((key) => !!process.env[key]);
 const results = [],
   errors = [],
   runs = [];
@@ -64,7 +65,7 @@ try {
         {
           date: new Date().toISOString(),
           complete:
-            runs.length === 2 && runs.every((run) => run.exitCode === 0),
+            !partial && runs.length === 2 && runs.every((run) => run.exitCode === 0),
           runs,
           results,
           errors,
@@ -75,7 +76,6 @@ try {
     );
     if (status !== 0) {
       process.exitCode = status || 1;
-      break;
     }
   }
 } finally {

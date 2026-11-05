@@ -1,49 +1,58 @@
-# Ověření zvuku 4. 11. 2026
+# Ověření oprav přejímky #1291 — 5. 11. 2026
 
-Implementace, buildy, jednotkové testy a UI jsou ověřené. **Úplná přejímka není hotová**:
-poslední `npm run e2e` skončilo před testy, protože jiný pracovní strom používal lokální TS3.
-V jeho logu je `local accounting reports an already running instance`.
-Výsledek aktuálního pokusu má `complete: false` v [E2E reportu](e2e-vysledky.json).
+Přejímka není úplně zelená: `npm run e2e` má `complete: false`; konkrétní neúspěchy jsou níže.
+Strojový report: [e2e-vysledky.json](e2e-vysledky.json), čas UTC `2026-11-04T23:52:02.273Z`.
 
-- `cargo clippy -- -D warnings`, `cargo test` (5/5), `cargo build --release`: prošly.
-- `npm run typecheck`, `npm run build`: prošly.
-- Skutečný zdroj AudioWorkletu ve VM: 30 s běžný takt a 60 s drift ±1 %, vždy 0 podtečení / 0 zahození;
-  korekce +1,028 % / −0,992 %. Fade-out maximální skok 0,002084.
-  [Strojový výsledek](audio-jednotkove.json) obsahuje i PLC obnovu a limit odchozích dávek.
-- `node e2e/flood.mjs http://localhost:3001`: prošlo. Virtuální čas ověřil ≥120 s pro flood
-  a ≥3 s pro restart, včetně návratu skrytého tabu. [Výsledek](flood-vysledky.json).
-- `prohlizec kontrola http://localhost:3001 docs/kontrola-audio-ui`: tři varianty bez JS chyb,
-  konzolových chyb a přesahu. [Souhrn](kontrola-audio-ui/souhrn.json).
-  [Dotyk](kontrola-audio-ui/dotyk.json): 390×844, scale 1, všechny vstupy 16 px,
-  jeden prst povolen, dva blokované, posuvný panel se posunul o 933 px.
+## Opravy
 
-## Dřívější dílčí E2E měření
+- Neznámý příkaz TS vrací `request_failed` a obecnou zprávu; DNS/transport má vlastní mapování. Kick se odvozuje z důvodu odebrání vlastního klienta, ukončení TS spojení má `server_closed`.
+- Worklet žádá o dočasné PLC až po skutečném podtečení. Rezerva pod cílem sama PLC nevyvolá; VM kontroluje nulové PLC také při driftu ±1 %.
+- Při Burst dohánění dostane writer prostor mezi rámci; audio fronta má 16 rámců a TCP používá `TCP_NODELAY`. TS pollování nečeká na zápis do WS.
+- Backend toleruje 45 s bez pong/ping. Frontend rozpoznává síťové ticho po 20 s, ale po pauze JS nechá zpracovat čekající zprávy.
+- Původní údaj o odchodu byl bez `reasonid` (test ukazoval `NaN`), nikoli důkaz ping timeoutu. Knihovna bez `.reason(...)` důvod neodesílá. Všechny cesty nyní používají `Reason::Clientdisconnect` (8), včetně restartu a chyb WS.
+- Export identity TS používá pevný 32B soukromý skalár. Parser knihovny u starého ASN.1 exportu odmítal klíče začínající nulou. Nový test ověřuje zachování counteru, UID i import dříve platného formátu. Gitová identita se neměnila.
 
-Tato čísla pocházejí z běhu **před poslední změnou horního cíle bufferu ze 100 na 90 ms**.
-Nejsou potvrzením celé současné verze. [Surová data](audio-dilci-vysledky.json).
+## Buildy a jednotkové kontroly
 
-| Tón 30 s | Podtečení | Max. skok |  Buffer ms | FFT Hz | RMS rozdíl dB | Max. dolů kb/s |
-| -------- | --------: | --------: | ---------: | -----: | ------------: | -------------: |
-| Opus     |         0 |   0,01143 | 95,8–118,3 | 439,45 |       +0,0063 |          91,27 |
-| PCM      |         1 |   0,01801 | 60,0–130,5 | 439,45 |       −0,0030 |         776,55 |
+- `cargo clippy --all-targets -- -D warnings`: exit 0.
+- `cargo test`: 11 prošlo, 0 selhalo; obsahuje ChannelInvalidId → request_failed, kick, falešný ban, flood a obnovu identity s počáteční nulou.
+- `cargo build --release`: exit 0.
+- `npm run typecheck`, `npm run build`: exit 0.
+- `prohlizec kontrola http://localhost:3001 docs/kontrola-slouceni`: exit 0; desktop/tmavý/mobil, 0 px přesah, žádné JS ani konzolové chyby. [Souhrn](kontrola-slouceni/souhrn.json).
 
-Druhé 30s okno při 1,5 Mb/s / 80 ms: oba transporty 0 podtečení, Opus 90,30 kb/s,
-PCM 776,62 kb/s (8,6× více). VAD: první 200 ms −0,15 dB proti ustálenému signálu,
-slabý předběh 80 ms, ztracený začátek 0 ms. Dřívější Opus sada prošla i restartem,
-PWA, mobilní emulací a 44,1kHz obousměrným hlasem.
+## Poslední úplný běh
 
-## Metodika a zbývající ověření
+| Transport | Výsledek tónu | Podtečení / PLC | Buffer ms | Max. skok | FFT Hz | RMS rozdíl dB | Max. dolů kb/s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| opus | FAIL | 2 / 10 | 66.2–247.9 | 0.01528 | 439.45 | -0.0890 | 103.29 |
+| pcm | FAIL | 1 / 0 | 55.1–210.1 | 0.11160 | 439.45 | -0.0435 | 776.32 |
 
-E2E má vlastní izolované Chrome profily a lokální TS3 3.13.7. Mikrofon je WAV 440 Hz;
-RMS reference je signál za kompresorem. Výstupní RMS se integruje přes vzorky workletu,
-FFT výkon se sčítá během 30 s přes AnalyserNode. Chrome má testovací audio výstup,
-nepoužívá fyzické reproduktory. CDP síť doplňuje skutečné zpoždění/pacing binárních WS rámců.
-Drift se simuluje nezávislými hodinami příjmu/renderu ve skutečném kódu workletu.
+Oba čisté 30s tóny mají stejné asserty: 0 podtečení, 0 PLC, buffer 40–120 ms, skok <0,3, FFT 440±5 Hz a RMS ±1,5 dB. Opus navíc ≤130 kb/s.
 
-Orchestrátor musí vyhradit TS3 jedinému běhu a spustit `npm run e2e` až do
-`complete: true` pro Opus i PCM. Rozšířená kontrola ServerQuery nyní připouští
-setrvání B i jeho čisté odpojení a návrat; důvod odchodu musí být 8 (`clientdisconnect`).
-Aktuální 90ms horní cíl ještě potřebuje toto úplné E2E ověření.
+| Transport | Síť 1,5 Mb/s / 80 ms: podtečení / PLC | Dolů kb/s | Pauza JS 20 s | SIGTERM |
+| --- | --- | --- | --- | --- |
+| opus | 2 / 10 | 98.50 | TS spojení zachováno | 4 ms, důvody [8] |
+| pcm | 0 / 0 | 783.47 | TS spojení zachováno | 3 ms, důvody [8] |
 
-Neověřeno: skutečný klient Martina, fyzický iOS Safari/Android, Bluetooth a provoz na Easypanelu.
-Docker build nebyl podle zadání spouštěn. Nic nebylo pushnuto.
+Ve zhoršené síti je pro Opus vyžadováno 0 podtečení; PCM je srovnání podle zadání G. Čistý PCM tón výjimku nemá.
+
+- VAD opus: začátek 0.121 dB, předběh 100 ms, ztracený začátek 0 ms.
+- VAD pcm: začátek -0.043 dB, předběh 60 ms, ztracený začátek 20 ms.
+- Drift 1.01, 60 s: 0 podtečení / 0 zahození, korekce 1.028 %.
+- Drift 0.99, 60 s: 0 podtečení / 0 zahození, korekce -0.992 %.
+- opus: 85/87 kontrol OK.
+- pcm: 86/87 kontrol OK.
+
+Neúspěšné kontroly:
+- opus: TS3 tón 440 Hz / opus, 30 s bez podtečení — {"test": "TS3 tón 440 Hz / opus, 30 s bez podtečení", "result": "FAIL", "underruns": 2, "plcFrames": 10, "lostFrames": 0, "binaryGapMs": 328.59999990463257, "path": "native", "maxJump": 0.015282787382602692, "minBufferMs": 66.18176411126237, "maxBufferMs": 247.92074006251642, "dominantHz": 439.453125, "rmsDifferenceDb": -0.08904654023132486, "maxDownKbps": 103.29084132212084, "runCodec": "opus"}
+- opus: CDP síť 1,5 Mb/s / 80 ms, opus, 30 s — {"test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s", "result": "FAIL", "underruns": 2, "downKbps": 98.49688086999367, "plcFrames": 10, "lostFrames": 0, "inputGapMs": 185.77549999999974, "outputGapMs": 141.7732079999987, "comparisonOnly": false, "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.", "runCodec": "opus"}
+- pcm: TS3 tón 440 Hz / pcm, 30 s bez podtečení — {"test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení", "result": "FAIL", "underruns": 1, "plcFrames": 0, "lostFrames": 0, "binaryGapMs": 204.09999990463257, "path": "native", "maxJump": 0.11160468682646751, "minBufferMs": 55.0680907733719, "maxBufferMs": 210.13556705106748, "dominantHz": 439.453125, "rmsDifferenceDb": -0.04353433209497332, "maxDownKbps": 776.3153724980539, "runCodec": "pcm"}
+
+## Metodika a omezení
+
+Čistý tón běží přes nativní WebSocket bez testovacího prostředníka. Síťová fáze naváže nové WS přes samostatný TCP proces (`e2e/ws-shaper.mjs`) a zapne CDP emulaci. Proxy má FIFO, byte pacing a zachová data před FIN; vlastní zkouška přenáší 12 000 B s latencí ≥70 ms a dobou přenosu ≥55 ms. Playwright tak neřídí časování každého hlasového rámce svými RPC.
+RMS reference je mikrofonní signál za kompresorem. Výstupní RMS integruje worklet, FFT se sčítá během 30 s z AnalyserNode. Zbytečný přenos 16 384 vzorků přes Playwright byl odstraněn. Žádný assert čistého tónu nebyl změkčen. Selhání měření se uloží jako FAIL a zůstane exit 1; nezávislé další kontroly i druhý kodek přesto doběhnou. Diagnostické režimy nemohou vyrobit complete: true.
+Nejdelší mezera doručení v posledním čistém tónu byla 328.6 ms. Při požadavku nejvýše 120 ms rezervy nelze delší pauzu zaručeně překlenout bez náhrady zvuku. Dřívější [diagnostika](audio-jitter-diagnostika.json) ukazuje další 178ms pauzu. Rozlišení příčiny (backend/OS proti doručení na hlavní vlákno prohlížeče) není dokončené. Výsledky výše popisují konkrétní běh.
+Upozornění, nepřečtené, pozvánky, rich chat a upload mají v reportu samostatné kontroly v obou transportech. Mobilní emulace ověřuje scale 1, fonty ≥16 px, dotykové PTT, layout a obnovu hovoru.
+
+Neověřeno: Martinův skutečný TS klient, fyzický iOS/Android, Bluetooth a Easypanel. Docker build podle zadání nebyl spuštěn. Práce zůstává v lokálních commitech větve vyvoj.

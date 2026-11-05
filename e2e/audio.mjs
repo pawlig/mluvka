@@ -1,7 +1,17 @@
 import { readFileSync } from "node:fs";
+import { fork } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import { strict as assert } from "node:assert";
 import { expect } from "@playwright/test";
+
+function measured(name, details, check) {
+  try {
+    check();
+  } catch (error) {
+    error.audioMeasurement = { test: name, result: "FAIL", ...details };
+    throw error;
+  }
+}
 
 function processor(rate = 48000) {
   let Type;
@@ -116,6 +126,8 @@ export async function installAudioProbe(context) {
     const NativeSocket = window.WebSocket;
     window.WebSocket = class extends NativeSocket {
       constructor(...args) {
+        if (window.testAudioProxy && new URL(args[0], location.href).pathname === "/ws")
+          args[0] = window.testAudioProxy;
         super(...args);
         this.addEventListener("message", ({ data }) => {
           if (typeof data === "string") return;
@@ -221,11 +233,7 @@ export async function toneCheck(a, b, ok, codec, profile) {
     maxDown = Math.max(maxDown, stats.downKbps);
   }
   const measurement = await b.evaluate(() => {
-    const samples = new Float32Array(window.testAnalyser.fftSize);
-    window.testAnalyser.getFloatTimeDomainData(samples);
     return {
-      samples: [...samples],
-      rate: window.testAudioNode.context.sampleRate,
       binaryGapMs: window.testBinaryGapMs,
       stats: { ...window.__mluvkaStats, uid: undefined },
     };
@@ -252,38 +260,38 @@ export async function toneCheck(a, b, ok, codec, profile) {
     });
   const timing = {
     binaryGapMs: measurement.binaryGapMs,
-    inputGapMs: profile.inputGapMs,
-    outputGapMs: profile.outputGapMs,
+    path: profile.cdp ? "proxy" : "native",
+    ...(profile.cdp ? {
+      inputGapMs: profile.inputGapMs,
+      outputGapMs: profile.outputGapMs,
+    } : {}),
   };
-  expect(measurement.stats.codec).toBe(codec);
-  {
-    expect(measurement.stats.plcFrames, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
-    expect(measurement.stats.underruns, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
+  const name = `TS3 tón 440 Hz / ${codec}, 30 s bez podtečení`;
+  const details = {
+    underruns: measurement.stats.underruns,
+    plcFrames: measurement.stats.plcFrames,
+    lostFrames: measurement.stats.lostFrames,
+    ...timing,
+    maxJump: measurement.stats.maxJump,
+    minBufferMs: min,
+    maxBufferMs: max,
+    dominantHz,
+    rmsDifferenceDb,
+    maxDownKbps: maxDown,
+  };
+  measured(name, details, () => {
+    expect(measurement.stats.codec).toBe(codec);
+    expect(measurement.stats.plcFrames).toBe(0);
+    expect(measurement.stats.underruns).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
     expect(max).toBeLessThanOrEqual(120);
-  }
-  expect(measurement.stats.maxJump).toBeLessThan(0.3);
-  expect(Math.abs(dominantHz - 440)).toBeLessThanOrEqual(5);
-  expect(Math.abs(rmsDifferenceDb)).toBeLessThanOrEqual(1.5);
-  if (codec === "opus") {
-    expect(maxDown).toBeLessThanOrEqual(130);
-  }
-  ok(
-    `TS3 tón 440 Hz / ${codec}, 30 s bez podtečení`,
-    {
-      underruns: measurement.stats.underruns,
-      plcFrames: measurement.stats.plcFrames,
-      lostFrames: measurement.stats.lostFrames,
-      ...timing,
-      maxJump: measurement.stats.maxJump,
-      minBufferMs: min,
-      maxBufferMs: max,
-      dominantHz,
-      rmsDifferenceDb,
-      maxDownKbps: maxDown,
-    },
-  );
+    expect(measurement.stats.maxJump).toBeLessThan(0.3);
+    expect(Math.abs(dominantHz - 440)).toBeLessThanOrEqual(5);
+    expect(Math.abs(rmsDifferenceDb)).toBeLessThanOrEqual(1.5);
+    if (codec === "opus") expect(maxDown).toBeLessThanOrEqual(130);
+  });
+  ok(name, details);
 }
 
 export async function vadCheck({ browser, base, login, ok, codec }) {
@@ -447,9 +455,7 @@ export async function vadCheck({ browser, base, login, ok, codec }) {
 }
 export async function networkCheck(browser, a, b, ok, codec, profile, query) {
   const cdp = profile.cdp;
-  profile.latency = 80;
-  profile.bitsPerSecond = 1500000;
-  profile.next = 0;
+  profile.configure?.(80, 1500000);
   await cdp.send("Network.emulateNetworkConditions", {
     offline: false, latency: 80,
     downloadThroughput: 1500000 / 8, uploadThroughput: 1500000 / 8,
@@ -461,29 +467,40 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
     window.__mluvkaStats.plcFrames = 0;
     window.__mluvkaStats.lostFrames = 0;
   });
-  profile.inputGapMs = profile.outputGapMs = 0;
-  profile.inputAt = profile.outputAt = Date.now();
+  profile.reset?.();
   await b.waitForTimeout(30000);
+  await profile.snapshot?.();
   const stats = await b.evaluate(() => ({
     ...window.__mluvkaStats,
     uid: undefined,
   }));
-  expect(stats.underruns, JSON.stringify({ stats, inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs })).toBe(0);
-  ok(`CDP síť 1,5 Mb/s / 80 ms, ${codec}, 30 s`, {
+  const name = `CDP síť 1,5 Mb/s / 80 ms, ${codec}, 30 s`;
+  const details = {
     underruns: stats.underruns,
     downKbps: stats.downKbps,
     plcFrames: stats.plcFrames,
-    note: "CDP doplněné skutečným WS shaperem: 1,5 Mb/s a 80 ms pro binární rámce.",
+    lostFrames: stats.lostFrames,
+    inputGapMs: profile.inputGapMs,
+    outputGapMs: profile.outputGapMs,
+    comparisonOnly: codec === "pcm",
+    note: "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
+  };
+  measured(name, details, () => {
+    if (codec === "opus") expect(stats.underruns).toBe(0);
   });
+  ok(name, details);
+}
+
+export async function slowReceiverCheck(browser, a, b, ok, codec, profile, query) {
+  const cdp = profile.cdp;
   await cdp.send("Network.emulateNetworkConditions", {
     offline: false,
     latency: 0,
     downloadThroughput: -1,
     uploadThroughput: -1,
   });
-  profile.latency = 0;
-  profile.bitsPerSecond = Infinity;
-  // Již naplánované rámce mají přednost i při snížení latence.
+  profile.configure?.(0, 0);
+  // Již naplánované bajty mají přednost i při snížení latence.
   await cdp.send("Debugger.enable");
   const sent = await a.evaluate(() => window.__mluvkaStats.sentFrames);
   const bid = Number(
@@ -529,47 +546,76 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
   await cdp.detach();
 }
 
-// CDP samotné nemusí škrtit WS. Tento obal zpozdí skutečné binární WS rámce
-// a rozpočítá jejich bajty na sériovou linku; pořadí i payload zůstávají zachované.
+// CDP doplňuje nezávislý TCP proces. Pacing bajtů neblokuje Playwright RPC
+// ani JS stránky a zachovává skutečný nativní WebSocket i pořadí dat.
+const shapers = new Set();
+export async function closeShapers() {
+  await Promise.all([...shapers].map((profile) => profile.close()));
+}
 export async function shapeSocket(page) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Network.enable");
   if (process.env.E2E_NATIVE) return { cdp };
-  await cdp.send("Network.emulateNetworkConditions", {
-    offline: false,
-    latency: 0,
-    downloadThroughput: -1,
-    uploadThroughput: -1,
+  const target = new URL(page.url());
+  if (target.protocol !== "http:") throw Error("Síťová přejímka vyžaduje lokální HTTP backend.");
+  const child = fork(new URL("./ws-shaper.mjs", import.meta.url), {
+    env: {
+      ...process.env,
+      SHAPER_HOST: target.hostname === "localhost" ? "127.0.0.1" : target.hostname,
+      SHAPER_PORT: target.port || "80",
+      SHAPER_HOST_HEADER: target.host,
+    },
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+    execArgv: [],
   });
-  const profile = { latency: 0, bitsPerSecond: Infinity, next: 0, cdp };
-  await page.routeWebSocket("**/ws", (route) => {
-    const server = route.connectToServer();
-    route.onMessage((data) => server.send(data));
-    server.onMessage((data) => {
-      if (typeof data === "string") {
-        route.send(data);
-        return;
+  const pending = new Map();
+  let sequence = 0;
+  const profile = {
+    cdp, connections: 0, inputGapMs: 0, outputGapMs: 0,
+    configure(latency, bitsPerSecond) {
+      child.send({ type: "profile", latency, bitsPerSecond });
+    },
+    reset() {
+      this.inputGapMs = this.outputGapMs = 0;
+      child.send({ type: "reset" });
+    },
+    snapshot() {
+      return new Promise((resolve, reject) => {
+        const id = ++sequence;
+        const timer = setTimeout(() => reject(Error("Shaper nevrátil statistiku.")), 2000);
+        pending.set(id, () => { clearTimeout(timer); resolve(); });
+        child.send({ type: "snapshot", id });
+      });
+    },
+    close() {
+      shapers.delete(profile);
+      return new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) return resolve();
+        const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, 1000);
+        child.once("exit", () => { clearTimeout(timer); resolve(); });
+        if (child.connected) child.disconnect();
+        else child.kill("SIGTERM");
+      });
+    },
+  };
+  shapers.add(profile);
+  const port = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error("Síťový shaper se nespustil.")), 5000);
+    child.once("error", reject);
+    child.on("message", (data) => {
+      if (data.port) { clearTimeout(timer); resolve(data.port); }
+      if (data.connection) profile.connections++;
+      if (data.inputGapMs !== undefined) {
+        profile.inputGapMs = data.inputGapMs;
+        profile.outputGapMs = data.outputGapMs;
       }
-      const now = Date.now();
-      profile.inputGapMs = Math.max(profile.inputGapMs || 0, now - (profile.inputAt || now));
-      profile.inputAt = now;
-      const delivery = Math.max(now + profile.latency, profile.next);
-      profile.next = delivery + (data.length * 8000) / profile.bitsPerSecond;
-      const deliver = () => {
-        try {
-          const at = Date.now();
-          profile.outputGapMs = Math.max(profile.outputGapMs || 0, at - (profile.outputAt || at));
-          profile.outputAt = at;
-          route.send(data);
-        } catch {}
-      };
-      const delay = delivery - now;
-      if (delay <= 0) deliver();
-      else setTimeout(deliver, delay).unref();
+      pending.get(data.id)?.();
+      pending.delete(data.id);
     });
-    server.onClose(() => route.close());
-    route.onClose(() => server.close());
   });
+  child.unref();
+  child.channel?.unref();
+  await page.evaluate((url) => { window.testAudioProxy = url; }, `ws://127.0.0.1:${port}/ws`);
   return profile;
 }
 

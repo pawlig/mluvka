@@ -1,0 +1,32 @@
+{
+  "date": "2026-11-04T23:41:26.288Z",
+  "note": "Dřívější diagnostický běh před odstraněním nepotřebného kopírování vzorků v testu; nikoli finální přejímka.",
+  "runs": [
+    {
+      "codec": "opus",
+      "exitCode": 1
+    },
+    {
+      "codec": "pcm",
+      "exitCode": 0
+    }
+  ],
+  "failedAudio": [
+    {
+      "test": "TS3 tón 440 Hz / opus, 30 s bez podtečení",
+      "result": "FAIL",
+      "underruns": 1,
+      "plcFrames": 5,
+      "lostFrames": 0,
+      "binaryGapMs": 178.2999997138977,
+      "path": "native",
+      "maxJump": 0.015221122652292252,
+      "minBufferMs": 46.82996018969667,
+      "maxBufferMs": 67.64610053344465,
+      "dominantHz": 439.453125,
+      "rmsDifferenceDb": 0.0013840477101007755,
+      "maxDownKbps": 98.43288756810303,
+      "runCodec": "opus"
+    }
+  ]
+}
