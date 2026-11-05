@@ -101,8 +101,8 @@ tyto dva PLC čítače je nezahrnují.
 
 ## Limity
 
-- WS rámec i zpráva ≤16 KiB; binární PCM 1921 B, Opus nahoru ≤1276 B a dolů ≤1280 B.
-- Nejvýše 40 řídicích a 100 audio zpráv/s/relaci; překročení ukončí spojení.
+- WS transport ≤32 KiB kvůli SDP; běžné řízení zůstává ≤16 KiB (podrobnosti WebRTC níže). Binární PCM 1921 B, Opus nahoru ≤1276 B a dolů ≤1280 B.
+- Nejvýše 40 běžných řídicích, 120 signalizačních WebRTC a 100 audio zpráv/s/relaci; překročení ukončí spojení.
 - `MAX_SESSIONS` (20) zahrnuje čekající WS; vyčerpání → HTTP 503.
 - Neshodný `Origin` a `Host` → HTTP 403. Vite proxy origin přepisuje.
 - WS ping a JSON pong po 10 s; společný limit bez WS pong / JSON ping je 45 s,

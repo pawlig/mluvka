@@ -5,7 +5,11 @@ import { resolve } from "node:path";
 export async function installSharingCapture(context, relay = false) {
   await context.addInitScript(
     ({ relay }) => {
-      window.__mluvkaShareTest = { relay };
+      window.__mluvkaShareTest = {
+        relay: relay || window.__mluvkaShareTest?.relay || false,
+      };
+      if (window.__e2eSharingInstalled) return;
+      window.__e2eSharingInstalled = true;
       window.__e2eShareMessages = [];
       const Original = window.WebSocket;
       window.WebSocket = class extends Original {

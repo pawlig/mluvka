@@ -1,0 +1,162 @@
+{
+  "date": "2026-11-05T02:09:52.047Z",
+  "scope": "sharing",
+  "fullSuiteComplete": true,
+  "fullSuiteChecks": 196,
+  "runs": [
+    {
+      "codec": "opus",
+      "exitCode": 0
+    },
+    {
+      "codec": "pcm",
+      "exitCode": 0
+    }
+  ],
+  "sharingChecks": 22,
+  "results": [
+    {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 27,
+      "framesAfter": 174,
+      "width": 1280,
+      "height": 720,
+      "fps": 28,
+      "bitrate": 176,
+      "candidate": "host",
+      "framesDecoded": 174,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 9,
+      "framesAfter": 154,
+      "width": 1280,
+      "height": 720,
+      "fps": 28,
+      "bitrate": 102,
+      "candidate": "relay",
+      "framesDecoded": 154,
+      "runCodec": "opus"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 6,
+      "framesAfter": 154,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 126,
+      "candidate": "host",
+      "framesDecoded": 154,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 9,
+      "framesAfter": 156,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 103,
+      "candidate": "relay",
+      "framesDecoded": 156,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "pcm"
+    }
+  ],
+  "errors": []
+}

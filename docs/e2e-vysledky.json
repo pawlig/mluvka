@@ -1,14 +1,14 @@
 {
-  "date": "2026-11-04T23:52:02.273Z",
-  "complete": false,
+  "date": "2026-11-05T02:09:52.047Z",
+  "complete": true,
   "runs": [
     {
       "codec": "opus",
-      "exitCode": 1
+      "exitCode": 0
     },
     {
       "codec": "pcm",
-      "exitCode": 1
+      "exitCode": 0
     }
   ],
   "results": [
@@ -43,7 +43,7 @@
       "runCodec": "opus"
     },
     {
-      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "test": "MAX_SESSIONS=12 odmítne třináctý současný WS",
       "result": "OK",
       "runCodec": "opus"
     },
@@ -55,8 +55,8 @@
     {
       "test": "TCP shaper 80 ms / 1,5 Mb/s: pořadí, rychlost a FIN bez ztráty",
       "result": "OK",
-      "latencyMs": 82.30966700000045,
-      "transferMs": 62.2856670000001,
+      "latencyMs": 83.20708400000012,
+      "transferMs": 68.91137500000013,
       "bytes": 12000,
       "runCodec": "opus"
     },
@@ -185,6 +185,77 @@
       "runCodec": "opus"
     },
     {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 27,
+      "framesAfter": 174,
+      "width": 1280,
+      "height": 720,
+      "fps": 28,
+      "bitrate": 176,
+      "candidate": "host",
+      "framesDecoded": 174,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 9,
+      "framesAfter": 154,
+      "width": 1280,
+      "height": 720,
+      "fps": 28,
+      "bitrate": 102,
+      "candidate": "relay",
+      "framesDecoded": 154,
+      "runCodec": "opus"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
       "test": "3 zprávy → odznak Kanál, mobilní Chat, titulek a app badge = 3; jediný zvuk; přečtení vynuluje",
       "result": "OK",
       "runCodec": "opus"
@@ -292,21 +363,21 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 1117,
+      "receivedFrames": 4778,
       "sentFrames": 0,
-      "rms": 0.11099965407044138,
-      "micRms": 0.01991714338890847,
+      "rms": 0.11233861693154883,
+      "micRms": 0.01979278130759289,
       "underruns": 0,
       "droppedFrames": 0,
-      "droppedCaptureFrames": 0,
+      "droppedCaptureFrames": 7,
       "sampleRate": 48000,
-      "bufferMs": 48.836014997089784,
-      "targetBufferMs": 62.666666666666664,
-      "driftCorrection": -0.1412951243833761,
-      "maxJump": 0.000058439203712623566,
-      "outputRms": 0.000001670159835661943,
+      "bufferMs": 57.06458610419334,
+      "targetBufferMs": 60,
+      "driftCorrection": 0.012474547345121649,
+      "maxJump": 0.00005848413275089115,
+      "outputRms": 0.000002076145654398487,
       "upKbps": 0,
-      "downKbps": 36.43218572926437,
+      "downKbps": 35.85300269238045,
       "plcFrames": 0,
       "lostFrames": 0,
       "codec": "opus",
@@ -316,18 +387,18 @@
     },
     {
       "test": "TS3 tón 440 Hz / opus, 30 s bez podtečení",
-      "result": "FAIL",
-      "underruns": 2,
-      "plcFrames": 10,
+      "result": "OK",
+      "underruns": 0,
+      "plcFrames": 0,
       "lostFrames": 0,
-      "binaryGapMs": 328.59999990463257,
+      "binaryGapMs": 31.90000009536743,
       "path": "native",
-      "maxJump": 0.015282787382602692,
-      "minBufferMs": 66.18176411126237,
-      "maxBufferMs": 247.92074006251642,
+      "maxJump": 0.010768085718154907,
+      "minBufferMs": 56.118182079876235,
+      "maxBufferMs": 56.590373312887095,
       "dominantHz": 439.453125,
-      "rmsDifferenceDb": -0.08904654023132486,
-      "maxDownKbps": 103.29084132212084,
+      "rmsDifferenceDb": 0.005927870306820915,
+      "maxDownKbps": 91.01208158312619,
       "runCodec": "opus"
     },
     {
@@ -337,13 +408,13 @@
     },
     {
       "test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s",
-      "result": "FAIL",
-      "underruns": 2,
-      "downKbps": 98.49688086999367,
-      "plcFrames": 10,
+      "result": "OK",
+      "underruns": 0,
+      "downKbps": 85.5837663054229,
+      "plcFrames": 0,
       "lostFrames": 0,
-      "inputGapMs": 185.77549999999974,
-      "outputGapMs": 141.7732079999987,
+      "inputGapMs": 31.010874999999942,
+      "outputGapMs": 31.92304200000035,
       "comparisonOnly": false,
       "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
       "runCodec": "opus"
@@ -412,11 +483,11 @@
     {
       "test": "VAD / opus: ticho 3 s, předběh a vyrovnaný začátek",
       "result": "OK",
-      "onsetDb": 0.12092989236723314,
-      "precursorMs": 100,
+      "onsetDb": -0.12084749668970621,
+      "precursorMs": 80,
       "lostOnsetMs": 0,
-      "firstRms": 0.132800005465379,
-      "steadyRms": 0.1309638996227196,
+      "firstRms": 0.1291534953211418,
+      "steadyRms": 0.1309629770657756,
       "runCodec": "opus"
     },
     {
@@ -452,13 +523,13 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 83,
+      "elapsed_ms": 114,
       "runCodec": "opus"
     },
     {
       "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
       "result": "OK",
-      "elapsedMs": 4,
+      "elapsedMs": 20,
       "disconnectedClients": 1,
       "disconnectReasons": [
         8
@@ -555,7 +626,7 @@
       "runCodec": "pcm"
     },
     {
-      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "test": "MAX_SESSIONS=12 odmítne třináctý současný WS",
       "result": "OK",
       "runCodec": "pcm"
     },
@@ -567,8 +638,8 @@
     {
       "test": "TCP shaper 80 ms / 1,5 Mb/s: pořadí, rychlost a FIN bez ztráty",
       "result": "OK",
-      "latencyMs": 82.48366699999997,
-      "transferMs": 62.83400000000006,
+      "latencyMs": 82.734375,
+      "transferMs": 67.98670799999991,
       "bytes": 12000,
       "runCodec": "pcm"
     },
@@ -697,6 +768,77 @@
       "runCodec": "pcm"
     },
     {
+      "test": "ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sdílení A → B: dekódované snímky rostou alespoň 5 s",
+      "result": "OK",
+      "framesBefore": 6,
+      "framesAfter": 154,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 126,
+      "candidate": "host",
+      "framesDecoded": 154,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Síťový online vyvolá ICE restart s novým ufrag a přenos pokračuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Dva lidé současně sdílí i sledují; ukončení vlastního sdílení zachová sledování",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sledování se obnoví po opětovném přihlášení WS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Sedmý divák: šest simulovaných WS relací obsadí limit, UI zobrazí českou chybu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jiný kanál: karta i přenos zaniknou do 2 s a backend odmítne přímý watch",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Ukončení sdílení odstraní kartu i video do 2 s",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Coturn TURN REST: vynucené relay, video i zvuková stopa",
+      "result": "OK",
+      "framesBefore": 9,
+      "framesAfter": 156,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "bitrate": 103,
+      "candidate": "relay",
+      "framesDecoded": 156,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iPhone na šířku: relay video, pinch mění jen přehrávač, stránka má scale 1",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Systémové track.onended zastaví sdílení i všechny diváky",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
       "test": "3 zprávy → odznak Kanál, mobilní Chat, titulek a app badge = 3; jediný zvuk; přečtení vynuluje",
       "result": "OK",
       "runCodec": "pcm"
@@ -804,21 +946,21 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 1166,
+      "receivedFrames": 4724,
       "sentFrames": 0,
-      "rms": 0.06527565458433272,
-      "micRms": 0.019615476430669812,
-      "underruns": 1,
+      "rms": 0.1115773718393767,
+      "micRms": 0.01958739935906613,
+      "underruns": 0,
       "droppedFrames": 0,
       "droppedCaptureFrames": 0,
       "sampleRate": 48000,
-      "bufferMs": 57.37688673498148,
-      "targetBufferMs": 68,
-      "driftCorrection": -0.0864856587349758,
+      "bufferMs": 70.37235318304131,
+      "targetBufferMs": 62.666666666666664,
+      "driftCorrection": -0.014954355668416389,
       "maxJump": 0,
       "outputRms": 0,
       "upKbps": 0,
-      "downKbps": 776.0847607941249,
+      "downKbps": 760.4156358238496,
       "plcFrames": 0,
       "lostFrames": 0,
       "codec": "pcm",
@@ -828,18 +970,18 @@
     },
     {
       "test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení",
-      "result": "FAIL",
-      "underruns": 1,
+      "result": "OK",
+      "underruns": 0,
       "plcFrames": 0,
       "lostFrames": 0,
-      "binaryGapMs": 204.09999990463257,
+      "binaryGapMs": 30.90000009536743,
       "path": "native",
-      "maxJump": 0.11160468682646751,
-      "minBufferMs": 55.0680907733719,
-      "maxBufferMs": 210.13556705106748,
+      "maxJump": 0.08258317271247506,
+      "minBufferMs": 49.431042137332646,
+      "maxBufferMs": 69.77678434187207,
       "dominantHz": 439.453125,
-      "rmsDifferenceDb": -0.04353433209497332,
-      "maxDownKbps": 776.3153724980539,
+      "rmsDifferenceDb": 0.00017611468142887836,
+      "maxDownKbps": 776.7000298028659,
       "runCodec": "pcm"
     },
     {
@@ -851,11 +993,11 @@
       "test": "CDP síť 1,5 Mb/s / 80 ms, pcm, 30 s",
       "result": "OK",
       "underruns": 0,
-      "downKbps": 783.4666666666667,
+      "downKbps": 768.8522659669184,
       "plcFrames": 0,
       "lostFrames": 0,
-      "inputGapMs": 47.677999999999884,
-      "outputGapMs": 41.30437499999971,
+      "inputGapMs": 22.248583000000508,
+      "outputGapMs": 16.160541999999623,
       "comparisonOnly": true,
       "note": "CDP a samostatný TCP shaper 1,5 Mb/s / 80 ms; PCM je srovnávací měření.",
       "runCodec": "pcm"
@@ -924,11 +1066,11 @@
     {
       "test": "VAD / pcm: ticho 3 s, předběh a vyrovnaný začátek",
       "result": "OK",
-      "onsetDb": -0.042925891413553116,
-      "precursorMs": 60,
-      "lostOnsetMs": 20,
-      "firstRms": 0.13022141699684167,
-      "steadyRms": 0.13086656747234035,
+      "onsetDb": 0.09842009473538874,
+      "precursorMs": 80,
+      "lostOnsetMs": 0,
+      "firstRms": 0.13237540728729888,
+      "steadyRms": 0.1308839232760588,
       "runCodec": "pcm"
     },
     {
@@ -964,13 +1106,13 @@
     {
       "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
       "result": "OK",
-      "elapsed_ms": 44,
+      "elapsed_ms": 33,
       "runCodec": "pcm"
     },
     {
       "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
       "result": "OK",
-      "elapsedMs": 3,
+      "elapsedMs": 5,
       "disconnectedClients": 1,
       "disconnectReasons": [
         8
