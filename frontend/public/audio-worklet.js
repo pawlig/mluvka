@@ -236,7 +236,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
           this.playing = false;
           this.tail = this.last;
           this.fade = 0;
-            const gap = this.arrival === undefined ? 0 : this.clock - this.arrival;
+          const gap = this.arrival === undefined ? 0 : this.clock - this.arrival;
           this.target = this.mobile ? this.bufferLimit()
             : Math.min(this.bufferLimit(), Math.max(this.target, gap + sampleRate * 0.04));
           this.port.postMessage({ underrun: true, playbackAtMs: this.clock / sampleRate * 1000 });
