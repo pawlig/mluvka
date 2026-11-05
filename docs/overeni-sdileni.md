@@ -11,9 +11,6 @@ Worktree `mluvka-sdileni`, větev `sdileni`, výchozí commit `81110d7`.
 - `cargo build --release`: exit 0.
 - `npm run typecheck`: exit 0.
 - `VITE_E2E_SHARING=0 npm run build`: exit 0 po kompletním E2E. Produkční JS neobsahuje `__mluvkaShareTest`; testovací relay přepínač je odstraněný.
-- `prohlizec kontrola http://localhost:3107 docs/kontrola-sdileni`: exit 0,
-  bez chyb konzole, výjimek a vodorovného přesahu ve variantách desktop/tmavý/mobil.
-  Tato kontrola se týká úvodní stránky; přihlášené sdílení ověřuje E2E a samostatné screenshoty.
 - Živý lokální `GET /api/ice` bez Authorization: HTTP 401.
 - Lokální coturn úspěšně přijal šablonu `deploy/coturn/turnserver.conf.example`, včetně IPv6
   `denied-peer-ip`; pro tuto kontrolu se hodnoty doplnily pouze do dočasného souboru mimo repozitář.
