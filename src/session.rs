@@ -496,6 +496,8 @@ struct Downlink {
     running: Arc<std::sync::atomic::AtomicBool>,
     enabled: bool,
     worker: std::thread::JoinHandle<()>,
+    input_drops: u64,
+    input_report: Instant,
 }
 impl Drop for Downlink {
     fn drop(&mut self) {
@@ -536,6 +538,8 @@ impl Downlink {
             running,
             enabled: true,
             worker,
+            input_drops: 0,
+            input_report: Instant::now(),
         })
     }
     fn control(&self, command: MixCommand) -> Result<(), String> {
@@ -545,6 +549,7 @@ impl Downlink {
             .map_err(|_| "Zvuková fronta přestala odpovídat.".into())
     }
     fn enabled(&mut self, enabled: bool) -> Result<(), String> {
+        self.report_input_drops();
         if self.worker.is_finished() || !self.running.load(std::sync::atomic::Ordering::Relaxed) {
             return Err("Zvukové vlákno skončilo.".into());
         }
@@ -555,7 +560,7 @@ impl Downlink {
         Ok(())
     }
     fn packet(
-        &self,
+        &mut self,
         id: ClientId,
         packet: tsproto_packets::packets::InAudioBuf,
         volume: f32,
@@ -567,10 +572,24 @@ impl Downlink {
             Ok(()) => Ok(()),
             Err(std::sync::mpsc::TrySendError::Full(_)) => {
                 // Při skutečné ztrátě v omezené frontě použije AudioHandler Opus PLC.
-                tracing::warn!(audio_input_drop = true, "Plná vstupní fronta zvuku");
+                self.input_drops += 1;
+                self.report_input_drops();
                 Ok(())
             }
             Err(_) => Err("Zvukové vlákno skončilo.".into()),
+        }
+    }
+    fn report_input_drops(&mut self) {
+        if self.input_report.elapsed() >= Duration::from_secs(10) {
+            if self.input_drops > 0 {
+                tracing::warn!(
+                    audio_input_drops = self.input_drops,
+                    window_ms = self.input_report.elapsed().as_millis(),
+                    "Zahozené pakety v plné vstupní frontě zvuku"
+                );
+                self.input_drops = 0;
+            }
+            self.input_report = Instant::now();
         }
     }
     fn produce(
