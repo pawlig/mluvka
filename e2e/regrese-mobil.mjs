@@ -484,6 +484,10 @@ export async function mobileRegressionChecks({
       const player = document.querySelector("audio");
       player.play = window.regPlay;
     });
+    // Po odmítnutém autoplay je obnova skutečné gesto uživatele.
+    await b
+      .getByRole("button", { name: "Zapnout poslech", exact: true })
+      .click();
     await expect
       .poll(() => b.evaluate(() => window.regDirectOutputs.size))
       .toBe(0);
@@ -641,6 +645,15 @@ export async function mobileRegressionChecks({
               sockets: window.regSockets?.length,
               frames: window.__mluvkaStats?.receivedFrames,
               hidden: document.hidden,
+              player: document.querySelector("audio") && {
+                time: document.querySelector("audio").currentTime,
+                paused: document.querySelector("audio").paused,
+                muted: document.querySelector("audio").muted,
+              },
+              directOutputs: [...window.regDirectOutputs].map((node) => ({
+                state: node.context.state,
+                currentContext: node.context === window.regAudioContext,
+              })),
             }))
             .catch(() => ({})),
         ),
