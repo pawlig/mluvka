@@ -20,6 +20,8 @@ const RETRY_DELAY: Duration = Duration::from_millis(1500);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(8);
 /// Ozvěnu vlastní soukromé zprávy server vrací hned; déle ji nehlídáme.
 const ECHO_TIMEOUT: Duration = Duration::from_secs(10);
+/// Pozdní odpověď (TS ji zdržel) po vypršení ještě poznáme a do chatu nepustíme.
+const LATE_REPLY: Duration = Duration::from_secs(30);
 const MAX_QUEUE: usize = 8;
 
 struct Config {
@@ -308,6 +310,8 @@ pub struct Commander {
     last_sent: Option<Instant>,
     outstanding: VecDeque<(Expect, Instant)>,
     echoes: VecDeque<(String, Instant)>,
+    /// Příkazy Mluvky, jejichž odpověď vypršela (čas vypršení).
+    expired: VecDeque<(String, Instant)>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -362,6 +366,21 @@ impl Commander {
         Some(text)
     }
 
+    /// TS server příkaz odmítl (zahlcení) — bot ho nedostal. Vrátí ho na
+    /// začátek fronty; čekání na odpověď začne až opakovaným odesláním.
+    pub fn rejected(&mut self, text: &str) {
+        let Some(i) = self.outstanding.iter().rposition(|(e, _)| matches!(e, Expect::Mluvka { text: t, .. } if t == text)) else {
+            return;
+        };
+        let Some((Expect::Mluvka { text, retried }, _)) = self.outstanding.remove(i) else { unreachable!() };
+        if let Some(j) = self.echoes.iter().rposition(|(t, _)| *t == text) {
+            self.echoes.remove(j);
+        }
+        if !self.queue.iter().any(|(t, _)| *t == text) {
+            self.queue.push_front((text, retried));
+        }
+    }
+
     /// Odpovědi, které nepřišly včas. Vrací texty příkazů Mluvky.
     pub fn expire(&mut self, now: Instant) -> Vec<String> {
         let mut out = Vec::new();
@@ -371,9 +390,11 @@ impl Commander {
             }
             if let Expect::Mluvka { text, .. } = e {
                 out.push(text.clone());
+                self.expired.push_back((text.clone(), now));
             }
             self.outstanding.pop_front();
         }
+        self.expired.retain(|(_, t)| now.duration_since(*t) < LATE_REPLY);
         self.echoes.retain(|(_, t)| now.duration_since(*t) < ECHO_TIMEOUT);
         out
     }
@@ -393,7 +414,15 @@ impl Commander {
     pub fn on_reply(&mut self, text: &str, now: Instant) -> Paired {
         self.expire(now);
         match self.outstanding.pop_front() {
-            None | Some((Expect::Manual, _)) => Paired::NotOurs,
+            None => match parse_reply(text) {
+                // Pozdní odpověď na vypršený příkaz: stav přijmeme, chat ne.
+                Reply::Unknown { .. } => Paired::NotOurs,
+                reply => match self.expired.pop_front() {
+                    Some((cmd, _)) => Paired::Ours(Some((cmd, reply))),
+                    None => Paired::NotOurs,
+                },
+            },
+            Some((Expect::Manual, _)) => Paired::NotOurs,
             Some((Expect::Mluvka { text: cmd, retried }, _)) => {
                 let reply = parse_reply(text);
                 if matches!(&reply, Reply::Error { code, .. } if code == "rate_limited") && !retried {
@@ -479,6 +508,11 @@ impl MusicBot {
         if self.bot().is_some_and(|b| b.0 == client) {
             self.commander.manual_sent(text, now);
         }
+    }
+
+    /// Odmítnutý příkaz botovi (zahlcení TS) se zopakuje z fronty bota.
+    pub fn rejected(&mut self, text: &str) {
+        self.commander.rejected(text);
     }
 
     /// Relace by teď mohla poslat botovi příkaz.
@@ -698,7 +732,46 @@ mod tests {
         assert_eq!(c.next_send(t3).as_deref(), Some("/upnext"));
         assert_eq!(c.expire(t3 + Duration::from_secs(7)), Vec::<String>::new());
         assert_eq!(c.expire(t3 + Duration::from_secs(8)), vec!["/upnext".to_string()]);
-        assert_eq!(c.on_reply("Next: S — A", t3 + Duration::from_secs(9)), Paired::NotOurs);
+        // Pozdní odpověď do 30 s po vypršení k příkazu ještě patří (do chatu ne).
+        match c.on_reply("Next: S — A", t3 + Duration::from_secs(9)) {
+            Paired::Ours(Some((cmd, Reply::Upnext { .. }))) => assert_eq!(cmd, "/upnext"),
+            other => panic!("{other:?}"),
+        }
+        // Další zpráva bota už ničemu neodpovídá.
+        assert_eq!(c.on_reply("Next: S — A", t3 + Duration::from_secs(10)), Paired::NotOurs);
+        // Po 30 s od vypršení se pozdní odpověď nepáruje.
+        c.push("/now".into());
+        let t4 = t3 + Duration::from_secs(12);
+        assert_eq!(c.next_send(t4).as_deref(), Some("/now"));
+        assert_eq!(c.expire(t4 + Duration::from_secs(8)), vec!["/now".to_string()]);
+        assert_eq!(c.on_reply("Now: S — A", t4 + Duration::from_secs(39)), Paired::NotOurs);
+        // Text, který není odpovědí bota, jde do chatu i hned po vypršení.
+        c.push("/queue".into());
+        let t5 = t4 + Duration::from_secs(40);
+        assert_eq!(c.next_send(t5).as_deref(), Some("/queue"));
+        c.expire(t5 + Duration::from_secs(8));
+        assert_eq!(c.on_reply("ahoj, jak se máš?", t5 + Duration::from_secs(9)), Paired::NotOurs);
+    }
+
+    #[test]
+    fn server_flood_requeues_with_fresh_timeout() {
+        let start = Instant::now();
+        let mut c = Commander::default();
+        c.push("/now".into());
+        assert_eq!(c.next_send(start).as_deref(), Some("/now"));
+        // TS odmítl odeslání: bot nic nedostal, příkaz čeká znovu ve frontě.
+        c.rejected("/now");
+        assert!(!c.is_echo("/now"));
+        let t1 = start + Duration::from_secs(7);
+        assert_eq!(c.next_send(t1).as_deref(), Some("/now"));
+        // Odpověď 12 s po prvním pokusu (5 s po opakování) se pořád páruje.
+        match c.on_reply("Now: S — A", start + Duration::from_secs(12)) {
+            Paired::Ours(Some((cmd, Reply::Now { .. }))) => assert_eq!(cmd, "/now"),
+            other => panic!("{other:?}"),
+        }
+        // Neznámé odmítnutí nic nezmění.
+        c.rejected("/queue");
+        assert_eq!(c.next_send(start + Duration::from_secs(20)), None);
     }
 
     #[test]

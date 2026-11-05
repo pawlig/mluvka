@@ -1419,6 +1419,8 @@ async fn connected(
     let mut nickname_attempts = 0u32;
     let mut nickname_after = Instant::now() + Duration::from_secs(10);
     let mut pending: HashMap<_, (Instant, OutCommand)> = HashMap::new();
+    // Příkazy hudebnímu botovi: odmítnutí kvůli zahlcení vrací do fronty bota.
+    let mut music_pending: HashMap<_, String> = HashMap::new();
     let mut points = CommandPoints::new(Instant::now());
     let mut slowing = false;
     let mut mute_unconfirmed = false;
@@ -1577,6 +1579,7 @@ async fn connected(
                     },
                     Some(Ok(StreamItem::MessageResult(handle, result))) => {
                         let sent = pending.remove(&handle);
+                        let music_text = music_pending.remove(&handle);
                         // Knihovna mění lokální mute optimisticky už při odeslání.
                         // Odmítnutí proto nesmí deduplikací zrušit potřebný retry.
                         if sent.as_ref().is_some_and(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")) {
@@ -1588,7 +1591,8 @@ async fn connected(
                                 let _ = ts_error(&error);
                                 slow_commands(addr, ts_variant(&error).1.expect("command flood") as u32);
                                 points.available = 0.0;
-                                if let Some((_, cmd)) = sent { commands.push_front(cmd); }
+                                if let Some(text) = music_text { music.rejected(&text); }
+                                else if let Some((_, cmd)) = sent { commands.push_front(cmd); }
                                 slowing = true;
                                 json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
                             } else { json_send(ws,error_message(&ts_error(&error), false)).await?; }
@@ -1608,9 +1612,11 @@ async fn connected(
                             points.available = 0.0;
                             // TS někdy chybu vrátí bez return_code. Díky jednomu
                             // čekajícímu potvrzení víme, který příkaz opakovat.
-                            if let Some((_, (_, cmd))) = pending.drain().next() {
-                                mute_unconfirmed |= cmd.0.content().starts_with(b"clientupdate client_input_muted=");
-                                commands.push_front(cmd);
+                            if let Some((handle, (_, cmd))) = pending.drain().next() {
+                                if let Some(text) = music_pending.remove(&handle) { music.rejected(&text); } else {
+                                    mute_unconfirmed |= cmd.0.content().starts_with(b"clientupdate client_input_muted=");
+                                    commands.push_front(cmd);
+                                }
                             }
                             slowing = true;
                             json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
@@ -1640,6 +1646,7 @@ async fn connected(
                     let cmd = con.get_state().map_err(|e| ts_error(&e))?.send_message(MessageTarget::Client(bot), &text);
                     let retry = OutCommand(cmd.0.clone());
                     let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?;
+                    music_pending.insert(handle, text);
                     pending.insert(handle, (now, retry));
                 }
                 if pending.is_empty() && let Some(cmd) = commands.front() {
@@ -1681,7 +1688,7 @@ async fn connected(
                 }
                 // Při dohánění údržby relace necháme prostor WS writeru.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
-                if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { mute_unconfirmed |= pending.values().any(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")); pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
+                if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { mute_unconfirmed |= pending.values().any(|(_, cmd)| cmd.0.content().starts_with(b"clientupdate client_input_muted=")); pending.clear(); music_pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {
                 if last_pong.elapsed() >= BROWSER_TIMEOUT { return Err("Prohlížeč přestal odpovídat.".into()); }
