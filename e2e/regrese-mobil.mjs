@@ -83,7 +83,9 @@ export async function banUiChecks({ browser, base, login, ok }) {
     try {
       await observe(context);
       const page = await context.newPage();
+      let attempts = 0;
       await page.routeWebSocket("**/ws", (socket) => {
+        attempts++;
         socket.onMessage((text) => {
           if (JSON.parse(text).type !== "connect") return;
           socket.send(
@@ -128,8 +130,11 @@ export async function banUiChecks({ browser, base, login, ok }) {
       await expect(
         page.getByRole("button", { name: "Připojit znovu", exact: true }),
       ).toBeVisible();
+      await wait(11000); // Přes celý první jitter 0–10 s nesmí vzniknout další pokus.
+      expect(attempts).toBe(1);
+      await page.reload();
       await wait(3000);
-      expect(await page.evaluate(() => window.regSockets.length)).toBe(1);
+      expect(attempts).toBe(1);
     } finally {
       await context.close();
     }
