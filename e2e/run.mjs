@@ -382,6 +382,14 @@ async function uiCheck(page, name) {
       elements
         .filter((e) => {
           const r = e.getBoundingClientRect();
+          // Ovládání odrolované ve svisle posuvném seznamu (log chatu) je
+          // dosažitelné rolováním; vodorovný přesah se hlásí vždy.
+          for (let p = e.parentElement; p; p = p.parentElement) {
+            if (!/auto|scroll/.test(getComputedStyle(p).overflowY)) continue;
+            const box = p.getBoundingClientRect();
+            if (r.top >= box.bottom || r.bottom <= box.top) return false;
+            break;
+          }
           return (
             r.width > 0 &&
             (r.left < 0 ||
@@ -389,7 +397,10 @@ async function uiCheck(page, name) {
               r.bottom > innerHeight + 1)
           );
         })
-        .map((e) => e.getAttribute("aria-label") || e.textContent),
+        .map(
+          (e) =>
+            `${e.getAttribute("aria-label") || e.textContent} @${Math.round(e.getBoundingClientRect().left)},${Math.round(e.getBoundingClientRect().bottom)}`,
+        ),
     );
   expect(controls).toEqual([]);
   ok(name);
