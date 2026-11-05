@@ -503,7 +503,7 @@ export async function sharingChecks({
   );
   // Opakované zahájení do 60 s zprávu nepošle; popis se vrací podle stavu sdílení.
   await stopSharing(a);
-  await expect.poll(() => info()).toMatch(/client_description=(?:\s|$)/);
+  await expect.poll(() => info()).toMatch(/(?:^|\s)client_description=?(?:\s|$)/);
   await startSharing(a);
   await expect(a.locator(".share-live")).toBeVisible();
   await expect
