@@ -371,9 +371,11 @@ export async function mobileRegressionChecks({
     expect(await b.evaluate(() => window.regStreams.length)).toBe(
       originalStream,
     );
-    expect(
-      await b.evaluate(() => window.savedStream.getAudioTracks()[0].enabled),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        b.evaluate(() => window.savedStream.getAudioTracks()[0].enabled),
+      )
+      .toBe(true);
     expect(faults).toEqual([]);
     const listing = await query.cmd("clientlist -uid");
     expect(
