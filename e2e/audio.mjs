@@ -127,6 +127,15 @@ export function jitterChecks(ok) {
       underruns, droppedFrames: dropped, plcRequests: plc, minBufferMs: min, maxBufferMs: max, targetBufferMs: node.target / 48,
     });
   }
+  {
+    const burst = processor();
+    burst.node.port.onmessage({ data: { settings: { mobile: true } } });
+    for (let i = 0; i < 30; i++) burst.node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } });
+    assert.equal(burst.events.filter((v) => v.dropped).length, 0);
+    for (let i = 0; i < 20; i++) burst.node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } });
+    assert.equal(burst.events.reduce((sum, v) => sum + (v.dropped || 0), 0), 25);
+    ok("Burst 600 ms bez zahození; nouzové srovnání počítá 20ms rámce", { droppedFramesAfterOneSecondBurst: 25 });
+  }
   const { node, events } = processor();
   const tone = Int16Array.from({ length: 960 }, (_, i) =>
     Math.round(16384 * Math.cos((i * 2 * Math.PI * 440) / 48000)),

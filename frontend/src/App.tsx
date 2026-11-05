@@ -2238,6 +2238,9 @@ function AudioDebug() {
         <dt>Dekódování průměr / max</dt><dd>{stats.decodeAverageMs} / {stats.decodeMaxMs} ms</dd>
         <dt>Vzorkovací frekvence / quantum</dt><dd>{stats.sampleRate ?? "—"} Hz / {stats.renderQuantum ?? "—"} vzorků</dd>
         <dt>Latence základní / výstupní</dt><dd>{stats.baseLatency === null ? "—" : (stats.baseLatency * 1000).toFixed(1)} / {stats.outputLatency === null ? "—" : (stats.outputLatency * 1000).toFixed(1)} ms</dd>
+        <dt>Tok nahoru / dolů</dt><dd>{stats.upKbps} / {stats.downKbps} kb/s</dd>
+        <dt>Korekce hodin</dt><dd>{stats.driftPercent} %</dd>
+        <dt>Maximální skok vzorků</dt><dd>{stats.maxJump}</dd>
         <dt>Kodek / výstup</dt><dd>{stats.codec} / {stats.outputRoute}</dd>
         <dt>Síť / stav zvuku</dt><dd>{stats.effectiveType ?? "nezjištěno"} / {stats.contextState}</dd>
         <dt>Build</dt><dd>{stats.build}</dd>
