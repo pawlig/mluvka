@@ -5,6 +5,28 @@ import { runInNewContext } from "node:vm";
 import { strict as assert } from "node:assert";
 import { expect } from "@playwright/test";
 
+// V repozitáři ponecháváme číselný souhrn; jednotlivá 30s okna jsou v tmp-ts3.
+export function summarizeAudioTiming(windows) {
+  return [...new Set(windows.map((w) => w.stage || "writer"))].map((stage) => {
+    const rows = windows.filter((w) => (w.stage || "writer") === stage);
+    const summary = { stage, windows: rows.length };
+    for (const key of new Set(rows.flatMap(Object.keys))) {
+      const values = rows.map((w) => w[key]).filter((v) => v && Array.isArray(v.histogram));
+      if (!values.length) continue;
+      const worst = values.reduce((a, b) => a.maxMs >= b.maxMs ? a : b);
+      const histogram = worst.histogram.map((_, i) => values.reduce((sum, v) => sum + v.histogram[i], 0));
+      summary[key] = { count: histogram.reduce((a, b) => a + b, 0), histogram,
+        maxMs: worst.maxMs, maxAtMs: worst.maxAtMs ?? null,
+        maxWindowP95Ms: Math.max(...values.map((v) => v.p95Ms)) };
+    }
+    if (stage === "writer") {
+      summary.queueMaxMs = Math.max(...rows.map((w) => w.queueMaxMs));
+      summary.averageFrameBytesRange = [Math.min(...rows.map((w) => w.averageFrameBytes)), Math.max(...rows.map((w) => w.averageFrameBytes))];
+    }
+    return summary;
+  });
+}
+
 function measured(name, details, check) {
   try {
     check();

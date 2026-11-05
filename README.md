@@ -270,8 +270,9 @@ výstupu, prohlížeč a commit buildu. Build bez `.git` může dostat commit p�
 `VITE_BUILD_COMMIT`; bez něj poctivě ukáže `unknown`. Worklet má navíc vlastní hash obsahu a verzovanou URL,
 aby stará PWA cache nemíchala nový klient se starým přehrávačem. Neobsahuje adresu TS, přezdívky, UID ani přihlašovací údaje.
 
-Na čistém desktopu začíná buffer na 60 ms; jitter jej může zvýšit až na 320 ms.
-Mobil začíná s rezervou 320 ms, po 30 s klidu cíl pomalu klesá. Dekodér zpracovává
+Na čistém desktopu začíná buffer na 60 ms; při výpadku vzroste podle naměřené
+mezery nejvýše na 150 ms. Mobil začíná s rezervou 320 ms. Cíl se snižuje o 2 ms/s
+podle p95 za posledních 10 s, takže jej nedrží vysoko jednotlivé špičky. Dekodér zpracovává
 přijaté pakety ihned ve Workeru a posílá PCM přímo do workletu přes MessagePort.
 PLC se použije pro prokázanou díru v pořadí, nikoli pro pouhé opoždění TCP.
 Aktuální výsledky jsou v [ověření audia](docs/overeni-audia.md).

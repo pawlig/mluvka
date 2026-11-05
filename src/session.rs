@@ -411,25 +411,39 @@ fn identity_slot(key: String) -> Arc<IdentitySlot> {
 struct TimingSamples {
     values: Vec<f64>,
     previous: Option<Instant>,
+    max: f64,
+    max_at_ms: f64,
+}
+fn audio_clock() -> &'static Instant {
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now)
 }
 impl TimingSamples {
     fn gap(&mut self, now: Instant) {
         if let Some(previous) = self.previous.replace(now) {
-            self.values
-                .push(now.duration_since(previous).as_secs_f64() * 1000.0);
+            self.record(now.duration_since(previous).as_secs_f64() * 1000.0, now);
         }
     }
     fn duration(&mut self, duration: Duration) {
-        self.values.push(duration.as_secs_f64() * 1000.0);
+        self.record(duration.as_secs_f64() * 1000.0, Instant::now());
+    }
+    fn record(&mut self, ms: f64, at: Instant) {
+        self.values.push(ms);
+        if ms >= self.max {
+            self.max = ms;
+            self.max_at_ms = at.saturating_duration_since(*audio_clock()).as_secs_f64() * 1000.0;
+        }
     }
     fn take(&mut self) -> Value {
         self.values.sort_by(f64::total_cmp);
         let limits = [25.0, 50.0, 100.0, 200.0, 300.0, 400.0, f64::INFINITY];
-        let result = json!({"count":self.values.len(),
+        let result = json!({"count":self.values.len(), "maxAtMs":self.max_at_ms,
             "p95Ms":self.values.get(self.values.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0.0),
             "maxMs":self.values.last().copied().unwrap_or(0.0),
             "histogram":limits.iter().enumerate().map(|(i, upper)| self.values.iter().filter(|v| **v <= *upper && (i == 0 || **v > limits[i - 1])).count()).collect::<Vec<_>>()});
         self.values.clear();
+        self.max = 0.0;
+        self.max_at_ms = 0.0;
         result
     }
 }
@@ -469,6 +483,196 @@ async fn timed_event(
     .await
 }
 
+enum MixCommand {
+    Packet(ClientId, tsproto_packets::packets::InAudioBuf, f32),
+    Volume(ClientId, f32),
+    Enabled(bool),
+    Reset,
+}
+// Jedno omezené vlákno na přijatou relaci (MAX_SESSIONS). Dlouhodobý výpočet
+// neběží v blocking poolu ani v pollování TS; Drop zastaví vlákno do jednoho tiku.
+struct Downlink {
+    commands: std::sync::mpsc::SyncSender<MixCommand>,
+    running: Arc<std::sync::atomic::AtomicBool>,
+    enabled: bool,
+    worker: std::thread::JoinHandle<()>,
+}
+impl Drop for Downlink {
+    fn drop(&mut self) {
+        self.running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+impl Downlink {
+    fn new(
+        options: &AudioOptions,
+        output: mpsc::Sender<(Message, Instant)>,
+    ) -> Result<Self, String> {
+        let mut encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio)
+            .map_err(|_| "Opus enkodér nelze spustit.")?;
+        encoder
+            .set_bitrate(Bitrate::BitsPerSecond(options.bitrate()))
+            .and_then(|_| encoder.set_complexity(10))
+            .and_then(|_| encoder.set_vbr(true))
+            .and_then(|_| encoder.set_inband_fec(true))
+            .and_then(|_| encoder.set_packet_loss_perc(10))
+            .map_err(|_| "Chyba nastavení Opus.")?;
+        let opus = options.opus();
+        let (commands, input) = std::sync::mpsc::sync_channel(256);
+        let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let active = running.clone();
+        let worker = std::thread::Builder::new()
+            .name("mluvka-mix".into())
+            .spawn(move || {
+                let result = Self::produce(opus, encoder, input, output, &active);
+                active.store(false, std::sync::atomic::Ordering::Relaxed);
+                if result.is_err() {
+                    tracing::warn!(audio_worker = "failed", "Zvukový producent skončil");
+                }
+            })
+            .map_err(|_| "Zvukové vlákno nelze spustit.")?;
+        Ok(Self {
+            commands,
+            running,
+            enabled: true,
+            worker,
+        })
+    }
+    fn control(&self, command: MixCommand) -> Result<(), String> {
+        // Řízení se nezahazuje: přetížená relace skončí přes clientdisconnect.
+        self.commands
+            .try_send(command)
+            .map_err(|_| "Zvuková fronta přestala odpovídat.".into())
+    }
+    fn enabled(&mut self, enabled: bool) -> Result<(), String> {
+        if self.worker.is_finished() || !self.running.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("Zvukové vlákno skončilo.".into());
+        }
+        if self.enabled != enabled {
+            self.control(MixCommand::Enabled(enabled))?;
+            self.enabled = enabled;
+        }
+        Ok(())
+    }
+    fn packet(
+        &self,
+        id: ClientId,
+        packet: tsproto_packets::packets::InAudioBuf,
+        volume: f32,
+    ) -> Result<(), String> {
+        match self
+            .commands
+            .try_send(MixCommand::Packet(id, packet, volume))
+        {
+            Ok(()) => Ok(()),
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                // Při skutečné ztrátě v omezené frontě použije AudioHandler Opus PLC.
+                tracing::warn!(audio_input_drop = true, "Plná vstupní fronta zvuku");
+                Ok(())
+            }
+            Err(_) => Err("Zvukové vlákno skončilo.".into()),
+        }
+    }
+    fn produce(
+        opus: bool,
+        encoder: Encoder,
+        input: std::sync::mpsc::Receiver<MixCommand>,
+        output: mpsc::Sender<(Message, Instant)>,
+        active: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), String> {
+        let mut audio = AudioHandler::<ClientId>::new();
+        let mut enabled = true;
+        let apply = |command, audio: &mut AudioHandler<ClientId>, enabled: &mut bool| match command
+        {
+            MixCommand::Packet(id, packet, volume) => {
+                if *enabled {
+                    let _ = audio.handle_packet(id, packet);
+                    if let Some(queue) = audio.get_mut_queues().get_mut(&id) {
+                        queue.volume = volume;
+                    }
+                }
+            }
+            MixCommand::Volume(id, volume) => {
+                if let Some(queue) = audio.get_mut_queues().get_mut(&id) {
+                    queue.volume = volume;
+                }
+            }
+            MixCommand::Enabled(value) => {
+                *enabled = value;
+                if !value {
+                    audio.reset();
+                }
+            }
+            MixCommand::Reset => audio.reset(),
+        };
+        let step = Duration::from_millis(20);
+        let mut deadline = Instant::now();
+        let mut sequence = 0u32;
+        let mut gaps = TimingSamples::default();
+        let mut delays = TimingSamples::default();
+        let mut work = TimingSamples::default();
+        let mut report = Instant::now();
+        while active.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(wait) = deadline.checked_duration_since(Instant::now()) {
+                match input.recv_timeout(wait) {
+                    Ok(command) => apply(command, &mut audio, &mut enabled),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+                continue;
+            }
+            // Doručené pakety před dekódováním; pevná mez brání vyhladovění taktu.
+            for _ in 0..256 {
+                match input.try_recv() {
+                    Ok(command) => apply(command, &mut audio, &mut enabled),
+                    Err(_) => break,
+                }
+            }
+            let start = Instant::now();
+            gaps.gap(start);
+            delays.duration(start.saturating_duration_since(deadline));
+            let mut stereo = [0.0f32; 1920];
+            if enabled {
+                audio.fill_buffer(&mut stereo);
+            }
+            let mono: [f32; 960] =
+                std::array::from_fn(|i| soft_limit((stereo[2 * i] + stereo[2 * i + 1]) * 0.5));
+            let mut frame = Vec::with_capacity(if opus { 1276 } else { 1921 });
+            if opus {
+                frame.push(4);
+                frame.extend_from_slice(&sequence.to_le_bytes());
+                sequence = sequence.wrapping_add(1);
+                let mut encoded = [0u8; 1275];
+                let len = encoder
+                    .encode_float(&mono, &mut encoded)
+                    .map_err(|_| "Chyba kódování mixu.")?;
+                frame.extend_from_slice(&encoded[..len]);
+            } else {
+                frame.push(2);
+                for sample in mono {
+                    frame.extend_from_slice(&((sample * 32767.0) as i16).to_le_bytes());
+                }
+            }
+            match output.try_send((Message::Binary(frame.into()), Instant::now())) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    tracing::debug!(ws_audio_drop = true, "Plná fronta zvuku")
+                }
+                Err(_) => break,
+            }
+            work.duration(start.elapsed());
+            // Deadline posuneme přesně o rámec, nikdy nepřeskočíme časovou osu.
+            deadline += step;
+            if report.elapsed() >= Duration::from_secs(30) {
+                let timing = json!({"stage":"mix", "mixStart":gaps.take(), "tickDelay":delays.take(), "mixWork":work.take()});
+                tracing::info!(audio_timing = %timing, "Samostatný producent za 30 s");
+                report = Instant::now();
+            }
+        }
+        Ok(())
+    }
+}
+
 pub async fn run(
     ws: WebSocket,
     allowed: &[String],
@@ -479,10 +683,8 @@ pub async fn run(
     let (control, mut controls) = mpsc::channel(256);
     let (audio, mut frames) = mpsc::channel::<(Message, Instant)>(16);
     let mut writer = tokio::spawn(async move {
-        let mut produced = None;
-        let mut written = None;
-        let mut producer_gaps = Vec::with_capacity(1600);
-        let mut writer_gaps = Vec::with_capacity(1600);
+        let mut producer_gaps = TimingSamples::default();
+        let mut writer_gaps = TimingSamples::default();
         let mut queue_max_ms = 0.0_f64;
         let mut bytes = 0_usize;
         let mut frames_count = 0_usize;
@@ -493,10 +695,7 @@ pub async fn run(
                 msg = frames.recv() => match msg { Some((msg, at)) => (msg, Some(at)), None => break },
             };
             if let Some(at) = queued_at {
-                if let Some(previous) = produced {
-                    producer_gaps.push(at.duration_since(previous).as_secs_f64() * 1000.0);
-                }
-                produced = Some(at);
+                producer_gaps.gap(at);
                 queue_max_ms = queue_max_ms.max(at.elapsed().as_secs_f64() * 1000.0);
                 if let Message::Binary(ref data) = msg {
                     bytes += data.len();
@@ -511,27 +710,13 @@ pub async fn run(
                 break;
             }
             if queued_at.is_some() {
-                let now = Instant::now();
-                if let Some(previous) = written {
-                    writer_gaps.push(now.duration_since(previous).as_secs_f64() * 1000.0);
-                }
-                written = Some(now);
+                writer_gaps.gap(Instant::now());
             }
             if frames_count > 0 && report_at.elapsed() >= Duration::from_secs(30) {
-                producer_gaps.sort_by(f64::total_cmp);
-                writer_gaps.sort_by(f64::total_cmp);
-                let summary = |values: &[f64]| {
-                    let limits = [25.0, 50.0, 100.0, 200.0, 300.0, 400.0, f64::INFINITY];
-                    json!({"p95Ms": values.get(values.len().saturating_mul(95) / 100).copied().unwrap_or(0.0),
-                        "maxMs": values.last().copied().unwrap_or(0.0),
-                        "histogram": limits.iter().enumerate().map(|(i, upper)| values.iter().filter(|v| **v <= *upper && (i == 0 || **v > limits[i - 1])).count()).collect::<Vec<_>>()})
-                };
                 // Jen agregovaná čísla, žádná adresa, text TS ani identita.
-                let timing = json!({"producer":summary(&producer_gaps), "writer":summary(&writer_gaps),
+                let timing = json!({"stage":"writer", "producer":producer_gaps.take(), "writer":writer_gaps.take(),
                     "queueMaxMs":queue_max_ms, "averageFrameBytes":bytes / frames_count});
                 tracing::info!(audio_timing = %timing, "Časování zvuku za 30 s");
-                producer_gaps.clear();
-                writer_gaps.clear();
                 bytes = 0;
                 frames_count = 0;
                 queue_max_ms = 0.0;
@@ -783,27 +968,9 @@ async fn connected(
         .map_err(|e| ts_error(&e))?;
     json_send(ws, json!({"type":"hello", "audio":{"codec":if options.opus() {"opus"} else {"pcm"}, "version":1, "quality": options.quality}})).await?;
     json_send(ws, snapshot(con)?).await?;
-    let mut audio = AudioHandler::<ClientId>::new();
+    let mut downlink = Downlink::new(options, ws.audio.clone())?;
     let encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)
         .map_err(|_| "Opus enkodér nelze spustit.")?;
-    let mut down_encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio)
-        .map_err(|_| "Opus enkodér nelze spustit.")?;
-    down_encoder
-        .set_bitrate(Bitrate::BitsPerSecond(options.bitrate()))
-        .map_err(|_| "Chyba nastavení Opus.")?;
-    down_encoder
-        .set_complexity(10)
-        .map_err(|_| "Chyba nastavení Opus.")?;
-    down_encoder
-        .set_vbr(true)
-        .map_err(|_| "Chyba nastavení Opus.")?;
-    down_encoder
-        .set_inband_fec(true)
-        .map_err(|_| "Chyba nastavení Opus.")?;
-    down_encoder
-        .set_packet_loss_perc(10)
-        .map_err(|_| "Chyba nastavení Opus.")?;
-    let mut down_sequence = 0u32;
     let mut peers: HashMap<String, (f32, bool)> = HashMap::new();
     let mut talking: HashMap<ClientId, Instant> = HashMap::new();
     let mut was_sending = false;
@@ -816,6 +983,7 @@ async fn connected(
     let mut restore_nickname = restore_nickname;
     let mut pending = HashMap::new();
     let mut source_gaps = TimingSamples::default();
+    let mut source_arrivals = HashMap::<ClientId, Instant>::new();
     let mut mix_gaps = TimingSamples::default();
     let mut tick_delays = TimingSamples::default();
     let mut mix_work = TimingSamples::default();
@@ -836,7 +1004,7 @@ async fn connected(
                         if control_count > 40 { return Err("Příliš mnoho řídicích zpráv.".into()); }
                         let ctrl: Control = serde_json::from_str(&s).map_err(|_| "Neplatná řídicí zpráva.")?;
                         let cmd = match ctrl {
-                            Control::Move { channel, password } => { audio.reset(); Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
+                            Control::Move { channel, password } => { source_arrivals.clear(); downlink.control(MixCommand::Reset)?; Some(command("clientmove", &[("clid", con.get_state().map_err(|e| ts_error(&e))?.own_client.0.to_string()),("cid",channel.to_string()),("cpw",password_hash(&password))])) },
                             Control::Chat { target, client, text } => {
                                 if text.trim().is_empty() || text.len() > 4000 { json_send(ws,error_message("Zpráva musí mít 1–4000 bajtů.", false)).await?; continue; }
                                 let target = match target.as_str() { "server" => MessageTarget::Server, "channel" => MessageTarget::Channel, "private" if client.is_some() => MessageTarget::Client(ClientId(client.unwrap())), _ => return Err("Neplatný cíl zprávy.".into()) };
@@ -844,12 +1012,12 @@ async fn connected(
                             },
                             Control::Mute { microphone: mic, deafen: deaf } => {
                                 microphone = mic; deafen = deaf;
-                                if deaf { audio.reset(); }
+                                if deaf { downlink.control(MixCommand::Reset)?; }
                                 Some(command("clientupdate", &[("client_input_muted",u8::from(mic).to_string()),("client_output_muted",u8::from(deaf).to_string())]))
                             },
                             Control::Peer { uid, volume, muted } => {
                                 if !volume.is_finite() || !(0.0..=2.0).contains(&volume) || uid.len() > 128 || peers.len() >= 2048 && !peers.contains_key(&uid) { return Err("Neplatná hlasitost nebo identita klienta.".into()); }
-                                if muted && let Ok(book) = con.get_state() { for c in book.clients.values().filter(|c| c.uid.as_ref().map(|u| u.as_ref().to_string()).as_deref() == Some(&uid)) { audio.get_mut_queues().remove(&c.id); } }
+                                if let Ok(book) = con.get_state() { for c in book.clients.values().filter(|c| c.uid.as_ref().map(|u| u.as_ref().to_string()).as_deref() == Some(&uid)) { downlink.control(MixCommand::Volume(c.id, if muted {0.0} else {volume}))?; } }
                                 peers.insert(uid,(volume,muted)); None
                             },
                             Control::Ping => { last_pong = Instant::now(); json_send(ws, json!({"type":"pong"})).await?; None },
@@ -900,12 +1068,14 @@ async fn connected(
                     },
                     Some(Ok(StreamItem::Audio(packet))) => {
                         let ts_start = Instant::now();
-                        source_gaps.gap(ts_start);
                         let from = match packet.data().data() { AudioData::S2C { from,.. } => ClientId(*from), _ => continue };
+                        if packet.data().data().data().len() > 1 {
+                            if let Some(previous) = source_arrivals.insert(from, ts_start) { source_gaps.duration(ts_start.duration_since(previous)); }
+                        } else { source_arrivals.remove(&from); }
                         let now = Instant::now();
                         if talking.insert(from,now).is_none() { json_send(ws,json!({"type":"talking","client":from.0,"active":true})).await?; }
                         let pref = con.get_state().ok().and_then(|b| b.clients.get(&from)).and_then(|c| c.uid.as_ref()).and_then(|u| peers.get(&u.to_string())).copied().unwrap_or((1.0,false));
-                        if !deafen && !pref.1 { let _ = audio.handle_packet(from,packet); if let Some(q) = audio.get_mut_queues().get_mut(&from) { q.volume = pref.0; } }
+                        if !deafen && !pref.1 { downlink.packet(from, packet, pref.0)?; }
                         ts_work.duration(ts_start.elapsed());
                     },
                     Some(Ok(StreamItem::MessageResult(handle, result))) => { pending.remove(&handle); if let Err(e) = result { json_send(ws,error_message(&ts_error(&tsclientlib::Error::CommandError(e)), false)).await?; } },
@@ -933,36 +1103,17 @@ async fn connected(
                 }
                 let stopped: Vec<_> = talking.iter().filter(|(_,t)| t.elapsed() > Duration::from_millis(300)).map(|(id,_)| *id).collect();
                 for id in stopped { talking.remove(&id); json_send(ws,json!({"type":"talking","client":id.0,"active":false})).await?; }
-                for (id,q) in audio.get_mut_queues() {
-                    let pref = con.get_state().ok().and_then(|b| b.clients.get(id)).and_then(|c| c.uid.as_ref()).and_then(|u| peers.get(&u.to_string())).copied().unwrap_or((1.0,false));
-                    q.volume = if pref.1 {0.0} else {pref.0};
-                }
-                let mut stereo = [0.0f32;1920];
-                if !deafen && con.can_receive_audio() { audio.fill_buffer(&mut stereo); }
-                let mono: Vec<f32> = stereo.as_chunks::<2>().0.iter().map(|lr| soft_limit((lr[0]+lr[1])*0.5)).collect();
-                let mut frame = Vec::with_capacity(1921);
-                if options.opus() {
-                    frame.push(4);
-                    frame.extend_from_slice(&down_sequence.to_le_bytes());
-                    down_sequence = down_sequence.wrapping_add(1);
-                    let mut encoded = [0u8; 1275];
-                    let len = down_encoder.encode_float(&mono, &mut encoded).map_err(|_| "Chyba kódování mixu.")?;
-                    frame.extend_from_slice(&encoded[..len]);
-                } else {
-                    frame.push(2);
-                    for sample in mono { frame.extend_from_slice(&((sample*32767.0) as i16).to_le_bytes()); }
-                }
-                send(ws,Message::Binary(frame.into())).await?;
+                downlink.enabled(!deafen && con.can_receive_audio())?;
                 mix_work.duration(mix_start.elapsed());
                 if source_report.elapsed() >= Duration::from_secs(30) {
-                    let timing = json!({"stage":"source", "tsIncoming":source_gaps.take(), "mixStart":mix_gaps.take(),
-                        "tickDelay":tick_delays.take(), "mixWork":mix_work.take(), "eventPoll":event_poll.take(),
+                    source_arrivals.retain(|_, at| at.elapsed() < Duration::from_secs(30));
+                    let timing = json!({"stage":"source", "tsIncoming":source_gaps.take(), "sessionTick":mix_gaps.take(),
+                        "tickDelay":tick_delays.take(), "sessionWork":mix_work.take(), "eventPoll":event_poll.take(),
                         "uplinkWork":uplink_work.take(), "tsWork":ts_work.take()});
-                    tracing::info!(audio_timing = %timing, "Příjem TS a práce producenta za 30 s");
+                    tracing::info!(audio_timing = %timing, "Příjem TS a práce relace za 30 s");
                     source_report = Instant::now();
                 }
-                // Burst musí pustit writer mezi doháněnými rámci. Jinak plní
-                // vlastní lokální frontu rychleji, než může proběhnout její čtenář.
+                // Při dohánění údržby relace necháme prostor WS writeru.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
                 if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
@@ -1021,6 +1172,60 @@ mod tests {
                     id.key().to_pub().get_uid()
                 );
             }
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn producer_keeps_ticking_while_async_runtime_is_blocked() {
+        for codec in ["pcm", "opus"] {
+            let options = AudioOptions {
+                codec: codec.into(),
+                version: 1,
+                ..Default::default()
+            };
+            let (output, mut frames) = mpsc::channel(16);
+            let producer = Downlink::new(&options, output).unwrap();
+            let (_, first) = timeout(Duration::from_secs(2), frames.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut inline = interval(Duration::from_millis(20));
+            inline.set_missed_tick_behavior(MissedTickBehavior::Burst);
+            inline.tick().await;
+            let previous = Instant::now();
+            // Stejné blokování jako dlouhý poll/CPU práce; jediný Tokio worker.
+            std::thread::sleep(Duration::from_millis(140));
+            inline.tick().await;
+            let mut before = TimingSamples::default();
+            before.duration(previous.elapsed());
+            let mut times = vec![first];
+            while let Ok((_, at)) = frames.try_recv() {
+                times.push(at);
+            }
+            assert!(
+                times.len() >= 5,
+                "Producent čekal na Tokio: {} rámců",
+                times.len()
+            );
+            let mut after = TimingSamples::default();
+            for pair in times.windows(2) {
+                after.duration(pair[1] - pair[0]);
+            }
+            assert!(
+                after.values.iter().all(|gap| *gap < 80.0),
+                "{:?}",
+                after.values
+            );
+            println!(
+                "producer_isolation={}",
+                json!({"codec":codec,"inlineTokio":before.take(),"dedicatedProducer":after.take()})
+            );
+            drop(producer);
+            // Drop ukončí vlákno i bez dalšího TS paketu.
+            timeout(Duration::from_secs(2), async {
+                while frames.recv().await.is_some() {}
+            })
+            .await
+            .unwrap();
         }
     }
     #[test]

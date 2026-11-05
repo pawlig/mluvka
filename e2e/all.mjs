@@ -1,6 +1,6 @@
 // Úplné regresní kroky běží v obou vyjednaných transportech proti skutečnému TS3.
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdtempSync, symlinkSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, symlinkSync, rmSync, readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 const report = new URL("../docs/e2e-vysledky.json", import.meta.url);
@@ -15,7 +15,7 @@ const bundle = process.env.TS3_DIR || resolve(import.meta.dirname, "../tmp-ts3/t
 // default_voice_port se používá jen při vytvoření DB. Starší sdílená DB by
 // ignorovala TS3_VOICE_PORT, proto má každý úplný běh vlastní prázdnou DB.
 const directory = mkdtempSync(resolve(import.meta.dirname, "../tmp-ts3/ts3-e2e-"));
-for (const name of ["ts3server", "sql", "libts3db_sqlite3.dylib", "libts3_ssh.dylib"])
+for (const name of ["ts3server", "sql", ...readdirSync(bundle).filter((name) => /^lib.*\.(dylib|so)$/.test(name))])
   symlinkSync(resolve(bundle, name), resolve(directory, name));
 const server = spawn(
   resolve(directory, "ts3server"),

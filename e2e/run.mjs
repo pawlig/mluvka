@@ -5,6 +5,7 @@ import {
   jitterChecks,
   installAudioProbe,
   toneCheck,
+  summarizeAudioTiming,
   mobileAudioCheck,
   vadCheck,
   networkCheck,
@@ -931,7 +932,10 @@ try {
     if (!match) return [];
     try { return [JSON.parse(match[1])]; } catch { return []; }
   });
-  if (timing.length) ok("Backend: histogram mezer mixu a WS writeru bez osobních údajů", { timing });
+  if (timing.length) {
+    writeFileSync(resolve(temp, `audio-timing-${process.env.E2E_CODEC || "opus"}.json`), JSON.stringify(timing));
+    ok("Backend: histogram mezer mixu a WS writeru bez osobních údajů", { timing: summarizeAudioTiming(timing) });
+  }
   expect(errors).toEqual([]);
   ok("Žádné JS výjimky ani chyby konzole v obou relacích");
   writeFileSync(
