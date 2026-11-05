@@ -4,6 +4,10 @@ export class AudioEngine {
   context?: SinkContext;
   player?: HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
   mediaOutput?: MediaStreamAudioDestinationNode;
+  private directOutput = false;
+  private outputWatch?: ReturnType<typeof setInterval>;
+  private playerTime = 0;
+  private playerProgressAt = 0;
   onBlocked: (blocked: boolean) => void = () => {};
   onInputUnavailable: (unavailable: boolean) => void = () => {};
   onOutputBlocked: (blocked: boolean) => void = () => {};
@@ -156,10 +160,7 @@ export class AudioEngine {
       );
       // Mobilní přehrávač dává Androidu aktivní mediální relaci i při zhasnutí.
       // Desktop zůstává na přímé cestě s nejmenší latencí.
-      if (
-        matchMedia("(pointer: coarse)").matches ||
-        navigator.maxTouchPoints > 0
-      ) {
+      if (matchMedia("(pointer: coarse)").matches) {
         this.mediaOutput = this.context.createMediaStreamDestination();
         this.output.connect(this.mediaOutput);
         this.player = document.createElement("audio");
@@ -167,6 +168,9 @@ export class AudioEngine {
         this.player.autoplay = true;
         this.player.srcObject = this.mediaOutput.stream;
         document.body.append(this.player);
+        this.playerTime = this.player.currentTime;
+        this.playerProgressAt = performance.now();
+        this.outputWatch = setInterval(() => this.checkOutput(), 1000);
         void this.playOutput();
       } else this.output.connect(this.context.destination);
       this.context.addEventListener("statechange", this.stateChanged);
@@ -537,7 +541,8 @@ export class AudioEngine {
   }
   private async setOutput(id: string) {
     if (this.player?.setSinkId) await this.player.setSinkId(id);
-    else if (this.context?.setSinkId) await this.context.setSinkId(id);
+    // Záložní přímá cesta musí respektovat stejný vybraný výstup.
+    if (this.context?.setSinkId) await this.context.setSinkId(id);
     await this.playOutput();
   }
   private stateChanged = () => {
@@ -562,17 +567,60 @@ export class AudioEngine {
     void context.resume().then(this.checkState).catch(this.checkState);
     await this.playOutput();
   }
+  private useDirectOutput(direct: boolean) {
+    if (
+      !this.context ||
+      !this.output ||
+      !this.player ||
+      this.directOutput === direct
+    )
+      return;
+    if (direct) {
+      this.player.muted = true;
+      this.output.connect(this.context.destination);
+    } else {
+      this.output.disconnect(this.context.destination);
+      this.player.muted = false;
+    }
+    this.directOutput = direct;
+    this.onOutputBlocked(direct);
+  }
+  private checkOutput() {
+    const player = this.player;
+    if (!player || !this.context) return;
+    const now = performance.now();
+    const progressed = player.currentTime > this.playerTime + 0.001;
+    if (progressed) {
+      this.playerTime = player.currentTime;
+      this.playerProgressAt = now;
+      if (!player.paused && !player.error) this.useDirectOutput(false);
+    }
+    if (this.context.state !== "running") {
+      this.playerProgressAt = now;
+      return;
+    }
+    // Tichá místnost není porucha: fallback až při kladném signálu před
+    // výstupem a zastavených hodinách přehrávače. Obě cesty nikdy nehrají naráz.
+    const stalled =
+      now - this.playerProgressAt > 3000 &&
+      window.__mluvkaStats.outputRms > 0.001;
+    if (player.paused || player.error || stalled) this.useDirectOutput(true);
+  }
   async playOutput() {
     const player = this.player;
     if (!player) return;
     try {
-      player.muted = false;
       await player.play();
-      if (this.player === player) this.onOutputBlocked(false);
+      if (this.player === player) {
+        this.checkOutput();
+        if (!this.directOutput) {
+          player.muted = false;
+          this.onOutputBlocked(false);
+        }
+      }
     } catch {
-      // Ani přerušení play() nesmí mobil trvale přepnout na přímý výstup,
-      // který na pozadí ztratí mediální relaci. Další gesto obnoví stejný <audio>.
-      if (this.player === player) this.onOutputBlocked(true);
+      // Zachováme přehrávač pro další gesto, mezitím lze slyšet přímý výstup.
+      if (this.player === player) this.useDirectOutput(true);
     }
     this.checkState();
   }
@@ -755,6 +803,9 @@ export class AudioEngine {
       this.deviceChange,
     );
     this.context?.removeEventListener("statechange", this.stateChanged);
+    clearInterval(this.outputWatch);
+    this.outputWatch = undefined;
+    this.directOutput = false;
     if (this.player) {
       this.player.pause();
       this.player.srcObject = null;

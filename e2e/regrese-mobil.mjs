@@ -29,6 +29,21 @@ function observe(context, micFailure) {
         window.regAudioContext = this;
       }
     };
+    window.regDirectOutputs = new Set();
+    const connectNode = AudioNode.prototype.connect;
+    const disconnectNode = AudioNode.prototype.disconnect;
+    AudioNode.prototype.connect = function (...args) {
+      const result = connectNode.apply(this, args);
+      if (args[0] === window.regAudioContext?.destination)
+        window.regDirectOutputs.add(this);
+      return result;
+    };
+    AudioNode.prototype.disconnect = function (...args) {
+      const result = disconnectNode.apply(this, args);
+      if (!args.length || args[0] === window.regAudioContext?.destination)
+        window.regDirectOutputs.delete(this);
+      return result;
+    };
     window.regMicCalls = 0;
     const gum = navigator.mediaDevices.getUserMedia.bind(
       navigator.mediaDevices,
@@ -41,8 +56,18 @@ function observe(context, micFailure) {
       window.regStreams.push(stream);
       return stream;
     };
+    window.regAudioSessionChanges = [];
+    let audioSessionType = "auto";
     Object.defineProperty(navigator, "audioSession", {
-      value: { type: "auto" },
+      value: {
+        get type() {
+          return audioSessionType;
+        },
+        set type(value) {
+          audioSessionType = value;
+          window.regAudioSessionChanges.push(value);
+        },
+      },
       configurable: true,
     });
     localStorage.setItem(
@@ -176,6 +201,10 @@ export async function mobileRegressionChecks({
       });
       contexts.push(context);
       await observe(context);
+      if (i === 0)
+        await context.addInitScript(() =>
+          Object.defineProperty(navigator, "maxTouchPoints", { value: 5 }),
+        );
       const page = await context.newPage();
       page.on("pageerror", (error) => faults.push(error.message));
       page.on("websocket", (socket) =>
@@ -193,6 +222,15 @@ export async function mobileRegressionChecks({
     const start = Date.now();
     await Promise.all(pages.map((page, i) => login(page, `Regrese${i}`)));
     await Promise.all(pages.map((page) => ready(page)));
+    expect(await pages[0].evaluate(() => navigator.maxTouchPoints)).toBe(5);
+    expect(
+      await pages[0].evaluate(() => matchMedia("(pointer: coarse)").matches),
+    ).toBe(false);
+    await expect(pages[0].locator("audio")).toHaveCount(0);
+    expect(await pages[0].evaluate(() => window.regDirectOutputs.size)).toBe(1);
+    ok(
+      "Desktop s dotykem a jemným ukazatelem používá přímý AudioContext výstup",
+    );
     const channels = await query.cmd("channellist");
     const rest = channels
       .split("|")
@@ -423,6 +461,61 @@ export async function mobileRegressionChecks({
     await expect
       .poll(() => b.evaluate(() => navigator.audioSession.type))
       .toBe("play-and-record");
+    await expect(b.locator("audio")).toHaveCount(1);
+    await b.evaluate(() => {
+      const player = document.querySelector("audio");
+      window.regPlay = player.play;
+      player.play = async () => {
+        player.pause();
+        throw new DOMException(
+          "Test odmítnutého přehrávání",
+          "NotAllowedError",
+        );
+      };
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect
+      .poll(() => b.evaluate(() => window.regDirectOutputs.size))
+      .toBe(1);
+    expect(await b.locator("audio").evaluate((player) => player.muted)).toBe(
+      true,
+    );
+    await b.evaluate(() => {
+      const player = document.querySelector("audio");
+      player.play = window.regPlay;
+    });
+    await expect
+      .poll(() => b.evaluate(() => window.regDirectOutputs.size))
+      .toBe(0);
+    expect(await b.locator("audio").evaluate((player) => player.muted)).toBe(
+      false,
+    );
+    // play() může uspět, přesto se přehrávač neposouvá. Kladný RMS přitom
+    // potvrzuje hlas před výstupem, nikoli pouhé ticho v místnosti.
+    await b.evaluate(() => {
+      const player = document.querySelector("audio");
+      Object.defineProperty(player, "currentTime", {
+        configurable: true,
+        value: player.currentTime,
+      });
+    });
+    await expect
+      .poll(() => b.evaluate(() => window.regDirectOutputs.size), {
+        timeout: 6000,
+      })
+      .toBe(1);
+    await b.evaluate(() => {
+      delete document.querySelector("audio").currentTime;
+    });
+    await expect
+      .poll(() => b.evaluate(() => window.regDirectOutputs.size))
+      .toBe(0);
+    expect(await b.locator("audio").evaluate((player) => player.muted)).toBe(
+      false,
+    );
+    ok(
+      "Mobil: odmítnuté play() i stojící přehrávač se signálem přepnou na přímý výstup; po obnově hraje jen neztlumený audio element",
+    );
     // Nastavení z UI, aby Media Session prošla skutečným frontendovým stavem.
     await b
       .getByRole("button", { name: "Ztlumit mikrofon", exact: true })
@@ -498,7 +591,10 @@ export async function mobileRegressionChecks({
       { elapsedMs: Date.now() - resumed },
     );
     await hidden(b, true);
-    await b.evaluate(() => window.regSockets.at(-1).close());
+    await b.evaluate(() => {
+      window.regAudioSessionChanges = [];
+      window.regSockets.at(-1).close();
+    });
     await expect
       .poll(() => b.evaluate(() => window.regSockets.length), {
         timeout: 20000,
@@ -506,8 +602,16 @@ export async function mobileRegressionChecks({
       .toBeGreaterThan(sockets);
     await ready(b);
     expect(await b.evaluate(() => document.hidden)).toBe(true);
+    expect(await b.evaluate(() => navigator.audioSession.type)).toBe(
+      "play-and-record",
+    );
+    expect(await b.evaluate(() => window.regAudioSessionChanges)).not.toContain(
+      "auto",
+    );
     await hidden(b, false);
-    ok("Spadlé WS na pozadí se znovu připojí ještě v hidden");
+    ok(
+      "Spadlé WS na pozadí: reconnect ještě v hidden, audioSession nepřejde na auto",
+    );
     await query.cmd(
       `clientkick clid=${await selfId(b)} reasonid=5 reasonmsg=Test`,
     );

@@ -972,9 +972,10 @@ function AppContent({
     };
   }, []);
   useEffect(() => {
-    audio.setCallActive(connected);
-    return () => audio.setCallActive(false);
-  }, [connected]);
+    // Záměr zůstat v hovoru přežije i přechod connected → idle při reconnectu.
+    // Ukončení hovoru a unmount uvolní session přes audio.close().
+    audio.setCallActive(wanted.current);
+  }, [status, retryAttempt]);
   useEffect(() => {
     if (!("mediaSession" in navigator) || !connected) return;
     navigator.mediaSession.metadata = new MediaMetadata({

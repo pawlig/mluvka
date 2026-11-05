@@ -365,11 +365,14 @@ pro antiflood rozhoduje adresa viděná TS, nikoli nutně tato vnitřní IP.
 
 ## Hovor na pozadí
 
-Na dotykovém zařízení vede výstup přes skutečně hrající, neztlumený `<audio>`
-s MediaStreamem z AudioContext. Při přerušení se kontext pokouší obnovit i na pozadí.
+Na mobilu/tabletu s `pointer: coarse` vede výstup přes skutečně hrající,
+neztlumený `<audio>` s MediaStreamem z AudioContext. Desktop s jemným ukazatelem
+používá přímý výstup, i když má dotykový displej. Při odmítnutém `play()` nebo
+zastaveném přehrávači navzdory přicházejícímu hlasu se obnoví přímá záložní cesta.
+Po rozběhnutí přehrávače se vrátí mobilní cesta; nikdy nehrají obě současně. Při přerušení se kontext pokouší obnovit i na pozadí.
 Media Session zůstává během hovoru `playing`; play/pause na zamčené obrazovce
 přepínají mikrofon. Safari s dostupným `navigator.audioSession` používá
-`play-and-record` a po odpojení `auto` ([WebKit: Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/),
+`play-and-record` i během reconnectu a po ukončení hovoru `auto` ([WebKit: Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/),
 [Media Session](https://www.w3.org/TR/mediasession/)).
 
 Android: zkuste Chrome i instalovanou PWA. Povolte mikrofon a přehrávání, připojte
