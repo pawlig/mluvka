@@ -19,6 +19,16 @@ export async function installSharingCapture(context, relay = false) {
           this.addEventListener("message", (event) => {
             if (typeof event.data !== "string") return;
             const msg = JSON.parse(event.data);
+            if (msg.type === "share_started" && window.__e2eDelayStartAck) {
+              event.stopImmediatePropagation();
+              window.__e2eDelayedAck = event.data;
+              return;
+            }
+            if (msg.type === "rtc_offer" && window.__e2eBlockOffers) {
+              event.stopImmediatePropagation();
+              return;
+            }
+            if (msg.type === "share_list") window.__e2eLastList = msg;
             if (msg.type === "share_session") {
               window.__e2eShareToken = msg.token;
               window.__e2eShareSession = msg.session;
@@ -217,9 +227,41 @@ export async function sharingChecks({
     "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
   );
 
+  await a.evaluate(() => {
+    window.__e2eDelayStartAck = true;
+  });
   await a
     .getByRole("button", { name: "Sdílet obrazovku", exact: true })
     .click();
+  await expect
+    .poll(() => a.evaluate(() => !!window.__e2eDelayedAck))
+    .toBe(true);
+  await a.evaluate(() => {
+    // Opožděný snapshot z doby před share_start dorazí před jeho potvrzením.
+    window.__e2eShareSocket.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({ ...window.__e2eLastList, sharing: false }),
+      }),
+    );
+  });
+  await expect(
+    a.getByRole("button", { name: "Spouštím…", exact: true }),
+  ).toBeVisible();
+  expect(
+    await a.evaluate(
+      () => window.__e2eDisplayStream.getVideoTracks()[0].readyState,
+    ),
+  ).toBe("live");
+  await a.evaluate(() => {
+    window.__e2eDelayStartAck = false;
+    window.__e2eShareSocket.dispatchEvent(
+      new MessageEvent("message", { data: window.__e2eDelayedAck }),
+    );
+  });
+  await expect(a.locator(".share-live")).toContainText("0 diváků");
+  ok(
+    "Opožděný share_list nezastaví capture; sdílení čeká na share_started a divák se připojí",
+  );
   await expect(b.locator(".share-card")).toContainText("Adam");
   await expect(
     b.locator('.share-tree-icon[title="Sdílí obrazovku"]'),

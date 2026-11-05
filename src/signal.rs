@@ -213,6 +213,10 @@ impl Lease {
         let me = &members[&self.id];
         if kind == "share_start" {
             members.get_mut(&self.id).unwrap().sharing = true;
+            emit(
+                &members[&self.id],
+                json!({"type":"share_started","v":1,"request":msg["request"]}),
+            )?;
         } else if kind == "share_stop" {
             // Zastavení vlastního vysílání neruší sledování jiného člověka.
             members.get_mut(&self.id).unwrap().sharing = false;

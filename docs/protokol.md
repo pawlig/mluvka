@@ -102,7 +102,7 @@ tyto dva PLC čítače je nezahrnují.
 ## Limity
 
 - WS transport ≤32 KiB kvůli SDP; běžné řízení zůstává ≤16 KiB (podrobnosti WebRTC níže). Binární PCM 1921 B, Opus nahoru ≤1276 B a dolů ≤1280 B.
-- Nejvýše 40 běžných řídicích, 120 signalizačních WebRTC a 100 audio zpráv/s/relaci; překročení ukončí spojení.
+- Nejvýše 40 běžných řídicích a 100 audio zpráv/s/relaci; překročení ukončí spojení. WebRTC má samostatný limit 120 zpráv/s; přebytečné zprávy se zahodí, první dostane `share_error` a TS spojení pokračuje.
 - `MAX_SESSIONS` (20) zahrnuje čekající WS; vyčerpání → HTTP 503.
 - Neshodný `Origin` a `Host` → HTTP 403. Vite proxy origin přepisuje.
 - WS ping a JSON pong po 10 s; společný limit bez WS pong / JSON ping je 45 s,
@@ -204,7 +204,7 @@ Každý klientský signalizační JSON obsahuje `v:1, kind:"screen"`:
 
 | `type` | Další pole | Význam |
 | --- | --- | --- |
-| `share_start` | — | Zveřejní vlastní sdílení v místnosti. |
+| `share_start` | `request` (náhodné ID startu) | Zveřejní vlastní sdílení a odpoví `share_started` se stejným `request`. Klient do potvrzení ponechá start rozpracovaný. |
 | `share_stop` | — | Ukončí vlastní vysílání i vazby jeho diváků; zachová vlastní sledování. |
 | `watch` | `to` | Požádá sdílejícího o offer. Opakovaný watch pro stejné sdílení slouží také k ICE restartu. |
 | `unwatch` | `to` | Uvolní divácké místo a obě peer spojení této vazby. |
@@ -218,7 +218,7 @@ klient ignoruje. Kandidáty ukládá do fronty do nastavení remote description.
 VP9 → H.264 → VP8, pokud je prohlížeč podporuje. ICE restart vytváří nový offer na stávající vazbě.
 V každém směru dvojice mohou existovat samostatná spojení, takže lidé mohou sdílet vzájemně.
 
-Backend při změně registru rozesílá `share_list`:
+Backend rozesílá `share_list` jen členům stejného TS serveru a pouze při změně obsahu seznamu:
 
 ```json
 {"type":"share_list","v":1,"self":"session-A","sharing":false,"viewers":0,
@@ -236,7 +236,7 @@ Odmítnutí vrátí nefatální `share_error:{v:1,message:string,request:string}
 
 WS transport má maximum 32 KiB, ale původní řízení zůstává omezené na 16 KiB a 40 zpráv/s.
 Výhradně offer/answer smějí mít 32 KiB JSON (samotné SDP max. 30 KiB), ICE 4 KiB (candidate max. 2 KiB),
-ostatní signalizace 1 KiB. Signalizace má zvláštní strop 120 zpráv/s pro šest paralelních ICE jednání.
+ostatní signalizace 1 KiB. Změny `share_start`, `share_stop`, `watch`, `unwatch` mají navíc společný klouzavý limit 5/s na relaci; překročení vrací `share_error` „příliš rychle“. Signalizace má zvláštní strop 120 zpráv/s pro šest paralelních ICE jednání.
 Překročení tempa ukončí relaci; odmítnutí obsahu nebo směrování vrátí `share_error`.
 Fronty zůstávají omezené, signalizace nepřebírá audio frontu.
 

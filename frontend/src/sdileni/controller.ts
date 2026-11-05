@@ -96,6 +96,8 @@ export class Sharing {
   private restoreUntil = 0;
   private generation = 0;
   private captureGeneration = 0;
+  private pendingStart?: string;
+  private startTimer?: ReturnType<typeof setTimeout>;
   private lastBytes = { bytes: 0, at: 0 };
   constructor(private sendRaw: (data: unknown) => void) {}
   subscribe = (fn: () => void) => {
@@ -148,6 +150,7 @@ export class Sharing {
     if (
       ![
         "share_session",
+        "share_started",
         "share_list",
         "share_stop",
         "watch",
@@ -176,6 +179,17 @@ export class Sharing {
       });
   }
   private async handle(msg: any) {
+    if (msg.type === "share_started") {
+      if (msg.request === this.pendingStart && this.capture) {
+        clearTimeout(this.startTimer);
+        this.pendingStart = undefined;
+        this.update({ sharing: true, starting: false });
+      } else if (!this.capture && !this.state.starting) {
+        // Uživatel mohl zrušit výběr/start dřív, než backend odpověděl.
+        this.send("share_stop");
+      }
+      return;
+    }
     if (msg.type === "share_error") {
       this.update({ error: msg.message });
       if (msg.request === "watch") {
@@ -187,7 +201,11 @@ export class Sharing {
     if (msg.type === "share_list") {
       const shares = msg.shares as Share[];
       this.update({ shares, clients: msg.clients, viewers: msg.viewers });
-      if (!msg.sharing && this.state.sharing) this.stop(false);
+      // Starší snapshot nesmí zahodit zachycený stream před potvrzením startu.
+      if (!msg.sharing && this.state.sharing && !this.pendingStart)
+        this.stop(false);
+      if (msg.sharing && !this.capture && !this.state.starting)
+        this.send("share_stop");
       if (
         this.state.watching &&
         !shares.some((p) => p.session === this.state.watching?.session)
@@ -215,7 +233,10 @@ export class Sharing {
       return;
     }
     if (msg.type === "watch") {
-      if (!this.capture) return;
+      if (!this.capture) {
+        this.send("share_stop");
+        return;
+      }
       let peer = this.peers.get(`send:${from}`);
       if (!peer) {
         peer = await this.makePeer(from, true, crypto.randomUUID());
@@ -427,20 +448,29 @@ export class Sharing {
       track.onended = () => this.stop();
       await this.ice();
       if (generation !== this.captureGeneration || !this.capture) return;
-      this.update({ sharing: true });
-      this.send("share_start");
+      this.pendingStart = crypto.randomUUID();
+      this.send("share_start", { request: this.pendingStart });
+      this.startTimer = setTimeout(() => {
+        if (!this.pendingStart) return;
+        this.stop();
+        this.fail(
+          Error("Server nepotvrdil zahájení sdílení. Zkuste to znovu."),
+        );
+      }, 10000);
     } catch (e) {
       stream?.getTracks().forEach((t) => t.stop());
       this.capture = undefined;
       if (!(e instanceof DOMException && e.name === "NotAllowedError"))
         this.fail(e);
     } finally {
-      if (generation === this.captureGeneration)
+      if (generation === this.captureGeneration && !this.pendingStart)
         this.update({ starting: false });
     }
   }
   stop(notify = true) {
     ++this.captureGeneration;
+    clearTimeout(this.startTimer);
+    this.pendingStart = undefined;
     this.capture?.getTracks().forEach((t) => {
       t.onended = null;
       t.stop();
