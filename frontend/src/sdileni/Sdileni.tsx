@@ -115,6 +115,13 @@ export function SharingControls({ controller }: { controller: Sharing }) {
                       : " · bez zvuku"}
                   </p>
                   <button
+                    className="secondary share-switch"
+                    disabled={!state.sharing || state.switching}
+                    onClick={() => void controller.switchSource()}
+                  >
+                    {state.switching ? "Vybírám zdroj…" : "Přepnout zdroj"}
+                  </button>
+                  <button
                     className="share-stop"
                     onClick={() => {
                       controller.stop();
