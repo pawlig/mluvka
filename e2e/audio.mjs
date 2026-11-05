@@ -257,8 +257,14 @@ export async function toneCheck(a, b, ok, codec, profile) {
   };
   expect(measurement.stats.codec).toBe(codec);
   {
-    expect(measurement.stats.plcFrames, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
-    expect(measurement.stats.underruns, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
+    expect(
+      measurement.stats.plcFrames,
+      JSON.stringify({ ...measurement.stats, ...timing }),
+    ).toBe(0);
+    expect(
+      measurement.stats.underruns,
+      JSON.stringify({ ...measurement.stats, ...timing }),
+    ).toBe(0);
     expect(measurement.stats.droppedFrames).toBe(0);
     expect(min).toBeGreaterThanOrEqual(40);
     expect(max).toBeLessThanOrEqual(120);
@@ -269,21 +275,18 @@ export async function toneCheck(a, b, ok, codec, profile) {
   if (codec === "opus") {
     expect(maxDown).toBeLessThanOrEqual(130);
   }
-  ok(
-    `TS3 tón 440 Hz / ${codec}, 30 s bez podtečení`,
-    {
-      underruns: measurement.stats.underruns,
-      plcFrames: measurement.stats.plcFrames,
-      lostFrames: measurement.stats.lostFrames,
-      ...timing,
-      maxJump: measurement.stats.maxJump,
-      minBufferMs: min,
-      maxBufferMs: max,
-      dominantHz,
-      rmsDifferenceDb,
-      maxDownKbps: maxDown,
-    },
-  );
+  ok(`TS3 tón 440 Hz / ${codec}, 30 s bez podtečení`, {
+    underruns: measurement.stats.underruns,
+    plcFrames: measurement.stats.plcFrames,
+    lostFrames: measurement.stats.lostFrames,
+    ...timing,
+    maxJump: measurement.stats.maxJump,
+    minBufferMs: min,
+    maxBufferMs: max,
+    dominantHz,
+    rmsDifferenceDb,
+    maxDownKbps: maxDown,
+  });
 }
 
 export async function vadCheck({ browser, base, login, ok, codec }) {
@@ -451,8 +454,10 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
   profile.bitsPerSecond = 1500000;
   profile.next = 0;
   await cdp.send("Network.emulateNetworkConditions", {
-    offline: false, latency: 80,
-    downloadThroughput: 1500000 / 8, uploadThroughput: 1500000 / 8,
+    offline: false,
+    latency: 80,
+    downloadThroughput: 1500000 / 8,
+    uploadThroughput: 1500000 / 8,
   });
   await b.waitForTimeout(5000);
   await b.evaluate(() => {
@@ -468,7 +473,14 @@ export async function networkCheck(browser, a, b, ok, codec, profile, query) {
     ...window.__mluvkaStats,
     uid: undefined,
   }));
-  expect(stats.underruns, JSON.stringify({ stats, inputGapMs: profile.inputGapMs, outputGapMs: profile.outputGapMs })).toBe(0);
+  expect(
+    stats.underruns,
+    JSON.stringify({
+      stats,
+      inputGapMs: profile.inputGapMs,
+      outputGapMs: profile.outputGapMs,
+    }),
+  ).toBe(0);
   ok(`CDP síť 1,5 Mb/s / 80 ms, ${codec}, 30 s`, {
     underruns: stats.underruns,
     downKbps: stats.downKbps,
@@ -551,14 +563,20 @@ export async function shapeSocket(page) {
         return;
       }
       const now = Date.now();
-      profile.inputGapMs = Math.max(profile.inputGapMs || 0, now - (profile.inputAt || now));
+      profile.inputGapMs = Math.max(
+        profile.inputGapMs || 0,
+        now - (profile.inputAt || now),
+      );
       profile.inputAt = now;
       const delivery = Math.max(now + profile.latency, profile.next);
       profile.next = delivery + (data.length * 8000) / profile.bitsPerSecond;
       const deliver = () => {
         try {
           const at = Date.now();
-          profile.outputGapMs = Math.max(profile.outputGapMs || 0, at - (profile.outputAt || at));
+          profile.outputGapMs = Math.max(
+            profile.outputGapMs || 0,
+            at - (profile.outputAt || at),
+          );
           profile.outputAt = at;
           route.send(data);
         } catch {}
@@ -705,7 +723,7 @@ export async function codecRecoveryCheck(ok) {
     .replaceAll("import.meta.url", '"http://test.invalid/audio.ts"');
   let clock = 0,
     sent = 0;
-  const testWindow = {};
+  const testWindow = new EventTarget();
   const Engine = new Function(
     "window",
     "performance",
@@ -733,6 +751,15 @@ export async function codecRecoveryCheck(ok) {
     58,
     "běžných 50 rámců/s musí pokračovat po zahození dávky",
   );
+  let stopped = 0;
+  engine.stream = { getTracks: () => [{ stop: () => stopped++ }] };
+  const cached = new Event("pagehide");
+  Object.defineProperty(cached, "persisted", { value: true });
+  testWindow.dispatchEvent(cached);
+  assert.equal(stopped, 0, "návrat z BFCache má zachovat mikrofon");
+  testWindow.dispatchEvent(new Event("pagehide"));
+  assert.equal(stopped, 1, "skutečné zavření stránky uvolní mikrofon");
+  assert.equal(engine.stream, undefined);
   ok("Uplink: dávka nejvýše 8 rámců a dále 50 rámců/s i po zdržení prohlížeče");
   ok(
     "Opus Worker: 30 PLC rámců nezablokuje pozdější zvuk; skutečná mezera se počítá samostatně",
