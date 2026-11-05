@@ -322,18 +322,26 @@ export function HudebniLista({
         setPanelStyle({});
         return;
       }
+      // Klávesnice na mobilu zmenší jen vizuální viewport — počítej s jeho horním okrajem a výškou.
+      const vv = window.visualViewport;
+      const top = vv ? vv.offsetTop : 0;
+      const height = vv ? vv.height : window.innerHeight;
       setPanelStyle({
         bottom: Math.max(bar.height + gap, bar.bottom - box.top + gap),
-        maxHeight: Math.max(120, Math.min(box.top - 2 * gap, window.innerHeight * 0.6)),
+        maxHeight: Math.max(120, Math.min(box.top - top - 2 * gap, height * 0.6)),
       });
     };
     place();
     window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
     const observer =
       composer && typeof ResizeObserver !== "undefined" ? new ResizeObserver(place) : null;
     if (composer) observer?.observe(composer);
     return () => {
       window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
       observer?.disconnect();
     };
   }, [panel]);
