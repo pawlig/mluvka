@@ -1,0 +1,17 @@
+{
+  "url": "http://localhost:3187",
+  "kdy": "2026-11-05T01:52:04.087Z",
+  "varianty": {
+    "desktop": {
+      "prepad": 0
+    },
+    "tmavy": {
+      "prepad": 0
+    },
+    "mobil": {
+      "prepad": 0
+    }
+  },
+  "chyby": [],
+  "konzole": []
+}

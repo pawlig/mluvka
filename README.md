@@ -262,7 +262,8 @@ volbách; uživatel jej pak může znovu zapnout. Vlastní kompresor −18 dBFS 
 hold 400 ms a rampy omezují lupnutí na hranicích vysílání.
 
 **Nastavení → Diagnostika zvuku → Zkopírovat diagnostiku** zkopíruje JSON pro hlášení
-problému. Nechte panel běžet během praskání a pošlete zkopírovaný text s modelem telefonu.
+problému. Pokud po aktualizaci PWA panel chybí, po ukončení hovoru aplikaci obnovte.
+Nechte panel běžet během praskání a pošlete zkopírovaný text s modelem telefonu.
 Kopie obsahuje pouze technické údaje: buffer/cíl, podtečení za minutu i celkem, PLC/ztráty,
 mezery doručení za posledních 30 s, čas dekódování, latence a vzorkování zařízení, cestu
 výstupu, prohlížeč a commit buildu. Build bez `.git` může dostat commit přes
