@@ -1975,7 +1975,7 @@ html {
 }
 
 .audio-diagnostics { font-size: 16px; line-height: 1.45; }
-.audio-diagnostics summary { cursor: pointer; font-weight: 600; }
+.audio-diagnostics summary { cursor: pointer; font-weight: 600; font-size: 16px; padding-block: 10px; }
 .audio-diagnostics dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
 .audio-diagnostics dt, .audio-diagnostics dd { margin: 0; overflow-wrap: anywhere; }
 .audio-diagnostics dd { font-variant-numeric: tabular-nums; }

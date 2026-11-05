@@ -56,6 +56,7 @@ export function audioDiagnostics() {
     bufferMs: round(s.bufferMs), targetBufferMs: round(s.targetBufferMs),
     underruns: s.underruns, underrunsLastMinute: underruns.length,
     plcFrames: s.plcFrames, lostFrames: s.lostFrames, droppedFrames: s.droppedFrames,
+    droppedCaptureFrames: s.droppedCaptureFrames,
     incomingGapP95Ms: round(sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0),
     incomingGapMaxMs: round(sorted.at(-1) ?? 0), incomingGapSamples: sorted.length,
     // Histogram platí pro stejné klouzavé okno 30 s jako p95/max.

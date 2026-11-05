@@ -2234,6 +2234,7 @@ function AudioDebug() {
         <dt>Buffer / cíl</dt><dd>{stats.bufferMs} / {stats.targetBufferMs} ms</dd>
         <dt>Podtečení za minutu / celkem</dt><dd>{stats.underrunsLastMinute} / {stats.underruns}</dd>
         <dt>PLC / ztracené / zahozené</dt><dd>{stats.plcFrames} / {stats.lostFrames} / {stats.droppedFrames}</dd>
+        <dt>Zahozené vstupní rámce</dt><dd>{stats.droppedCaptureFrames}</dd>
         <dt>Mezera p95 / max</dt><dd>{stats.incomingGapP95Ms} / {stats.incomingGapMaxMs} ms</dd>
         <dt>Dekódování průměr / max</dt><dd>{stats.decodeAverageMs} / {stats.decodeMaxMs} ms</dd>
         <dt>Vzorkovací frekvence / quantum</dt><dd>{stats.sampleRate ?? "—"} Hz / {stats.renderQuantum ?? "—"} vzorků</dd>
