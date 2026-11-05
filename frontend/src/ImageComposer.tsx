@@ -266,7 +266,12 @@ export function ImageComposer({
     );
   }
   async function submit() {
-    if (busyRef.current || !active || (!text.trim() && !pending.length)) return;
+    if (busyRef.current || !active) return;
+    if (!text.trim() && !pending.length) {
+      // V režimu úpravy prázdné pole úpravu zruší bez odeslání.
+      if (editing) cancelEdit();
+      return;
+    }
     setError("");
     if (
       new TextEncoder().encode(text).length >
@@ -428,7 +433,9 @@ export function ImageComposer({
                   : "Odeslat zprávu"
             }
             title={editing ? "Uložit úpravu" : "Odeslat"}
-            disabled={busy || !active || (!text.trim() && !pending.length)}
+            disabled={
+              busy || !active || (!text.trim() && !pending.length && !editing)
+            }
             type="submit"
           >
             {busy ? (

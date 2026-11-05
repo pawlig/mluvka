@@ -349,7 +349,7 @@ function AppContent({
       text,
       time: Date.now(),
     });
-    setMessages((old) => [
+    updateMessages((old) => [
       ...old.slice(-499),
       {
         target: "channel",

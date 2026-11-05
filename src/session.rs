@@ -135,6 +135,8 @@ struct Socket {
     ban_seconds: Option<u64>,
     cooldown_until: Option<Instant>,
     ts_departed: bool,
+    // Původní popis klienta, dokud běží popis sdílení; vrací se i při odpojení.
+    restore_description: Option<String>,
 }
 impl Socket {
     async fn recv(&mut self) -> Option<Result<Message, axum::Error>> {
@@ -1098,6 +1100,7 @@ pub async fn run(
         ban_seconds: None,
         cooldown_until: None,
         ts_departed: false,
+        restore_description: None,
     };
     if !*shutdown.borrow()
         && let Err(message) = session(&mut ws, allowed, &mut shutdown, &uploads, &shares).await
@@ -1343,6 +1346,11 @@ async fn session(
         && let Ok(book) = con.get_state()
     {
         let client = book.own_client;
+        // TS si popis pamatuje i po odpojení: vrať původní před clientdisconnect
+        // (spolehlivé příkazy jdou na server v pořadí odeslání).
+        if let Some(text) = ws.restore_description.take() {
+            let _ = command("clientedit", &[("clid", client.0.to_string()), ("client_description", text)]).send(&mut con);
+        }
         // Ruční odpojení musí přečkat i krátké zpomalení příkazů. Nová relace
         // stejného UID stále čeká na gate; při shutdown platí společný 3s deadline.
         let disconnect_deadline = Duration::from_secs(if *shutdown.borrow() { 2 } else { 10 });
@@ -1474,6 +1482,8 @@ async fn connected(
         .ok()
         .and_then(|book| book.clients.get(&book.own_client))
         .map(|client| client.description.clone())
+        // Popis sdílení z dřívější relace (pád bez návratu) za původní nepovažuj.
+        .filter(|text| text != SHARE_DESCRIPTION)
         .unwrap_or_default();
     let mut description_active = false;
     if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
@@ -1499,6 +1509,7 @@ async fn connected(
                                 json_send(ws, json!({"type":"share_error","v":1,"message":message,"request":value["type"]})).await?;
                             } else if let Some(kind @ ("share_start" | "share_stop")) = value["type"].as_str() {
                                 sync_share_description(own_client.0, &mut description_active, &original_description, kind == "share_start", &mut commands);
+                                ws.restore_description = (description_active || commands.iter().any(is_description)).then(|| original_description.clone());
                             }
                             continue;
                         }
@@ -1599,6 +1610,7 @@ async fn connected(
                         // Přepnutí kanálu ukončí sdílení bez share_stop; popis se vrátí podle stavu.
                         let own_sharing = state["clients"].as_array().and_then(|list| list.iter().find(|c| c["id"] == state["self"])).is_some_and(|c| c["sharing"].as_bool() == Some(true));
                         sync_share_description(own_client.0, &mut description_active, &original_description, own_sharing, &mut commands);
+                        ws.restore_description = (description_active || commands.iter().any(is_description)).then(|| original_description.clone());
                         json_send(ws, state).await?;
                         if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
                     },

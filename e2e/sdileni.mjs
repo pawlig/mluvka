@@ -501,6 +501,15 @@ export async function sharingChecks({
   ok(
     "Oznámení: zpráva kanálu podle vzoru, pozvánka bez hesel s polem watch, popis klienta v TS během sdílení",
   );
+  // Další příchozí zpráva nesmí oznámení sdílejícímu z chatu smazat.
+  await query.cmd("sendtextmessage targetmode=2 target=1 msg=Další\\szpráva\\skanálu");
+  await expect(
+    a.locator(".message").filter({ hasText: "Další zpráva kanálu" }),
+  ).toHaveCount(1);
+  await expect(
+    a.locator(".message").filter({ hasText: "sdílí obrazovku v Mluvce" }),
+  ).toHaveCount(1);
+  ok("Oznámení zůstane v chatu sdílejícího i po další zprávě");
   // Opakované zahájení do 60 s zprávu nepošle; popis se vrací podle stavu sdílení.
   await stopSharing(a);
   await expect.poll(() => info()).toMatch(/(?:^|\s)client_description=?(?:\s|$)/);
@@ -519,6 +528,7 @@ export async function sharingChecks({
   const linkContext = await browser.newContext({
     permissions: ["microphone"],
   });
+  await installSharingCapture(linkContext);
   try {
     const c = await linkContext.newPage();
     await c.goto(match[1]);
@@ -534,6 +544,30 @@ export async function sharingChecks({
     await flowing(c);
     await expect(a.locator(".share-live")).toContainText("1 diváků");
     ok("Odkaz z TS chatu: třetí prohlížeč po zadání hesel sám sleduje sdílení");
+    // Odpojení během sdílení vrátí původní popis — TS si ho pamatuje v DB klienta.
+    const cyril = Number(
+      await a
+        .locator(".client-row")
+        .filter({ hasText: "Cyril" })
+        .first()
+        .getAttribute("data-client"),
+    );
+    const cyrilDb = /client_database_id=(\d+)/.exec(
+      await query.cmd(`clientinfo clid=${cyril}`),
+    )[1];
+    await startSharing(c);
+    await expect(c.locator(".share-live")).toBeVisible();
+    await expect
+      .poll(async () =>
+        (await query.cmd(`clientinfo clid=${cyril}`)).replaceAll("\\s", " "),
+      )
+      .toContain("client_description=🖥 sdílí obrazovku");
+    await c.getByRole("button", { name: "Odpojit", exact: true }).click();
+    await expect(c.getByLabel("Přezdívka", { exact: true })).toBeVisible();
+    await expect
+      .poll(() => query.cmd(`clientdbinfo cldbid=${cyrilDb}`))
+      .toMatch(/(?:^|\s)client_description=?(?:\s|$)/);
+    ok("Odpojení během sdílení vrátí v TS původní popis klienta");
   } finally {
     await linkContext.close();
   }
