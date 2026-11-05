@@ -7,6 +7,7 @@ Stav: implementace a lokální statické kontroly hotové; úplné E2E čeká na
 - Příkazový `ClientIsFlooding` 0x020c procházel stejnou větví jako odmítnutý handshake: spustil společnou 120s pauzu a ukončil živé relace. Nyní se odmítnutý příkaz vrací do fronty, cíl přeruší příkazy na 5 s a hovor pokračuje. Fronta čeká vždy na jedno potvrzení; úspěšnou zprávu neopakuje. Samostatný konzervativní bodový rozpočet tlumí dlouhé série chatu.
 - `AudioEngine.close()` při každém ručním odpojení zastavil mikrofonní stopy. Další připojení proto volalo nový `getUserMedia`, což v Safari/PWA s povolením na jednotlivé žádosti vyvolávalo opakovanou výzvu. Živý stream nyní patří otevřené stránce: při odpojení se vypne a odpojí od zpracování, při připojení použije znovu, při zavření stránky se uvolní. Nové zařízení, změna DSP nebo ukončená stopa mohou vyžadovat nové získání.
 - Původní obnovení zvuku bylo vázané na viditelnost, při selhání mobilního `play()` se ztrácela cesta přes skutečný audio element, klientské časovače považovaly pozastavené JS za mrtvé spojení a reconnect se na pozadí nezkoušel. Checkpoint #1289 tyto cesty opravil: skutečný přehrávající audio element, obnovení kontextu i na pozadí, 5s milost po probuzení, pokračování reconnectu, audio session a Media Session po dobu hovoru. Protokolové WS ping/pong už backend měl; nepřipisujeme jejich zavedení této změně.
+- Mobilní ikonové odpojení nemělo přístupný název (jeho text CSS skrývalo). Náhradní mikrofonní lišta s pevným `bottom: 100px` navíc překrývala vyšší mobilní ovládání. Tlačítko má `aria-label` a lišta nyní zabírá vlastní místo v rozložení mezi chatem a ovládáním.
 - Zprávy neměly společný výpočet barvy s avatarem ve stromu; hash přezdívky navíc měnil barvu po přejmenování. Společný výpočet používá UID, uchované také u starých zpráv, a lokální paletu.
 
 ## TS příkazy před a po
@@ -29,7 +30,8 @@ Skutečný ban má jen doložený odpočet `ban_seconds`, po něm ruční návra
 - `cargo clippy --all-targets -- -D warnings`: bez chyb.
 - `npm run typecheck`, `npm run build`: bez chyb.
 - `node --test e2e/reconnect.test.mjs`: jeden test prošel (hranice jitteru, exponenciální prodleva a strop).
-- `prohlizec kontrola http://127.0.0.1:3105 docs/kontrola-1298 --zaklad docs/kontrola-mobil`: bez chyb konzole, JS výjimek a mobilního vodorovného přesahu; snímek mobilu viz `kontrola-1298/mobil.png`. Rozdíly pixelů úvodní vlny jsou časová animace, strom stránky se nezměnil.
+- `prohlizec kontrola http://127.0.0.1:3106 docs/kontrola-1298 --zaklad docs/kontrola-mobil`: bez chyb konzole, JS výjimek a mobilního vodorovného přesahu; snímek mobilu viz `kontrola-1298/mobil.png`. Rozdíly pixelů úvodní vlny jsou časová animace, strom stránky se nezměnil.
+- Izolovaná mobilní komponentová kontrola s napodobenými WS odpověďmi (bez TS3): dvě připojení / jeden `getUserMedia`; skutečně zamítnuté oprávnění bez překryvu a dalších žádostí 10 s; jednorázová nápověda, ruční retry a neblokované odpojení. Snímky `kontrola-1298/mikrofon-portrait.png` a `mikrofon-landscape.png` jsou z této komponentové kontroly.
 - Úplné `npm run e2e`: čeká na zámek; výsledek bude doplněn po běhu na portech 3104/9104/10104/30104.
 
 Bez fyzického telefonu nelze prokázat chování konkrétního iOS/Androidu při zamčení displeje, systémovém telefonátu, úspoře baterie nebo dlouhodobém uspání Safari/PWA. Chromium emulace ověřuje řízené pozadí a zmrazení, ne rozhodnutí mobilního operačního systému. Oprávnění při novém otevření stránky zůstává pod kontrolou prohlížeče.
