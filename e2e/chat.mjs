@@ -67,11 +67,30 @@ export async function chatChecks({
 }) {
   for (const page of [a, b])
     await page.getByRole("button", { name: "Server", exact: true }).click();
+  // Doručení sledujeme na WS příjemce, ne v optimistické bublině odesílatele.
+  // Antiflood fronta může legitimně rozložit rychlou sérii do několika sekund.
+  const wire = await b.context().newCDPSession(b);
+  await wire.send("Network.enable");
+  const received = new Map();
+  wire.on("Network.webSocketFrameReceived", ({ response }) => {
+    if (response.opcode !== 1) return;
+    try {
+      const message = JSON.parse(response.payloadData);
+      if (message.type === "chat")
+        received.set(message.text, (received.get(message.text) || 0) + 1);
+    } catch {
+      /* Jiné protokolové rámce nejsou chat. */
+    }
+  });
   const send = async (text) => {
+    const before = received.get(text) || 0;
     await a.getByLabel("Zpráva", { exact: true }).fill(text);
     await a
       .getByRole("button", { name: "Odeslat zprávu", exact: true })
       .click();
+    await expect
+      .poll(() => received.get(text) || 0, { timeout: 15000 })
+      .toBeGreaterThan(before);
   };
   const text =
     "Koukni na https://example.org/a?b=1 a [URL=https://example.org]tohle[/URL] javascript:alert(1) [B]tučně[/B] <script>window.chatXss=1</script>";
@@ -405,4 +424,5 @@ export async function chatChecks({
       .locator(".chat-tabs")
       .getByRole("button", { name: "Kanál", exact: true })
       .click();
+  await wire.detach();
 }
