@@ -3,4 +3,4 @@
 # Tag je připnutý na konkrétní verzi (sha-<commit>): Easypanel jinak vezme z cache starý `latest`.
 # Při vydání nové verze tag přepiš na `sha-<krátký hash>` commitu, jehož image už je v GHCR.
 # Vlastní build lokálně: docker build -f Dockerfile.build -t mluvka .
-FROM ghcr.io/pawlig/mluvka:sha-9f0a12b
+FROM ghcr.io/pawlig/mluvka:sha-81dd1a6
