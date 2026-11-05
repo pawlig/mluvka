@@ -613,6 +613,15 @@ export class Sharing {
     this.send("watch", { to: share.session });
     this.watchDeadline();
   }
+  // Pozvánka s polem watch: sleduj sdílení daného UID, jakmile se objeví ve stavu.
+  watchUid(uid: string, within = 15000) {
+    this.desired = uid;
+    this.restoreUntil = Date.now() + within;
+    const share = this.state.shares.find(
+      (p) => p.uid === uid && p.session !== this.state.self,
+    );
+    if (share && !this.state.watching) this.watch(share);
+  }
   unwatch(notify = true) {
     clearTimeout(this.watchTimer);
     this.watchAttempts = 0;
