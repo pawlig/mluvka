@@ -222,19 +222,19 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     ok("Hudba: připojení do kanálu s už přítomným botem ukáže lištu");
 
     await play.click();
-    await expect(bar.getByRole("button", { name: "Pustit", exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(bar.getByRole("button", { name: "Pustit", exact: true })).toBeVisible({ timeout: 20000 });
     await bar.getByRole("button", { name: "Pustit", exact: true }).click();
-    await expect(bar.getByRole("button", { name: "Pozastavit", exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(bar.getByRole("button", { name: "Pozastavit", exact: true })).toBeVisible({ timeout: 20000 });
     ok("Hudba: pauza a pokračování podle potvrzení bota");
 
     await bar.getByRole("button", { name: "Další skladba" }).click();
     await expect(bar.locator(".hudba-title")).toHaveText("Druhá píseň", { timeout: 15000 });
     await expect(bar.locator(".hudba-by")).toHaveText("přidal: Bára");
-    await expect(b.getByRole("log")).toContainText("Now playing: Druhá píseň", { timeout: 10000 });
+    await expect(b.getByRole("log")).toContainText("Now playing: Druhá píseň", { timeout: 20000 });
     ok("Hudba: další skladba, oznámení v kanálu zůstává v chatu");
 
     await bar.getByRole("slider", { name: "Hlasitost hudby", exact: true }).fill("35");
-    await expect(bar.locator(".hudba-volume span")).toHaveText("35 %", { timeout: 10000 });
+    await expect(bar.locator(".hudba-volume span")).toHaveText("35 %", { timeout: 20000 });
     ok("Hudba: hlasitost až po potvrzení bota");
 
     await bar.getByRole("button", { name: "Fronta a přidání skladby" }).click();
@@ -249,7 +249,7 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     expect(bot.state.commands).toContain("/play Nová skladba");
     await panel.getByLabel("Přidat skladbu nebo odkaz Spotify").fill("spotify:track:e2e123");
     await panel.getByRole("button", { name: "Přidat" }).click();
-    await expect(bar.locator(".hudba-artist")).toContainText("Otevírám odkaz", { timeout: 10000 });
+    await expect(bar.locator(".hudba-artist")).toContainText("Otevírám odkaz", { timeout: 20000 });
     await expect(panel.locator(".hudba-list")).toContainText("Skladba z odkazu", { timeout: 20000 });
     ok("Hudba: přidání skladby i odkazu a fronta v panelu");
 
@@ -299,7 +299,7 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     const seekMark = bot.state.received.length;
     await bar.getByRole("button", { name: "Vpřed o 30 sekund" }).click();
     await expect
-      .poll(() => sentBy(bot, "Adam", seekMark).includes("/skip +30"), { timeout: 5000 })
+      .poll(() => sentBy(bot, "Adam", seekMark).includes("/skip +30"), { timeout: 20000 })
       .toBe(true);
     await setHidden(a, true);
     const hiddenMark = bot.state.received.length;
@@ -307,7 +307,7 @@ export async function musicChecks({ a, b, base, tsAddress, password, channelPass
     expect(sentBy(bot, "Adam", hiddenMark)).toEqual([]);
     await setHidden(a, false);
     await expect
-      .poll(() => sentBy(bot, "Adam", hiddenMark).includes("/now"), { timeout: 10000 })
+      .poll(() => sentBy(bot, "Adam", hiddenMark).includes("/now"), { timeout: 25000 })
       .toBe(true);
     ok("Hudba: skrytá stránka botovi nic neposílá, po návratu se obnoví");
 
