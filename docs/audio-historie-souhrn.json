@@ -78,6 +78,70 @@
         "initialTargetBufferMs": 320,
         "targetBufferMs": 310,
         "runCodec": "pcm"
+      },
+      {
+        "test": "Mobilní zvuk / opus: CPU 4×, jitter 50–300 / 400 ms, 60 s",
+        "result": "FAIL",
+        "underruns": 5,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 4,
+        "inputGapMs": 611.9303340000006,
+        "outputGapMs": 624.7838749999974,
+        "runCodec": "opus"
+      },
+      {
+        "test": "Mobilní zvuk / pcm: CPU 4×, jitter 50–300 / 400 ms, 60 s",
+        "result": "OK",
+        "underruns": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 0,
+        "inputGapMs": 59.059166999999434,
+        "outputGapMs": 408.3195000000014,
+        "runCodec": "pcm"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-05T03:25:17.540Z",
+    "note": "První celé E2E se samostatným producentem: 193/194 OK. PCM bez podtečení/PLC, ale min buffer 36,30 ms pod limitem 40 ms; následovala oprava startu PI a desktopové rezervy na 70 ms.",
+    "results": [
+      {
+        "test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení",
+        "result": "FAIL",
+        "underruns": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "strictDesktop": true,
+        "binaryGapMs": 28.299999713897705,
+        "path": "native",
+        "maxJump": 0.04990069492487237,
+        "minBufferMs": 36.30235565494513,
+        "maxBufferMs": 74.56752560949342,
+        "dominantHz": 439.453125,
+        "rmsDifferenceDb": -0.00022114330997609132,
+        "maxDownKbps": 776.4691895442343,
+        "initialTargetBufferMs": 76.66666666666666,
+        "targetBufferMs": 72,
+        "runCodec": "pcm"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-05T04:15:12.581Z",
+    "note": "Druhé celé E2E: 193/194 OK. Desktop Opus i PCM držel limity; mobilní Opus měl jedno podtečení při 401,78ms mezeře, žádné PLC/ztráty/zahození. Mobilní cíl mezi dávkami klesal i při trvajícím jitteru.",
+    "results": [
+      {
+        "test": "Mobilní zvuk / opus: CPU 4×, jitter 50–300 / 400 ms, 60 s",
+        "result": "FAIL",
+        "underruns": 1,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "droppedFrames": 0,
+        "inputGapMs": 24.468042000000423,
+        "outputGapMs": 401.781167000001,
+        "runCodec": "opus"
       }
     ]
   }
