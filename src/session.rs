@@ -406,6 +406,69 @@ fn identity_slot(key: String) -> Arc<IdentitySlot> {
     slot
 }
 
+// V každém okně uchováváme pouze časy, nikdy obsah paketů nebo identifikátory.
+#[derive(Default)]
+struct TimingSamples {
+    values: Vec<f64>,
+    previous: Option<Instant>,
+}
+impl TimingSamples {
+    fn gap(&mut self, now: Instant) {
+        if let Some(previous) = self.previous.replace(now) {
+            self.values
+                .push(now.duration_since(previous).as_secs_f64() * 1000.0);
+        }
+    }
+    fn duration(&mut self, duration: Duration) {
+        self.values.push(duration.as_secs_f64() * 1000.0);
+    }
+    fn take(&mut self) -> Value {
+        self.values.sort_by(f64::total_cmp);
+        let limits = [25.0, 50.0, 100.0, 200.0, 300.0, 400.0, f64::INFINITY];
+        let result = json!({"count":self.values.len(),
+            "p95Ms":self.values.get(self.values.len().saturating_sub(1) * 95 / 100).copied().unwrap_or(0.0),
+            "maxMs":self.values.last().copied().unwrap_or(0.0),
+            "histogram":limits.iter().enumerate().map(|(i, upper)| self.values.iter().filter(|v| **v <= *upper && (i == 0 || **v > limits[i - 1])).count()).collect::<Vec<_>>()});
+        self.values.clear();
+        result
+    }
+}
+// Nezávislý úkol oddělí zpoždění celé Tokio runtime od práce konkrétní relace.
+pub fn start_audio_clock_probe() {
+    tokio::spawn(async {
+        let mut tick = interval(Duration::from_millis(20));
+        tick.set_missed_tick_behavior(MissedTickBehavior::Burst);
+        let mut gaps = TimingSamples::default();
+        let mut delay = TimingSamples::default();
+        let mut report = Instant::now();
+        loop {
+            let scheduled = tick.tick().await;
+            gaps.gap(Instant::now());
+            delay.duration(scheduled.elapsed());
+            if report.elapsed() >= Duration::from_secs(30) {
+                let timing = json!({"stage":"scheduler", "gap":gaps.take(), "delay":delay.take()});
+                tracing::info!(audio_timing = %timing, "Nezávislý takt Tokio za 30 s");
+                report = Instant::now();
+            }
+        }
+    });
+}
+async fn timed_event(
+    con: &mut Connection,
+    samples: &mut TimingSamples,
+) -> Option<Result<StreamItem, tsclientlib::Error>> {
+    let mut events = con.events();
+    let next = events.next();
+    tokio::pin!(next);
+    std::future::poll_fn(|cx| {
+        let start = Instant::now();
+        let result = std::future::Future::poll(next.as_mut(), cx);
+        samples.duration(start.elapsed());
+        result
+    })
+    .await
+}
+
 pub async fn run(
     ws: WebSocket,
     allowed: &[String],
@@ -752,6 +815,14 @@ async fn connected(
     let own_client = con.get_state().map_err(|e| ts_error(&e))?.own_client;
     let mut restore_nickname = restore_nickname;
     let mut pending = HashMap::new();
+    let mut source_gaps = TimingSamples::default();
+    let mut mix_gaps = TimingSamples::default();
+    let mut tick_delays = TimingSamples::default();
+    let mut mix_work = TimingSamples::default();
+    let mut event_poll = TimingSamples::default();
+    let mut uplink_work = TimingSamples::default();
+    let mut ts_work = TimingSamples::default();
+    let mut source_report = Instant::now();
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count) = (0, 0);
     loop {
@@ -788,6 +859,7 @@ async fn connected(
                         if let Some(cmd) = cmd { let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?; pending.insert(handle, Instant::now()); }
                     },
                     Message::Binary(data) => {
+                        let up_start = Instant::now();
                         audio_count += 1;
                         if audio_count > 100 || !(data.len() == 1921 && data[0] == 1 || options.opus() && (4..=1276).contains(&data.len()) && data[0] == 3) { return Err("Neplatný nebo příliš rychlý audio proud.".into()); }
                         if !microphone && !deafen && con.can_send_audio() {
@@ -804,13 +876,14 @@ async fn connected(
                             }
                             was_sending = true; last_up = Instant::now();
                         }
+                        uplink_work.duration(up_start.elapsed());
                     },
                     Message::Ping(p) => send(ws, Message::Pong(p)).await?,
                     Message::Pong(_) => last_pong = Instant::now(),
                     Message::Close(_) => return Ok(()),
                 }
             },
-            event = next_event(con) => {
+            event = timed_event(con, &mut event_poll) => {
                 match event {
                     Some(Ok(StreamItem::BookEvents(events))) => {
                         for e in events {
@@ -826,11 +899,14 @@ async fn connected(
                         json_send(ws, snapshot(con)?).await?;
                     },
                     Some(Ok(StreamItem::Audio(packet))) => {
+                        let ts_start = Instant::now();
+                        source_gaps.gap(ts_start);
                         let from = match packet.data().data() { AudioData::S2C { from,.. } => ClientId(*from), _ => continue };
                         let now = Instant::now();
                         if talking.insert(from,now).is_none() { json_send(ws,json!({"type":"talking","client":from.0,"active":true})).await?; }
                         let pref = con.get_state().ok().and_then(|b| b.clients.get(&from)).and_then(|c| c.uid.as_ref()).and_then(|u| peers.get(&u.to_string())).copied().unwrap_or((1.0,false));
                         if !deafen && !pref.1 { let _ = audio.handle_packet(from,packet); if let Some(q) = audio.get_mut_queues().get_mut(&from) { q.volume = pref.0; } }
+                        ts_work.duration(ts_start.elapsed());
                     },
                     Some(Ok(StreamItem::MessageResult(handle, result))) => { pending.remove(&handle); if let Err(e) = result { json_send(ws,error_message(&ts_error(&tsclientlib::Error::CommandError(e)), false)).await?; } },
                     Some(Ok(StreamItem::DisconnectedTemporarily(reason))) => {
@@ -843,7 +919,10 @@ async fn connected(
                 }
             },
             scheduled = tick.tick() => {
+                let mix_start = Instant::now();
+                mix_gaps.gap(mix_start);
                 let lateness = scheduled.elapsed();
+                tick_delays.duration(lateness);
                 if lateness > Duration::from_millis(80) {
                     tracing::debug!(tick_delay_ms = lateness.as_millis(), "Zpožděný takt zvuku");
                 }
@@ -874,6 +953,14 @@ async fn connected(
                     for sample in mono { frame.extend_from_slice(&((sample*32767.0) as i16).to_le_bytes()); }
                 }
                 send(ws,Message::Binary(frame.into())).await?;
+                mix_work.duration(mix_start.elapsed());
+                if source_report.elapsed() >= Duration::from_secs(30) {
+                    let timing = json!({"stage":"source", "tsIncoming":source_gaps.take(), "mixStart":mix_gaps.take(),
+                        "tickDelay":tick_delays.take(), "mixWork":mix_work.take(), "eventPoll":event_poll.take(),
+                        "uplinkWork":uplink_work.take(), "tsWork":ts_work.take()});
+                    tracing::info!(audio_timing = %timing, "Příjem TS a práce producenta za 30 s");
+                    source_report = Instant::now();
+                }
                 // Burst musí pustit writer mezi doháněnými rámci. Jinak plní
                 // vlastní lokální frontu rychleji, než může proběhnout její čtenář.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }

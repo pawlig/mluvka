@@ -32,6 +32,7 @@ async fn main() {
         env::var("RUST_LOG").unwrap_or_else(|_| "mluvka=info".into())
     );
     tracing_subscriber::fmt().with_env_filter(filter).init();
+    session::start_audio_clock_probe();
     let allowed = env::var("ALLOWED_SERVERS")
         .unwrap_or_default()
         .split(',')
