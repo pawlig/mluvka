@@ -49,7 +49,7 @@ export type MusicMessage =
 type Send = (data: unknown) => void;
 type Action =
   | "now" | "queue" | "upnext" | "pause" | "resume" | "next" | "prev"
-  | "seek" | "volume" | "play" | "playnow";
+  | "seek" | "volume" | "play" | "playnow" | "idle";
 
 type NowState = {
   track: Track | null;
@@ -289,7 +289,12 @@ export function HudebniLista({
     // Co přišlo před registrací posluchače, převezmeme hned ze sběrnice.
     setSnap(snapshot);
     if (snapshot.volume !== null) setSlider(snapshot.volume);
-    const onVisible = () => setVisible(document.visibilityState === "visible");
+    const onVisible = () => {
+      const shown = document.visibilityState === "visible";
+      setVisible(shown);
+      // Skrytá stránka: backend zahodí dotazy na stav, které ještě čekají ve frontě bota.
+      if (!shown) sendRef.current({ type: "music", action: "idle" });
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       listeners.delete(listener);

@@ -335,6 +335,11 @@ impl Commander {
         true
     }
 
+    /// Zahodí z fronty čekající dotazy na stav (`/now`, `/upnext`, `/queue`); akce uživatele zůstanou.
+    pub fn drop_queries(&mut self) {
+        self.queue.retain(|(t, _)| !matches!(t.as_str(), "/now" | "/upnext" | "/queue"));
+    }
+
     /// Ruční zpráva botovi. Odpověď čekáme jen na příkaz, který plugin bota
     /// přijme; na „ahoj" bot mlčí a nic se nepáruje.
     pub fn manual_sent(&mut self, text: &str, now: Instant) {
@@ -489,6 +494,11 @@ impl MusicBot {
 
     /// Požadavek z frontendu. Vrací chybovou událost, pokud ho nelze přijmout.
     pub fn request(&mut self, action: &str, arg: Option<&str>) -> Option<Value> {
+        if action == "idle" {
+            // Stránka se skryla: dotazy na stav ve frontě už nikdo nečte.
+            self.commander.drop_queries();
+            return None;
+        }
         if self.bot.is_none() {
             return Some(json!({"type":"music","event":"error","code":"no_bot"}));
         }
@@ -751,6 +761,21 @@ mod tests {
         assert_eq!(c.next_send(t5).as_deref(), Some("/queue"));
         c.expire(t5 + Duration::from_secs(8));
         assert_eq!(c.on_reply("ahoj, jak se máš?", t5 + Duration::from_secs(9)), Paired::NotOurs);
+    }
+
+    #[test]
+    fn hidden_page_drops_status_queries() {
+        let start = Instant::now();
+        let mut m = MusicBot { bot: Some((ClientId(7), "Spotify Bot".into())), commander: Commander::default() };
+        assert_eq!(m.request("seek", Some("30")), None);
+        assert_eq!(m.request("now", None), None);
+        assert_eq!(m.request("queue", None), None);
+        assert_eq!(m.request("idle", None), None);
+        let (sent, _) = m.tick(start, true);
+        assert_eq!(sent.map(|(_, t)| t).as_deref(), Some("/skip +30"));
+        m.commander.on_reply("Forward seek requested: 30 seconds.", start);
+        let (sent, _) = m.tick(start + Duration::from_secs(2), true);
+        assert_eq!(sent, None);
     }
 
     #[test]
