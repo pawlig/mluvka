@@ -1,3 +1,4 @@
+mod music_bot;
 mod session;
 mod upload;
 

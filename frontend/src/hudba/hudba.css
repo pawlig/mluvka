@@ -1,0 +1,269 @@
+/* Lišta hudebního bota — v toku stránky nad hlasovou lištou, nic nepřekrývá. */
+.hudba {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  padding: 8px max(20px, env(safe-area-inset-right)) 8px max(20px, env(safe-area-inset-left));
+  background: #121512;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+  color: #eef3e8;
+}
+.hudba button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hudba button:hover:not(:disabled) {
+  background: #262c25;
+}
+.hudba button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.hudba-glyph {
+  width: 20px;
+  height: 20px;
+}
+.hudba-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.hudba-cover {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+}
+.hudba-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.25;
+}
+.hudba-text > * {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hudba-title {
+  font-size: 14px;
+}
+.hudba-artist,
+.hudba-by {
+  font-size: 12px;
+  color: var(--muted);
+}
+.hudba-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hudba .hudba-play {
+  width: 42px;
+  height: 42px;
+  background: var(--accent);
+  color: #151816;
+  font-weight: 800;
+}
+.hudba .hudba-play:hover:not(:disabled) {
+  background: #e4ff9c;
+}
+.hudba-seek {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted) !important;
+}
+.hudba-side {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.hudba-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.hudba-volume input {
+  width: 110px;
+  accent-color: var(--accent);
+}
+.hudba-volume span {
+  min-width: 34px;
+}
+.hudba-queue-button[data-active="true"] {
+  color: var(--accent) !important;
+}
+.hudba-panel {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #1b1f1c;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 45%);
+}
+.hudba-panel h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.hudba-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.hudba-panel header h3 {
+  margin-bottom: 0;
+}
+.hudba-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.hudba-add input:not([type]) {
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #121512;
+  color: inherit;
+}
+.hudba .hudba-add button[type="submit"] {
+  border-radius: 10px;
+  background: var(--accent);
+  color: #151816;
+  font-weight: 700;
+  height: 38px;
+}
+.hudba-check {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.hudba-panel-controls {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+}
+.hudba-next,
+.hudba-empty,
+.hudba-more {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.hudba-next {
+  color: inherit;
+}
+.hudba-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hudba-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.hudba-list .hudba-cover {
+  width: 32px;
+  height: 32px;
+}
+.hudba-list span {
+  display: grid;
+  min-width: 0;
+  font-size: 13px;
+}
+.hudba-list strong,
+.hudba-list small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hudba-list small {
+  color: var(--muted);
+}
+.hudba-toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 31;
+  max-width: min(440px, calc(100vw - 24px));
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: #2a2f29;
+  border: 1px solid #454d43;
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 40%);
+}
+
+/* Mobil: titul + ⏯ ⏭ + fronta, zbytek v panelu. */
+@media (max-width: 699px) {
+  .hudba {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
+    min-height: 54px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+  .hudba-wide,
+  .hudba-by {
+    display: none !important;
+  }
+  .hudba-cover {
+    width: 38px;
+    height: 38px;
+  }
+  .hudba .hudba-play {
+    width: 38px;
+    height: 38px;
+  }
+  .hudba-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 60dvh;
+  }
+  .hudba-panel-controls {
+    display: flex;
+  }
+  .hudba-panel-controls .hudba-volume input {
+    width: 100%;
+  }
+  .hudba-panel-controls .hudba-volume {
+    flex: 1;
+  }
+}

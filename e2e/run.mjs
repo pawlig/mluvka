@@ -16,6 +16,7 @@ import {
 import { resamplingChecks } from "./resampling.mjs";
 import { shaperChecks } from "./shaper.mjs";
 import { chatChecks } from "./chat.mjs";
+import { musicChecks } from "./hudba.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { notificationChecks } from "./upozorneni.mjs";
 import { invitationChecks } from "./pozvanky.mjs";
@@ -687,6 +688,7 @@ try {
     ok("Chat kanálu A → B");
     if (!process.env.E2E_FOCUS)
       await chatChecks({ a, b, query, base, root, tsAddress, password, ok });
+    await musicChecks({ a, b, base, tsAddress, password, channelPassword, root, ok });
     await a.getByRole("button", { name: "Server", exact: true }).click();
     await b.getByRole("button", { name: "Server", exact: true }).click();
     await a

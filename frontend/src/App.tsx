@@ -4,6 +4,7 @@ import { ImageComposer } from "./ImageComposer";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
+import { HudebniLista, receiveMusic } from "./hudba/HudebniLista";
 import {
   InviteDialog,
   InvitationDetails,
@@ -570,6 +571,7 @@ export function App() {
       }
       if (msg.type === "hello") audio.negotiate(msg.audio?.codec);
       if (msg.type === "upload_token") setUploadToken(msg.token);
+      if (msg.type === "music") receiveMusic(msg);
 
       if (msg.type === "identity") {
         save("identity", msg.identity);
@@ -1592,6 +1594,7 @@ export function App() {
               />
             </section>
           </main>
+          <HudebniLista send={send} active={connected} />
           <footer className="voice-bar">
             <div className="self-card">
               {me && <Avatar client={me} talking={selfTalking} />}
