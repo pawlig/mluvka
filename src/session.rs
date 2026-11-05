@@ -276,10 +276,17 @@ fn env_positive(name: &str, fallback: f64) -> f64 {
         .filter(|v| v.is_finite() && *v > 0.0)
         .unwrap_or(fallback)
 }
+fn env_nonzero(name: &str, fallback: u32) -> u32 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(fallback)
+}
 struct AttemptBudget {
     next_connect: Option<Instant>,
     connects: VecDeque<Instant>,
-    blocked_until: Option<Instant>,
+    connects_blocked_until: Option<Instant>,
     commands_after: Option<Instant>,
     tokens: f64,
     updated: Instant,
@@ -290,7 +297,7 @@ impl Default for AttemptBudget {
         Self {
             next_connect: None,
             connects: VecDeque::new(),
-            blocked_until: None,
+            connects_blocked_until: None,
             commands_after: None,
             tokens: 20.0,
             updated: Instant::now(),
@@ -300,17 +307,22 @@ impl Default for AttemptBudget {
 }
 impl AttemptBudget {
     fn pause(&self, now: Instant) -> Option<Duration> {
-        self.blocked_until
+        self.connects_blocked_until
             .filter(|until| *until > now)
             .map(|until| until.duration_since(now))
     }
-    fn reserve(&mut self, now: Instant, spacing: Duration) -> Option<Duration> {
+    fn reserve(
+        &mut self,
+        now: Instant,
+        spacing: Duration,
+        window: Duration,
+        burst: usize,
+    ) -> Option<Duration> {
         if let Some(delay) = self.pause(now) {
             return Some(delay);
         }
         // Samotný rozestup 3 s na výchozím TS3 nestačí: čtvrtý/pátý handshake
         // z jedné IP dostává 0x0d01 bez záznamu v banlistu. Omezíme i delší dávku.
-        let window = Duration::from_secs(45);
         while self
             .connects
             .front()
@@ -318,7 +330,7 @@ impl AttemptBudget {
         {
             self.connects.pop_front();
         }
-        if self.connects.len() >= 3 {
+        if self.connects.len() >= burst {
             return Some(window.saturating_sub(now.duration_since(self.connects[0])));
         }
         if let Some(next) = self.next_connect.filter(|next| *next > now) {
@@ -329,7 +341,7 @@ impl AttemptBudget {
         None
     }
     fn command(&mut self, now: Instant, rate: f64) -> bool {
-        if self.pause(now).is_some() || self.commands_after.is_some_and(|until| until > now) {
+        if self.commands_after.is_some_and(|until| until > now) {
             return false;
         }
         self.tokens = (self.tokens
@@ -352,10 +364,8 @@ const FLOOD_MESSAGE: &str =
 fn block_flood(addr: SocketAddr) {
     let mut all = budgets().lock().expect("budgets");
     let budget = all.entry(addr).or_default();
-    budget.blocked_until = Some(Instant::now() + Duration::from_secs(120));
-    budget.tokens = 0.0;
-    budget.updated = budget.blocked_until.expect("flood pause");
-    tracing::warn!(server = %addr, pause_seconds = 120, "Sdílená antiflood pauza");
+    budget.connects_blocked_until = Some(Instant::now() + Duration::from_secs(120));
+    tracing::warn!(server = %addr, pause_seconds = 120, "Antiflood pauza nových připojení; živé TS relace pokračují");
 }
 // Příkazový flood je odmítnutý příkaz, nikoli ztracené TS spojení.
 fn is_flood(error: &tsclientlib::Error) -> bool {
@@ -416,9 +426,9 @@ fn flood_deadline(addr: SocketAddr) -> Option<Instant> {
         .lock()
         .expect("budgets")
         .get(&addr)
-        .and_then(|budget| budget.blocked_until)
+        .and_then(|budget| budget.connects_blocked_until)
 }
-fn server_paused(addr: SocketAddr) -> bool {
+fn connections_paused(addr: SocketAddr) -> bool {
     budgets()
         .lock()
         .expect("budgets")
@@ -438,11 +448,16 @@ fn command_slot(addr: SocketAddr, name: &str, client: ClientId, session_count: u
 }
 async fn connection_budget(addr: SocketAddr) {
     loop {
+        let window = Duration::from_millis(u64::from(env_nonzero("TS_CONNECT_WINDOW_MS", 45000)));
         let delay = {
             let mut all = budgets().lock().expect("budgets");
             let now = Instant::now();
             all.retain(|_, budget| {
                 budget.pause(now).is_some()
+                    || budget
+                        .connects
+                        .back()
+                        .is_some_and(|last| now.saturating_duration_since(*last) < window)
                     || budget.next_connect.is_some_and(|next| {
                         now.saturating_duration_since(next) < Duration::from_secs(120)
                     })
@@ -451,6 +466,8 @@ async fn connection_budget(addr: SocketAddr) {
             all.entry(addr).or_default().reserve(
                 now,
                 Duration::from_secs_f64(env_positive("TS_CONNECT_INTERVAL_MS", 3000.0) / 1000.0),
+                window,
+                env_nonzero("TS_CONNECT_BURST", 3) as usize,
             )
         };
         match delay {
@@ -459,15 +476,49 @@ async fn connection_budget(addr: SocketAddr) {
         }
     }
 }
+async fn queue_notice(ws: &mut Socket, addr: SocketAddr) -> Result<(), String> {
+    let remaining = flood_deadline(addr)
+        .map(|until| {
+            until
+                .saturating_duration_since(Instant::now())
+                .as_secs_f64()
+                .ceil() as u64
+        })
+        .unwrap_or(0);
+    let message = if remaining > 0 {
+        format!(
+            "Čekám na volné místo, server omezuje počet připojení… Pauza nových připojení {:02}:{:02}.",
+            remaining / 60,
+            remaining % 60
+        )
+    } else {
+        "Čekám na volné místo, server omezuje počet připojení…".to_owned()
+    };
+    json_send(
+        ws,
+        json!({"type":"notice", "code":"connect_queue", "message":message}),
+    )
+    .await
+}
 async fn wait_budget(ws: &mut Socket, addr: SocketAddr) -> Result<(), String> {
-    json_send(ws, json!({"type":"notice", "code":"connect_queue", "message":"Čekám na volné místo, server omezuje počet připojení…"})).await?;
     let budget = connection_budget(addr);
     tokio::pin!(budget);
-    let mut heartbeat = interval(Duration::from_secs(5));
+    let mut heartbeat = interval(Duration::from_secs(1));
+    let notice_after = tokio::time::sleep(Duration::from_millis(300));
+    tokio::pin!(notice_after);
+    let mut show_notice = false;
     loop {
         tokio::select! {
+            biased;
             _ = &mut budget => return Ok(()),
-            _ = heartbeat.tick() => json_send(ws, json!({"type":"pong"})).await?,
+            _ = &mut notice_after, if !show_notice => {
+                show_notice = true;
+                queue_notice(ws, addr).await?;
+            },
+            _ = heartbeat.tick() => {
+                json_send(ws, json!({"type":"pong"})).await?;
+                if show_notice { queue_notice(ws, addr).await?; }
+            },
             msg = ws.recv() => match msg {
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return Err("Webové spojení bylo uzavřeno.".into()),
                 Some(Ok(Message::Text(text))) => match serde_json::from_str::<Control>(&text) {
@@ -609,10 +660,10 @@ pub async fn run(
             error["ban_seconds"] = seconds.into();
         }
         if let Some(until) = ws.cooldown_until {
-            error["cooldown_seconds"] = until
+            error["cooldown_seconds"] = (until
                 .saturating_duration_since(Instant::now())
-                .as_secs()
-                .saturating_add(1)
+                .as_secs_f64()
+                .ceil() as u64)
                 .into();
         }
         let _ = json_send(&mut ws, error).await;
@@ -742,7 +793,7 @@ async fn session(
         let event = tokio::select! {
             event = next_event(&mut con) => event,
             _ = flood_check.tick() => {
-                if server_paused(addr) {
+                if connections_paused(addr) {
                     ws.cooldown_until = flood_deadline(addr);
                     return Err(FLOOD_MESSAGE.into());
                 }
@@ -829,9 +880,6 @@ async fn session(
         let disconnect_deadline = Duration::from_secs(if *shutdown.borrow() { 2 } else { 10 });
         let _ = timeout(disconnect_deadline, async {
             loop {
-                if server_paused(addr) {
-                    return;
-                }
                 if command_slot(addr, "clientdisconnect", client, 1) {
                     break;
                 }
@@ -1082,10 +1130,6 @@ async fn connected(
                 }
             },
             scheduled = tick.tick() => {
-                if server_paused(addr) {
-                    ws.cooldown_until = flood_deadline(addr);
-                    return Err(FLOOD_MESSAGE.into());
-                }
                 if pending.is_empty() && let Some(cmd) = commands.front() {
                     let name = String::from_utf8_lossy(cmd.0.content()).split(' ').next().unwrap_or("unknown").to_owned();
                     let count = command_counts.get(&name).copied().unwrap_or(0) + 1;
@@ -1188,17 +1232,22 @@ mod tests {
         let now = Instant::now();
         let mut budget = AttemptBudget::default();
         let spacing = Duration::from_secs(3);
-        assert!(budget.reserve(now, spacing).is_none());
-        assert_eq!(budget.reserve(now, spacing), Some(spacing));
-        assert!(budget.reserve(now + spacing, spacing).is_none());
-        assert!(budget.reserve(now + spacing * 2, spacing).is_none());
+        let window = Duration::from_secs(45);
+        assert!(budget.reserve(now, spacing, window, 3).is_none());
+        assert_eq!(budget.reserve(now, spacing, window, 3), Some(spacing));
+        assert!(budget.reserve(now + spacing, spacing, window, 3).is_none());
+        assert!(
+            budget
+                .reserve(now + spacing * 2, spacing, window, 3)
+                .is_none()
+        );
         assert_eq!(
-            budget.reserve(now + spacing * 3, spacing),
+            budget.reserve(now + spacing * 3, spacing, window, 3),
             Some(Duration::from_secs(36))
         );
         assert!(
             budget
-                .reserve(now + Duration::from_secs(45), spacing)
+                .reserve(now + Duration::from_secs(45), spacing, window, 3)
                 .is_none()
         );
         for _ in 0..20 {
@@ -1206,12 +1255,38 @@ mod tests {
         }
         assert!(!budget.command(now, 5.0));
         assert!(budget.command(now + Duration::from_millis(200), 5.0));
-        budget.blocked_until = Some(now + Duration::from_secs(150));
+        budget.connects_blocked_until = Some(now + Duration::from_secs(150));
         assert_eq!(
-            budget.reserve(now + Duration::from_secs(30), spacing),
+            budget.reserve(now + Duration::from_secs(30), spacing, window, 3),
             Some(Duration::from_secs(120))
         );
-        assert!(!budget.command(now + Duration::from_secs(30), 5.0));
+        assert!(budget.command(now + Duration::from_secs(30), 5.0));
+    }
+    #[test]
+    fn connection_window_and_burst_are_configurable() {
+        let now = Instant::now();
+        let mut budget = AttemptBudget::default();
+        let spacing = Duration::from_millis(10);
+        let window = Duration::from_secs(10);
+        assert!(budget.reserve(now, spacing, window, 1).is_none());
+        assert_eq!(
+            budget.reserve(now + spacing, spacing, window, 1),
+            Some(window - spacing)
+        );
+        assert!(budget.reserve(now + window, spacing, window, 1).is_none());
+        let mut budget = AttemptBudget::default();
+        for i in 0..5 {
+            assert!(
+                budget
+                    .reserve(now + spacing * i, spacing, window, 5)
+                    .is_none()
+            );
+        }
+        assert!(
+            budget
+                .reserve(now + spacing * 5, spacing, window, 5)
+                .is_some()
+        );
     }
     #[test]
     fn connection_errors_do_not_inspect_addresses() {

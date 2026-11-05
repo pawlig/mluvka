@@ -8,11 +8,17 @@ const ready = (page, timeout = 90000) =>
 function observe(context, micFailure) {
   return context.addInitScript((micFailure) => {
     window.regSockets = [];
+    window.regNotices = [];
     const Original = WebSocket;
     window.WebSocket = class extends Original {
       constructor(...args) {
         super(...args);
         window.regSockets.push(this);
+        this.addEventListener("message", ({ data }) => {
+          if (typeof data !== "string") return;
+          const msg = JSON.parse(data);
+          if (msg.type === "notice") window.regNotices.push(msg);
+        });
       }
     };
     window.regStreams = [];
@@ -645,7 +651,7 @@ export async function floodRecoveryChecks({
     await query.cmd(
       "serveredit virtualserver_antiflood_points_needed_command_block=150 virtualserver_antiflood_points_needed_ip_block=250",
     );
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const context = await browser.newContext({ permissions: ["microphone"] });
       contexts.push(context);
       await observe(context);
@@ -717,49 +723,103 @@ export async function floodRecoveryChecks({
       original,
     );
     expect(backendLog().slice(commandStart)).not.toContain(
-      "Sdílená antiflood pauza",
+      "Antiflood pauza nových připojení",
     );
     ok(
       "Příkazový flood 0x020c: odmítnutá zpráva doručena právě jednou po zpomalení; stejný WS a TS klient",
     );
+    const living = await Promise.all(
+      pages.slice(0, 2).map(async (page) => ({
+        client: await selfId(page),
+        sockets: await page.evaluate(() => window.regSockets.length),
+      })),
+    );
     // TS3 vrací na handshake 0x0d01 + explicitní marker flood prevention.
-    // Třetí pokus musí pozastavit i dvě už běžící relace (normalizace na 0x0d03).
+    // Omezuje se jen nový handshake, živé relace zůstávají beze změny.
     await query.cmd(
       "serveredit virtualserver_antiflood_points_needed_command_block=1 virtualserver_antiflood_points_needed_ip_block=2",
     );
     await login(pages[2], "Flood-2");
     await expect
       .poll(() => backendLog().slice(began), { timeout: 60000 })
-      .toContain("Sdílená antiflood pauza");
+      .toContain("Antiflood pauza nových připojení");
     expect(backendLog().slice(began)).toContain("0x0d03");
     expect(backendLog().slice(began)).toContain('wire_code="0x0d01"');
-    await Promise.all(
-      pages.map((page) =>
-        expect(page.locator(".connection-status")).not.toHaveText("Připojeno"),
-      ),
-    );
     const pausedAt = Date.now();
     await query.cmd(
       "serveredit virtualserver_antiflood_points_needed_command_block=150 virtualserver_antiflood_points_needed_ip_block=250",
     );
-    // TS IP ban má vlastní timeout; odstraňujeme pouze banlist testovací instance.
     const bans = await query.cmd("banlist").catch(() => "");
     for (const [, id] of bans.matchAll(/\bbanid=(\d+)/g))
       await query.cmd(`bandel banid=${id}`);
+    // Čtvrtý klient přijde už za sdílené pauzy: čeká na stejném WS ve frontě.
+    await login(pages[3], "Flood-3");
+    await expect(
+      pages[3].getByText(
+        /Čekám na volné místo.*Pauza nových připojení \d\d:\d\d/,
+      ),
+    ).toBeVisible();
+    const queuedSockets = await pages[3].evaluate(
+      () => window.regSockets.length,
+    );
+    const subscriptions = () =>
+      backendLog()
+        .slice(began)
+        .match(/ts_command="channelsubscribeall"/g)?.length || 0;
+    const beforeSubscriptions = subscriptions();
     for (let i = 0; i < 11; i++) {
+      await Promise.all(
+        pages.slice(0, 2).map(async (page, index) => {
+          await ready(page, 1000);
+          expect(await selfId(page)).toBe(living[index].client);
+          expect(await page.evaluate(() => window.regSockets.length)).toBe(
+            living[index].sockets,
+          );
+          await control(page, {
+            type: "chat",
+            target: "channel",
+            text: `během-handshake-pauzy-${i}-${index}`,
+          });
+        }),
+      );
+      await Promise.all(
+        pages
+          .slice(0, 2)
+          .map((page, index) =>
+            expect(
+              page
+                .locator(".message")
+                .filter({ hasText: `během-handshake-pauzy-${i}-${1 - index}` }),
+            ).toHaveCount(1, { timeout: 10000 }),
+          ),
+      );
       await wait(10000);
-      expect(
-        backendLog().slice(began).split("Sdílená antiflood pauza").at(-1),
-      ).not.toContain("Odeslaný TS příkaz");
+      if (Date.now() - pausedAt < 119000) {
+        expect(subscriptions()).toBe(beforeSubscriptions);
+        for (const page of pages.slice(2))
+          await expect(page.locator(".connection-status")).not.toHaveText(
+            "Připojeno",
+          );
+      }
     }
     await Promise.all(pages.map((page) => ready(page, 60000)));
     expect(Date.now() - pausedAt).toBeGreaterThanOrEqual(119000);
+    for (let i = 0; i < 2; i++) {
+      expect(await selfId(pages[i])).toBe(living[i].client);
+      expect(await pages[i].evaluate(() => window.regSockets.length)).toBe(
+        living[i].sockets,
+      );
+    }
+    expect(await pages[3].evaluate(() => window.regSockets.length)).toBe(
+      queuedSockets,
+    );
     ok(
-      "Skutečný TS handshake flood: wire 0x0d01 → normalizovaný 0x0d03, všechny relace pauza ≥120 s bez příkazů a postupný návrat",
+      "Handshake flood 0x0d01 → 0x0d03: nová připojení čekají ≥120 s s odpočtem, Flood-0/1 mají stejný WS i clid a dál doručují chat",
       {
         elapsedMs: Date.now() - pausedAt,
         wireCode: "0x0d01",
         floodCode: "0x0d03",
+        survivingClients: living.map((client) => client.client),
       },
     );
   } finally {

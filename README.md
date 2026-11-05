@@ -267,7 +267,7 @@ Přehrávání má cíl 60 ms (při měřeném jitteru až 100 ms) a plynule opr
 Dekodér posílá PCM přímo do workletu přes MessagePort; o PLC worklet žádá přímo Worker,
 aby zdržení hlavního vlákna nepřerušilo přehrávání. SIGTERM/SIGINT čistě odpojí TS
 relace a prohlížeče po aktualizaci obnoví hovor. Globální limit připojování omezuje flood
-při současném reconnectu; skutečný flood blokuje cíl na 120 s.
+při současném reconnectu; handshake flood pozastaví nová připojení k cíli na 120 s.
 ## Upozornění a nepřečtené zprávy
 
 V Nastavení jsou samostatné zvuky pro kanál, server, soukromé zprávy a šťouchnutí
@@ -324,14 +324,16 @@ Takto funguje i pozvánka do již nainstalované aplikace.
 Všichni uživatelé jednoho backendu Mluvky přicházejí ze stejné veřejné IP kontejneru.
 TS antiflood sčítá body za tuto IP, takže může dočasně zablokovat celou skupinu.
 Backend proto sdílí frontu pro cílovou IP:port: `TS_CMD_RATE=5` příkazů/s, burst 20,
-`TS_CONNECT_INTERVAL_MS=3000` mezi připojeními, navíc nejvýše 3 handshaky za 45 s
-na cíl. Samotné 3 s při měření na TS3 3.13.7 vedly k odmítnutí páté relace
+`TS_CONNECT_INTERVAL_MS=3000` mezi připojeními, `TS_CONNECT_WINDOW_MS=45000` a `TS_CONNECT_BURST=3` omezují počet handshake
+v klouzavém okně na cíl (výchozí 3 za 45 s). Samotné 3 s při měření na TS3 3.13.7 vedly k odmítnutí páté relace
 `0x0d01` bez položky v banlistu; delší okno brání i této handshake ochraně. Hodnoty musí být kladná čísla.
 TS3 používá pro handshake flood i `0x0d01` s přesným doplňkem `flood prevention, please try again later`.
 Lokální oprava tsclientlib zachová tento bezpečný příznak (upstream doplněk zahazoval).
 Backend jej zařadí jako flood `0x0d03`, v logu uvede i původní `wire_code=0x0d01`.
-Skutečný ban bez tohoto přesného příznaku zůstává trvalý. Při odmítnutí handshake všechny relace k cíli přeruší příkazy a připojení na 120 s; potom
-se vracejí postupně. Pro diagnostiku nastavte `RUST_LOG=mluvka=debug`: `ts_command`
+Skutečný ban bez tohoto přesného příznaku zůstává trvalý. Při odmítnutí handshake se na 120 s pozastaví pouze nová připojení k cíli;
+fronta ukazuje zbývající pauzu a potom připojuje postupně. Už připojené relace si
+ponechají hlas, chat i WS. Odmítnutý příkaz má samostatné krátké zpomalení s opakováním,
+bez odpojení. Hláška fronty se objeví až při čekání delším než 300 ms. Pro diagnostiku nastavte `RUST_LOG=mluvka=debug`: `ts_command`
 a `count` měří aplikační příkazy podle druhu a cíle, `client` a `session_count` po připojeních.
 Argumenty s osobními údaji se nelogují.
 Interní handshake a keepalive knihovny do tohoto počtu nepatří.
