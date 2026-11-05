@@ -1,0 +1,17 @@
+{
+  "url": "http://127.0.0.1:3104",
+  "kdy": "2026-11-05T00:12:05.036Z",
+  "varianty": {
+    "desktop": {
+      "prepad": 0
+    },
+    "tmavy": {
+      "prepad": 0
+    },
+    "mobil": {
+      "prepad": 0
+    }
+  },
+  "chyby": [],
+  "konzole": []
+}

@@ -552,6 +552,7 @@ try {
       });
     return context;
   };
+  if (process.env.E2E_FOCUS !== "files") {
   await codecRecoveryCheck(ok);
   resamplingChecks(ok);
   jitterChecks(ok);
@@ -892,6 +893,8 @@ try {
     ok,
     restartBackend,
   });
+  }
+  if (!process.env.E2E_FOCUS || process.env.E2E_FOCUS === "files") {
   // Velké souborové payloady a jejich GC patří až za měření latence zvuku.
   const fileContexts = await Promise.all(
     [0, 1].map(() => browser.newContext({
@@ -920,6 +923,7 @@ try {
     await fileChecks({ a, b, query, base, root, tsAddress, password, channelPassword, ok });
   } finally {
     await Promise.all(fileContexts.map((context) => context.close()));
+  }
   }
   expect(errors).toEqual([]);
   ok("Žádné JS výjimky ani chyby konzole v obou relacích");

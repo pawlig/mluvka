@@ -209,12 +209,27 @@ strom potřebuje vlastní porty a kopii TS3 (`TS3_DIR`, bez `ts3server.sqlitedb*
 založil na nových portech):
 
 ```sh
-E2E_PORT=3101 TS3_VOICE_PORT=9101 TS3_QUERY_PORT=10101 TS3_FT_PORT=30101 npm run e2e
+(
+  mkdir -p "$HOME/.prace"
+  LOCK_DIR="$HOME/.prace/mluvka-ts3.lock"
+  until mkdir "$LOCK_DIR" 2>/dev/null; do echo "TS3 obsazený, čekám"; sleep 30; done
+  trap 'rmdir "$LOCK_DIR"' EXIT
+  E2E_PORT=3103 TS3_VOICE_PORT=9103 TS3_QUERY_PORT=10103 TS3_FT_PORT=30103 npm run e2e
+  rc=$?
+  exit "$rc"
+)
 ```
 
 Allowlist testovacího backendu používá stejnou adresu i port TS3. Pokud TS3 hlásí
 `local accounting reports an already running instance`, spouštějte celé E2E běhy
 postupně: samostatné porty tento limit počtu instancí neodstraní.
+Sdílený zámek výše držte jen po dobu běhu a nikdy nemažte cizí zámek.
+
+Pro samostatnou diagnostiku souborů lze přidat `E2E_FOCUS=files` ke stejnému zamčenému
+příkazu `npm run e2e`. Projde oba transporty, přenosy, oprávnění i screenshoty; report má
+`scope: "files"`. Tento režim nenahrazuje celý regresní běh. Velké uploady jsou v úplném
+běhu až za měřením zvukové latence a mobilními testy, v čerstvých browserových relacích.
+
 E2E vytváří dočasný `UPLOAD_DIR` a po skončení jej odstraní; výchozí `/data` nepoužívá.
 
 `E2E_URL` dovoluje připojit již běžící backend; úplná sada včetně restartu vyžaduje lokální backend bez této volby.

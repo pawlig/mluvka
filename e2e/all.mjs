@@ -63,6 +63,7 @@ try {
       JSON.stringify(
         {
           date: new Date().toISOString(),
+          scope: process.env.E2E_FOCUS === "files" ? "files" : "all",
           complete:
             runs.length === 2 && runs.every((run) => run.exitCode === 0),
           runs,
