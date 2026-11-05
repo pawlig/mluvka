@@ -330,6 +330,12 @@ export class Sharing {
         call: peer.call,
         sdp: peer.pc.localDescription,
       });
+      // ICE restart na živém spojení stav nezmění (zůstává connected), takže
+      // onconnectionstatechange časovač nového pokusu nezruší — zruš ho tady.
+      if (peer.pc.connectionState === "connected") {
+        clearTimeout(this.watchTimer);
+        this.watchAttempts = 0;
+      }
       return;
     }
     const peer = [...this.peers.values()].find(
@@ -341,6 +347,9 @@ export class Sharing {
       for (const c of peer.candidates.splice(0))
         await peer.pc.addIceCandidate(c);
       await this.limit(peer);
+      // Totéž u sdílejícího: obnova po změně sítě na živém spojení by se jinak
+      // opakovala každých 8 s.
+      if (peer.pc.connectionState === "connected") clearTimeout(peer.timer);
     }
     if (msg.type === "rtc_ice" && msg.candidate) {
       if (peer.pc.remoteDescription)

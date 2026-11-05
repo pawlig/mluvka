@@ -135,6 +135,13 @@ globalThis.RTCPeerConnection = class {
     return { type: "offer", sdp: "x" };
   }
   async setLocalDescription() {}
+  async setRemoteDescription(sdp) {
+    this.remoteDescription = sdp;
+  }
+  async createAnswer() {
+    return { type: "answer", sdp: "x" };
+  }
+  async addIceCandidate() {}
   close() {}
 };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -329,4 +336,57 @@ const sender = (pc, kind) =>
   assert.equal(controller.state.sharing, false);
   controller.disconnected(true);
   console.log("OK · stop() během výběru zastaví nový stream");
+}
+// ICE restart po změně sítě na živém spojení: stav zůstává connected, takže
+// časovač nového pokusu musí zrušit už nabídka/odpověď, jinak by se sledování
+// za 10 s opakovalo a po třech pokusech ukončilo s chybou.
+{
+  iceServers = [{ urls: "turn:turn.example.org:3478" }];
+  const { controller, messages } = connected();
+  controller.watch({
+    session: "source",
+    client: 2,
+    uid: "source-uid",
+    name: "Sdílející",
+    kind: "screen",
+  });
+  await flush();
+  const offer = { type: "rtc_offer", from: "source", call: "c1", sdp: {} };
+  await controller.receive(offer);
+  for (let i = 0; i < 4; i++) await flush();
+  const pc = pcs.at(-1);
+  pc.connectionState = "connected";
+  pc.onconnectionstatechange();
+  assert.ok(![...timers.values()].some((t) => t.delay === 10000));
+  controller.networkChanged();
+  assert.equal(messages.filter((m) => m.type === "watch").length, 2);
+  await controller.receive(offer);
+  for (let i = 0; i < 4; i++) await flush();
+  assert.ok(
+    ![...timers.values()].some((t) => t.delay === 10000),
+    "Po odpovědi na ICE restart nesmí zůstat časovač dalšího pokusu",
+  );
+  assert.equal(controller.state.watching?.session, "source");
+  controller.disconnected(true);
+  console.log("OK · divák: ICE restart na živém spojení nenechá běžet další pokus o sledování");
+}
+{
+  iceServers = [];
+  const { controller, messages } = await sharing(false);
+  const pc = await viewer(controller, "v1");
+  pc.connectionState = "connected";
+  pc.onconnectionstatechange();
+  const call = messages.filter((m) => m.type === "rtc_offer").at(-1).call;
+  controller.networkChanged();
+  for (let i = 0; i < 4; i++) await flush();
+  assert.ok([...timers.values()].some((t) => t.delay === 8000));
+  await controller.receive({ type: "rtc_answer", from: "v1", call, sdp: {} });
+  for (let i = 0; i < 4; i++) await flush();
+  assert.ok(
+    ![...timers.values()].some((t) => t.delay === 8000),
+    "Po odpovědi na ICE restart se obnova nesmí opakovat",
+  );
+  controller.stop();
+  controller.disconnected(true);
+  console.log("OK · sdílející: obnova po změně sítě se po odpovědi na živém spojení neopakuje");
 }
