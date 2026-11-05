@@ -46,8 +46,8 @@
     "underruns": 0,
     "plcRequests": 0,
     "droppedFrames": 0,
-    "minBufferMs": 15.348122386232717,
-    "maxBufferMs": 450.8382570463873,
+    "minBufferMs": 15.347238119711013,
+    "maxBufferMs": 450.837213651607,
     "targetBufferMs": 320
   }
 }

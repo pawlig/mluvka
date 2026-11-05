@@ -103,7 +103,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
         this.arrival = undefined;
         this.gaps = [];
         this.lastRisk = this.clock;
-        this.filtered = this.target;
+        this.filtered = this.target - sampleRate * 0.01;
         this.integral = this.correction = 0;
         this.playResampler = new Resampler(48000, sampleRate);
         this.tail = this.last;
@@ -155,7 +155,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
     if (!this.playing && this.write - this.read >= this.target) {
       this.playing = this.started = true;
       // Rebufferování mění časovou základnu; stará obálka by rozkmitala PI.
-      this.filtered = this.target;
+      this.filtered = this.target - sampleRate * 0.01;
       this.integral = this.correction = 0;
       this.fade = 0;
       this.tail = this.last;
