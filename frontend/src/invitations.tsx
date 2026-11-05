@@ -9,6 +9,7 @@ export interface Invitation {
   channel?: string;
   channelPassword?: string;
   name?: string;
+  watch?: string;
 }
 export function decodeInvitation(value: string): Invitation {
   const url = new URL(value, location.href);
@@ -47,6 +48,11 @@ export function decodeInvitation(value: string): Invitation {
       throw Error("invalid");
     if (data[key]) result[key] = data[key];
   }
+  if (data.watch !== undefined) {
+    if (typeof data.watch !== "string" || data.watch.length > 128)
+      throw Error("invalid");
+    if (data.watch) result.watch = data.watch;
+  }
   return result;
 }
 export function readInvitation(): { invitation?: Invitation; error?: string } {
@@ -77,7 +83,7 @@ export function invitationLogin(
     auto: true,
   };
 }
-function encodeInvitation(data: Invitation) {
+export function encodeInvitation(data: Invitation) {
   const json = JSON.stringify(data);
   const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(json)))
     .replaceAll("+", "-")

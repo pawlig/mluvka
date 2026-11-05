@@ -291,7 +291,9 @@ const sender = (pc, kind) =>
   assert.equal(controller.state.switching, false);
   controller.stop();
   controller.disconnected(true);
-  console.log("OK · zrušený výběr bez chyby, jiná chyba ponechá původní stream");
+  console.log(
+    "OK · zrušený výběr bez chyby, jiná chyba ponechá původní stream",
+  );
 }
 {
   const { controller } = await sharing(false);

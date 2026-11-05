@@ -254,6 +254,16 @@ export async function sharingChecks({
 
   // Nové uživatelské watch patří do dalšího okna, ne do záměrného 500zprávového burstu.
   await b.waitForTimeout(1100);
+  const queryClient = /client_id=(\d+)/.exec(await query.cmd("whoami"))[1];
+  const queryChannel = /client_channel_id=(\d+)/.exec(
+    await query.cmd("whoami"),
+  )[1];
+  const sharedChannel = /cid=(\d+)[^|\n]*channel_name=Večerní\\sparta/.exec(
+    await query.cmd("channellist"),
+  )[1];
+  await query.cmd(`clientmove clid=${queryClient} cid=${sharedChannel}`);
+  await query.cmd("servernotifyregister event=textchannel");
+  const announcements = () => query.messages.filter((m) => m.startsWith("🖥 "));
   await a.evaluate(() => {
     window.__e2eDelayStartAck = true;
   });
@@ -458,6 +468,83 @@ export async function sharingChecks({
   ok(
     "Přepnout zdroj: divák dál přehrává, bez nového share_start i bez nového vyjednání peeru",
   );
+
+  // Etapa 2: oznámení do chatu kanálu pro nativní TS klienty a popis klienta.
+  const adamClient = Number(
+    await a
+      .locator(".client-row")
+      .filter({ hasText: "Adam" })
+      .first()
+      .getAttribute("data-client"),
+  );
+  const info = async () =>
+    (await query.cmd(`clientinfo clid=${adamClient}`)).replaceAll("\\/", "/");
+  await expect.poll(() => announcements().length).toBe(1);
+  const pattern =
+    /^🖥 Adam sdílí obrazovku v Mluvce — sledovat: (https?:\/\/\S+#pozvanka=([A-Za-z0-9_-]+))$/u;
+  const match = pattern.exec(announcements()[0]);
+  expect(match).toBeTruthy();
+  const invitation = JSON.parse(
+    Buffer.from(match[2], "base64url").toString("utf8"),
+  );
+  expect(invitation.v).toBe(1);
+  expect(invitation.server).toBe(tsAddress);
+  expect(invitation.channel).toBe("Večerní parta");
+  expect(invitation.password).toBeUndefined();
+  expect(invitation.channelPassword).toBeUndefined();
+  expect(match[1].includes(password)).toBe(false);
+  expect(match[1].includes(channelPassword)).toBe(false);
+  expect(invitation.watch).toMatch(/\S/);
+  expect(await info()).toContain(
+    `client_unique_identifier=${invitation.watch}`,
+  );
+  await expect
+    .poll(async () => (await info()).replaceAll("\\s", " "))
+    .toContain("client_description=🖥 sdílí obrazovku");
+  ok(
+    "Oznámení: zpráva kanálu podle vzoru, pozvánka bez hesel s polem watch, popis klienta v TS během sdílení",
+  );
+  // Opakované zahájení do 60 s zprávu nepošle; popis se vrací podle stavu sdílení.
+  await stopSharing(a);
+  await expect.poll(() => info()).toMatch(/client_description=(?:\s|$)/);
+  await startSharing(a);
+  await expect(a.locator(".share-live")).toBeVisible();
+  await expect
+    .poll(async () => (await info()).replaceAll("\\s", " "))
+    .toContain("client_description=🖥 sdílí obrazovku");
+  await a.waitForTimeout(2000);
+  expect(announcements().length).toBe(1);
+  ok(
+    "Popis klienta se po ukončení vrátí na původní; druhé zahájení do 60 s zprávu nepošle",
+  );
+  await query.cmd(`clientmove clid=${queryClient} cid=${queryChannel}`);
+  // Třetí prohlížeč otevře odkaz z TS chatu a po zadání hesel sám začne sledovat.
+  const linkContext = await browser.newContext({
+    permissions: ["microphone"],
+  });
+  try {
+    const c = await linkContext.newPage();
+    await c.goto(match[1]);
+    await c.getByLabel("Přezdívka", { exact: true }).fill("Cyril");
+    await c.getByText("Upravit podrobnosti").click();
+    await c.getByLabel("Heslo serveru", { exact: false }).fill(password);
+    const channelField = c.locator('input[name="channel_password"]');
+    if (!(await channelField.isVisible()))
+      await c.getByText("Výchozí kanál").click();
+    await channelField.fill(channelPassword);
+    await c.getByRole("button", { name: "Připojit", exact: true }).click();
+    await connected(c);
+    await flowing(c);
+    await expect(a.locator(".share-live")).toContainText("1 diváků");
+    ok("Odkaz z TS chatu: třetí prohlížeč po zadání hesel sám sleduje sdílení");
+  } finally {
+    await linkContext.close();
+  }
+  await expect(a.locator(".share-live")).toContainText("0 diváků", {
+    timeout: 15000,
+  });
+  await b.getByRole("button", { name: "Sledovat", exact: true }).click();
+  await flowing(b);
 
   // Souběžné sdílení oběma směry musí mít dvě nezávislá PeerConnection.
   await startSharing(b);
