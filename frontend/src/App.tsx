@@ -308,6 +308,15 @@ function AppContent({
   const currentThread =
     thread === "channel" ? `channel:${me?.channel}` : thread;
   const visibleMessages = messages.filter((m) => m.thread === currentThread);
+  // Pruh úpravy zmenší log; upravovaná zpráva musí zůstat vidět.
+  useEffect(() => {
+    if (!editing) return;
+    requestAnimationFrame(() =>
+      document
+        .querySelector(".message[data-editing]")
+        ?.scrollIntoView({ block: "nearest" }),
+    );
+  }, [editing]);
   useEffect(() => {
     if (editing && editing.thread !== currentThread) {
       setEditing(undefined);
@@ -1845,7 +1854,13 @@ function AppContent({
                   <span>DNES</span>
                 </div>
                 {visibleMessages.map((m, i) => (
-                  <article className="message" key={i}>
+                  <article
+                    className="message"
+                    key={i}
+                    data-editing={
+                      editing && sameMessage(m, editing) ? "" : undefined
+                    }
+                  >
                     <Avatar
                       client={m}
                       className="message-avatar"

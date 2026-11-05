@@ -512,6 +512,10 @@ export async function chatChecks({
   await expect(
     a.getByRole("button", { name: "Uložit úpravu", exact: true }),
   ).toBeVisible();
+  // Pruh úpravy nesmí upravovanou zprávu odsunout pod okraj logu.
+  await expect(
+    a.locator(".message[data-editing] .message-text"),
+  ).toBeInViewport({ ratio: 1 });
   await a.screenshot({
     path: resolve(root, "docs/screenshots/uprava-desktop.png"),
   });
