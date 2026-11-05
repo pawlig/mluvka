@@ -9,6 +9,7 @@ import {
   type UserColors,
 } from "./colors";
 import { AudioEngine } from "./audio";
+import { reconnectDelay } from "./reconnect";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
 import {
@@ -469,16 +470,14 @@ function AppContent({
     clearTimeout(retryTimer.current);
     const attempt = ++retryCount.current;
     setRetryAttempt(attempt);
+    const delay = Math.max(
+      retryAfter.current - Date.now(),
+      reconnectDelay(attempt),
+    );
+    retryAfter.current = Date.now() + delay;
     retryTimer.current = setTimeout(
       () => void openConnection(lastLogin.current),
-      Math.max(
-        retryAfter.current - Date.now(),
-        (restarting.current
-          ? [3000, 6000, 12000, 15000]
-          : [1000, 2000, 4000, 8000, 15000])[
-          Math.min(attempt - 1, restarting.current ? 3 : 4)
-        ],
-      ),
+      delay,
     );
   }
   function tryNow() {
@@ -648,7 +647,7 @@ function AppContent({
         if (msg.code === "server_restart") {
           restarting.current = true;
           retryCount.current = 0;
-          retryAfter.current = Math.max(retryAfter.current, Date.now() + 3000);
+
           setError("");
         }
         if (msg.code === "session_replaced") {

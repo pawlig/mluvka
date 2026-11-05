@@ -135,7 +135,7 @@ tyto dva PLC čítače je nezahrnují.
 | `server_closed` | TS server ukončil spojení             | ano                             |
 | `full`          | Plný server                           | ano                             |
 
-Po nečekaném ukončení frontend používá prodlevy 1 → 2 → 4 → 8 → 15 s, dále 15 s.
+Po nečekaném ukončení WS frontend první návrat rozloží náhodně do 0–10 s. Další pokusy přidávají exponenciální prodlevu 2 → 4 → 8 → 16 → 30 s a jitter 0–10 s; nejvýše tedy 40 s. Návrat viditelnosti tento termín nepředbíhá.
 Pokusy pokračují i na pozadí. `online` zachová otevřené spojení, které přijalo data v posledních 5 s.
 Po návratu z pozadí či zmrazení platí 5 s milosti před 20s hlídáním mrtvého spojení v popředí.
 Backend posílá protokolové WS ping/pong, jejichž obsluha nezávisí na JS časovači stránky.
