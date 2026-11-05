@@ -18,6 +18,9 @@ export function ScreenIcon() {
     </svg>
   );
 }
+export function MluvkaIcon() {
+  return <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M2 6v4m4-7v10m4-8v6m4-5v4" /></svg>;
+}
 export function SharingControls({ controller }: { controller: Sharing }) {
   const [quality, setQuality] = useState<Quality>("720");
   const [audio, setAudio] = useState(false);

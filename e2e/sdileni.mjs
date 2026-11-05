@@ -268,6 +268,9 @@ export async function sharingChecks({
   await expect(
     b.locator('.share-tree-icon[title="Sdílí obrazovku"]'),
   ).toBeVisible();
+  const presence = b.locator('.client-row [title="Připojen přes Mluvku"]').first();
+  await expect(presence.locator("svg")).toBeVisible();
+  await expect(presence).toHaveText("");
   await b.locator(".client-row").filter({ hasText: "Adam" }).first().click();
   await expect(
     b.getByRole("dialog", { name: "Uživatel Adam", exact: true }),
