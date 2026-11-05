@@ -732,8 +732,14 @@ async fn connected(
                     Message::Text(s) => {
                         let value: Value = serde_json::from_str(&s).map_err(|_| "Neplatná řídicí zpráva.")?;
                         if crate::signal::is_signal(value["type"].as_str().unwrap_or("")) {
-                            signal_count += 1;
-                            if signal_count > 120 { return Err("Příliš mnoho signalizačních zpráv.".into()); }
+                            signal_count = u32::saturating_add(signal_count, 1);
+                            if signal_count > 120 {
+                                // Odpověď jen při prvním překročení; zahlcení nesmí shodit TS ani zaplnit frontu chybami.
+                                if signal_count == 121 {
+                                    json_send(ws, json!({"type":"share_error","v":1,"message":"Signalizaci posíláte příliš rychle.","request":value["type"]})).await?;
+                                }
+                                continue;
+                            }
                             if let Err(message) = sharing.handle(&value, s.len()) {
                                 json_send(ws, json!({"type":"share_error","v":1,"message":message,"request":value["type"]})).await?;
                             }

@@ -171,6 +171,52 @@ export async function sharingChecks({
   );
   ok("ICE: bez relace 401, s relací dočasný HMAC-SHA1 a platnost 12 hodin");
 
+  // Překročení signalizačního limitu nesmí ukončit TS ani přenos hlasových rámců.
+  const beforeFlood = await b.evaluate(
+    () => window.__mluvkaStats?.receivedFrames || 0,
+  );
+  await b.evaluate(async () => {
+    const socket = window.__e2eShareSocket;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(Error("WS po zahlcení neodpověděl")),
+        5000,
+      );
+      const listener = ({ data }) => {
+        if (typeof data === "string" && JSON.parse(data).type === "pong") {
+          clearTimeout(timer);
+          socket.removeEventListener("message", listener);
+          resolve();
+        }
+      };
+      socket.addEventListener("message", listener);
+      for (let i = 0; i < 500; i++)
+        socket.send(
+          JSON.stringify({
+            type: "rtc_ice",
+            v: 1,
+            kind: "screen",
+            to: "missing",
+          }),
+        );
+      socket.send(JSON.stringify({ type: "ping" }));
+    });
+  });
+  await connected(b);
+  await expect
+    .poll(() => b.evaluate(() => window.__mluvkaStats?.receivedFrames || 0))
+    .toBeGreaterThan(beforeFlood);
+  expect(
+    await b.evaluate(() =>
+      window.__e2eShareMessages.some(
+        (m) => m.type === "share_error" && m.message.includes("příliš rychle"),
+      ),
+    ),
+  ).toBe(true);
+  ok(
+    "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
+  );
+
   await a
     .getByRole("button", { name: "Sdílet obrazovku", exact: true })
     .click();
