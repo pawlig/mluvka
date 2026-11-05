@@ -37,7 +37,7 @@ Checkboxy zapamatování jsou klientské; dodatečná pole backend ignoruje.
 | ---------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hello`    | `audio: {codec: "opus" \| "pcm", version: 1, quality: string}`                                                         | Vyjednaný transport, před prvním `state`. Bez nabídky Opus v1 se použije PCM.                                                                                                         |
 | `identity` | `identity: string`, `uid: string`, `level: number`                                                                     | Privátní text `čítačVbase64-klíč` se uloží do `mluvka.identity`. Nová identita má úroveň ≥8. Posílá se znovu i při zvýšení úrovně požadovaném TS serverem. `uid` je veřejná identita. |
-| `state`    | `name: string`, `self: number`, `channels: Channel[]`, `clients: Client[]`                                             | Úplný snímek po připojení a změnách TS knihy. První snímek může být bez klientů, další jej doplní.                                                                                    |
+| `state`    | `name: string`, `server_uid: string`, `self: number`, `channels: Channel[]`, `clients: Client[]`                                             | Úplný snímek po připojení a změnách TS knihy. První snímek může být bez klientů, další jej doplní.                                                                                    |
 | `talking`  | `client: number`, `active: boolean`                                                                                    | Indikátor příchodu hlasových paketů; po 300 ms bez paketu `false`. Lokální mute ho nepotlačí. Vlastní indikátor řídí mikrofon v prohlížeči.                                           |
 | `chat`     | `target: "channel" \| "server" \| "private"`, `client: number \| null`, `from: number`, `name: string`, `text: string` | `from` je odesílatel, `client` příjemce soukromé zprávy. Vlastní odeslanou zprávu přidává UI ihned, TS ji nemusí vrátit.                                                              |
 | `poke`     | `target: "poke"`, `client: number`, `from: number`, `name: string`, `text: string`                                     | Výrazné upozornění na šťouchnutí.                                                                                                                                                     |
@@ -171,18 +171,20 @@ Po úspěšném přihlášení k TS přijde jednou na WS `{"type":"upload_token"
 Token (256 náhodných bitů) žije jen v paměti po dobu této relace, není identitou TS ani
 uloženým přihlášením. Odpojení, převzetí identity nebo restart jej zruší. Frontend ho neukládá.
 
-`POST /api/upload` přijímá **syrové bajty obrázku** s `Authorization: Bearer <token>`
+`POST /api/upload` bez hlavičky `X-File-Name` přijímá **syrové bajty obrázku** s `Authorization: Bearer <token>`
 a `Content-Type` obrázku, nikoli multipart ani jméno souboru. Autoritativní jsou magické
 bajty PNG/JPEG/GIF/WebP. SVG/HTML → 415, přes 10 MiB (GIF 8 MiB) → 413, chybějící/neplatný
 nebo zrušený token → 401, jedenáctý pokus v klouzavých 5 minutách → 429. Pokusy o upload
 se počítají včetně odmítnutých formátů/velikostí. Nedostatečná kapacita pro jediný soubor → 507.
-Úspěch: HTTP 201, `Cache-Control: no-store`, JSON `{"url":"https://host/img/<id>.webp"}`.
+Úspěch: HTTP 201, `Cache-Control: no-store`, JSON `{"url":"https://example.org/img/<id>.jpg"}`.
 `id` má 256 náhodných bitů v base64url, příponu volí backend. Jména/obsah ani TS cíl se nelogují.
 
 Klient před uploadem provede orientaci, resize a nové zakódování přes canvas bez EXIF/GPS;
 GIF posílá beze změny. Přímé API kontroluje typ a velikost, metadata samo neodstraňuje.
-URL pak odešle běžnou zprávou `chat` jako `[IMG]https://host/img/<id>.webp[/IMG]`, případně
-s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5/TS6 nebylo ověřeno.
+Canvas volí JPEG pro fotografie, PNG pro průhlednost nebo málo barev. URL pak odešle běžnou
+zprávou `chat` jako holý `https://example.org/img/<id>.jpg` (nebo `.png`/`.gif`), případně
+s textem před odkazem. TS3 i TS5/6 dostanou klikatelnou URL, Mluvka zobrazí náhled.
+Příjem starších `[IMG]…[/IMG]` zůstává podporovaný; nativní klienty ověřuje orchestrátor.
 
 `GET /img/<id>.<ext>` je veřejný, po expiraci/odstranění vrací 404. Hlavičky:
 `Content-Type: image/png|image/jpeg|image/gif|image/webp`,
@@ -190,3 +192,57 @@ s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5
 `Content-Security-Policy: default-src 'none'`. URL z `PUBLIC_URL`, jinak `Host` a důvěryhodné
 `X-Forwarded-Proto` (http/https). Produkční proxy musí tyto hlavičky přepisovat.
 Úklid je při startu a každou hodinu; před zápisem se také hlídá celková kapacita.
+
+
+## Přílohy a nativní přenos TS
+
+`POST /api/upload` s `X-File-Name: <percent-encoded UTF-8 jméno>` přijímá libovolné bajty
+přílohy. Bez této hlavičky zůstává původní kontrolovaná cesta pro bitmapy. Token Bearer,
+10 pokusů / 5 minut, TTL a celková kapacita jsou společné. Tělo je omezené při čtení,
+`UPLOAD_FILE_MAX_MB` (výchozí 25 MiB), překročení → 413; bez platné relace → 401.
+Odpověď 201: `{"url":"https://mluvka.example.org/f/<id>/<jméno>","name":"<očištěné jméno>","size":111303}`.
+Jméno nemá lomítka, zakázané znaky ani řídicí znaky, nejvýše 120 znaků; metadata leží vedle
+binárního souboru a mizí spolu s ním. Data i JSON se počítají do stropu kapacity; osiřelé JSON uklízí úklid.
+201 se vrací až po `write_all`, `flush` a `sync_all` dat i metadat; při chybě se obojí smaže (plný disk/kvóta → 507, ostatní I/O → 500).
+Odchozí zpráva obsahuje `📎 jméno (velikost)` a holou URL `/f/<id>/<jméno>`, bez BBCode. Do logu nepatří obsah, původní jméno ani token.
+Zpráva do TS: `📎 <jméno> (108,7 kB)`, nový řádek a `https://mluvka.example.org/f/<id>/<jméno>`.
+
+`GET /f/<id>/<jméno>` používá jméno z metadat, nikdy typ odhadnutý z přípony.
+Hlavičky: `Content-Type: application/octet-stream`,
+`Content-Disposition: attachment; filename*=UTF-8''<percent-encoded jméno>`,
+`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
+`Cache-Control: private, max-age=604800`. Veřejná náhodná URL funguje bez tokenu stejně jako
+obrázky; po expiraci/úklidu 404. Velikosti v kartě používají násobky 1024 a českou desetinnou čárku.
+
+Tvar odkazu TS klienta (parametry `isDir`, `size`, `fileDateTime` jsou metadata):
+
+```
+ts3file://example.org?port=9987&serverUID=<UID>&channel=12&path=%2F&filename=zkouska.zip&isDir=0&size=111303&fileDateTime=0
+```
+
+Zdroj tvaru: [oficiální fórum TeamSpeak, TS.ChrisR, 23. 5. 2024](https://community.teamspeak.com/t/server-and-channel-banner-direct-upload/39553/7).
+BBCode obaluje URL jako `[URL=ts3file://…]zkouska.zip[/URL]`.
+E2E vytváří soubor přes ServerQuery `ftinitupload` a jeho klíč odešle na skutečný TCP port FT;
+nejde o ručně podstrčenou HTTP odpověď. Skutečný desktopový TS3/TS5 klient tím není ověřen.
+
+`GET /api/ts-file?url=<percent-encoded celý ts3file odkaz>` vyžaduje `Authorization: Bearer <token>`.
+URL se parsuje až po autentizaci. Kanál, cesta a jméno jsou validované, `.`/`..`, lomítko
+ve jméně, řídicí znaky, opakované parametry a nadměrné délky se odmítají (400).
+Je-li přítomný `serverUID`, musí odpovídat relaci (jinak 403); host/port pak mohou být jiným aliasem.
+Bez UID musí odpovídat host a port relace. API neprovádí DNS ani
+TCP připojení podle URL. Oprávnění a heslo kontroluje TS server, známá hesla žijí jen v paměti relace.
+Chybějící heslo, oprávnění nebo nedostupný port mají českou chybu (403/504), nikoli odpojení chatu.
+Prohlížeč ukazuje průběh v procentech a umožňuje přenos zrušit přes AbortController. Na úzkém displeji
+nebo coarse pointeru omezuje blob na 50 MiB (kontrola velikosti z odkazu, Content-Length i během čtení).
+Nad `TS_FILE_MAX_MB` → 413. Navázání má deadline 20 s, samotný stream 180 s; nejvýše 64 KiB
+buffer a serverem ohlášená velikost, žádný soubor na disku. Hlavičky stejné jako `/f/`, ale
+`Cache-Control: no-store`. Tato cesta má se zápisy společné tempo 10 pokusů / 5 minut.
+
+Relace v Mluvce používá nízkoúrovňový `Connection::download_file` a události
+`FileDownload`/`FiletransferFailed` ze stejného tsclientlib, které uvnitř používá
+`SyncConnectionHandle::download_file` (`sync.rs:419`, `lib.rs:970`). Zachovává to stávající
+pollování spojení a zpracování výsledků příkazů bez přestavby zvukové smyčky.
+
+JSON `ts.file.myts` se nikdy nestahuje přes Matrix. Karta nabídne pouze žádost o odkaz,
+která po kliknutí odešle soukromý `chat` odesílateli JSON zprávy. U externích HTTPS
+odkazů na dokumenty/archivy se vykreslí karta bez automatického HTTP požadavku.

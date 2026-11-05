@@ -1,4 +1,5 @@
 mod session;
+mod ts_file;
 mod upload;
 
 use axum::{
@@ -59,6 +60,8 @@ async fn main() {
         .route("/ws", get(upgrade))
         .route("/api/upload", post(upload::upload))
         .route("/img/{name}", get(upload::image))
+        .route("/f/{id}/{name}", get(upload::file))
+        .route("/api/ts-file", get(ts_file::download))
         .fallback_service(ServeDir::new(dist))
         .layer(middleware::from_fn(static_headers))
         .layer(SetResponseHeaderLayer::if_not_present(

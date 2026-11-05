@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import {
+  FileCard,
+  isFileUrl,
+  fileIcon,
+  fileSize,
+  type FileContext,
+} from "./files";
+
 const imageExtension = /\.(png|jpe?g|gif|webp|avif)(?:\?[^#]*)?(?:#.*)?$/i;
 export function safeUrl(value: string): string | undefined {
   const raw = value.trim();
   if (/[\u0000-\u0020\u007f]/.test(raw)) return;
   try {
     const url = new URL(/^www\./i.test(raw) ? `https://${raw}` : raw);
-    if (["http:", "https:", "ts3server:"].includes(url.protocol))
+    if (["http:", "https:", "ts3server:", "ts3file:"].includes(url.protocol))
       return url.href;
   } catch {
     /* Neplatná URL zůstane textem. */
@@ -17,7 +25,21 @@ function short(value: string) {
     ? `${value.slice(0, 65)}…${value.slice(-18)}`
     : value;
 }
-function link(url: string, label: ReactNode, key: number) {
+function link(
+  url: string,
+  label: ReactNode,
+  key: number,
+  context: FileContext,
+) {
+  if (isFileUrl(url))
+    return (
+      <FileCard
+        key={key}
+        url={url}
+        label={typeof label === "string" ? label : undefined}
+        context={context}
+      />
+    );
   return (
     <a
       key={key}
@@ -71,6 +93,7 @@ function readableColor(value: string): string | undefined {
 function renderMessage(
   text: string,
   images: Set<string>,
+  context: FileContext,
   inLink = false,
   depth = 0,
 ): ReactNode[] {
@@ -80,10 +103,11 @@ function renderMessage(
       result.push(value);
       return;
     }
-    const urls = /(?:https?:\/\/|www\.|ts3server:\/\/)[^\s<>\[\]]+/gi;
+    const urls =
+      /(?:https?:\/\/|www\.|ts3file:\/\/|ts3server:\/\/)[^\s<>\[\]]+/gi;
     let start = 0;
     for (const m of value.matchAll(urls)) {
-      result.push(value.slice(start, m.index));
+      let preceding = value.slice(start, m.index);
       let raw = m[0].replace(/[.,!?;:]+$/, "");
       while (
         raw.endsWith(")") &&
@@ -91,9 +115,31 @@ function renderMessage(
       )
         raw = raw.slice(0, -1);
       const url = safeUrl(raw);
-      result.push(url ? link(url, short(raw), result.length) : raw);
+      const ownFile =
+        url &&
+        new URL(url).origin === location.origin &&
+        /^\/f\/[\w-]{43}\//.test(new URL(url).pathname);
+      const attachmentLabel = ownFile
+        ? preceding.match(/(?:^|\n)(📎 [^\n]+\([^()\n]+(?:B|kB|MB)\))\n$/)?.[1]
+        : undefined;
+      if (attachmentLabel)
+        preceding = preceding.slice(
+          0,
+          preceding.length - attachmentLabel.length - 1,
+        );
+      result.push(preceding);
+      result.push(
+        url
+          ? link(url, attachmentLabel || short(raw), result.length, context)
+          : raw,
+      );
       result.push(m[0].slice(raw.length));
-      if (url && /^https?:/.test(url) && imageExtension.test(url))
+      if (
+        url &&
+        !isFileUrl(url) &&
+        /^https?:/.test(url) &&
+        imageExtension.test(url)
+      )
         images.add(url);
       start = m.index! + m[0].length;
     }
@@ -134,15 +180,18 @@ function renderMessage(
             tag === "IMG"
               ? "Otevřít obrázek"
               : match[2]
-                ? renderMessage(inner, images, true, depth + 1)
+                ? isFileUrl(url)
+                  ? inner
+                  : renderMessage(inner, images, context, true, depth + 1)
                 : short(inner),
             key,
+            context,
           ),
         );
-        if (tag === "IMG") images.add(url);
+        if (tag === "IMG" && !isFileUrl(url)) images.add(url);
       }
     } else {
-      const children = renderMessage(inner, images, inLink, depth + 1);
+      const children = renderMessage(inner, images, context, inLink, depth + 1);
       if (tag === "B") result.push(<strong key={key}>{children}</strong>);
       if (tag === "I") result.push(<em key={key}>{children}</em>);
       if (tag === "U") result.push(<u key={key}>{children}</u>);
@@ -160,7 +209,10 @@ function renderMessage(
   plain(text.slice(cursor));
   return result;
 }
-function attachment(text: string): ReactNode | string {
+function attachment(
+  text: string,
+  requestLink: (name: string) => void,
+): ReactNode | string {
   try {
     const data: unknown = JSON.parse(text);
     if (
@@ -186,26 +238,23 @@ function attachment(text: string): ReactNode | string {
       msg.file_size >= 0
         ? msg.file_size
         : undefined;
-    const formatted =
-      size === undefined
-        ? ""
-        : size >= 1e6
-          ? `${(size / 1e6).toLocaleString("cs", { maximumFractionDigits: 1 })} MB`
-          : `${Math.max(1, Math.round(size / 1000)).toLocaleString("cs")} kB`;
+    const formatted = size === undefined ? "" : fileSize(size);
     return (
       <div className="ts-attachment">
-        <span aria-hidden="true">
-          {imageExtension.test(name) ? "🖼️" : "📎"}
-        </span>
+        <span aria-hidden="true">{fileIcon(name)}</span>
         <div>
           <strong>
             {name}
             {formatted && ` · ${formatted}`}
           </strong>
+          <p>Soubor z TeamSpeak 5/6 — stáhneš ho v TeamSpeak klientu</p>
           <p>
-            {imageExtension.test(name) ? "Obrázek" : "Soubor"} poslaný z
-            TeamSpeak 5/6, otevři ho v TeamSpeak klientu
+            Obrázky z TeamSpeak 5/6 leží na serveru myTeamSpeak a bez účtu je
+            stáhnout nejde — požádej odesílatele o odkaz
           </p>
+          <button type="button" onClick={() => requestLink(name)}>
+            Požádat o odkaz
+          </button>
         </div>
       </div>
     );
@@ -232,12 +281,20 @@ function Preview({ url, open }: { url: string; open: (url: string) => void }) {
     </button>
   );
 }
-export function ChatMessage({ text }: { text: string }) {
+export function ChatMessage({
+  text,
+  context,
+  requestLink,
+}: {
+  text: string;
+  context: FileContext;
+  requestLink: (name: string) => void;
+}) {
   const [opened, setOpened] = useState<string>();
-  const parsed = attachment(text);
+  const parsed = attachment(text, requestLink);
   if (typeof parsed !== "string") return parsed;
   const images = new Set<string>();
-  const content = renderMessage(parsed, images);
+  const content = renderMessage(parsed, images, context);
   return (
     <>
       <p className="message-text">{content}</p>

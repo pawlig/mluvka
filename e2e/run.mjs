@@ -18,6 +18,7 @@ import { resamplingChecks } from "./resampling.mjs";
 import { shaperChecks } from "./shaper.mjs";
 import { jitterShaperCheck } from "./jitter-shaper.mjs";
 import { chatChecks } from "./chat.mjs";
+import { fileChecks } from "./soubory.mjs";
 import { securityChecks } from "./bezpecnost.mjs";
 import { notificationChecks } from "./upozorneni.mjs";
 import { invitationChecks } from "./pozvanky.mjs";
@@ -92,17 +93,23 @@ class Query {
     this.buffer = "";
     this.pending = undefined;
     this.leaves = [];
+    this.messages = [];
     this.notifications = "";
     socket.on("data", (data) => {
       this.notifications += data.toString();
       const lines = this.notifications.split(/[\r\n]+/);
       this.notifications = lines.pop();
-      for (const line of lines)
+      for (const line of lines) {
+        if (line.startsWith("notifytextmessage ")) {
+          const raw = /\bmsg=([^ ]*)/.exec(line)?.[1] || "";
+          this.messages.push(raw.replace(/\\([\\/spnr])/g, (_, c) => ({s:" ", p:"|", n:"\n", r:"\r"})[c] || c));
+        }
         if (line.startsWith("notifyclientleftview"))
           this.leaves.push({
             client: Number(/\bclid=(\d+)/.exec(line)?.[1]),
             reason: Number(/\breasonid=(\d+)/.exec(line)?.[1]),
           });
+      }
       this.buffer += data.toString();
       if (this.pending && /error id=\d+[^\n]*[\r\n]+/.test(this.buffer)) {
         const response = this.buffer;
@@ -393,6 +400,7 @@ function startBackend() {
       ALLOWED_SERVERS: tsAddress,
       UPLOAD_DIR: uploadDir,
       PUBLIC_URL: base,
+      TS_FILE_MAX_MB: "1",
       MAX_SESSIONS: "6",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -474,6 +482,7 @@ try {
   await query.cmd(`login serveradmin ${admin}`);
   await query.cmd("use 1");
   await query.cmd("servernotifyregister event=server");
+  await query.cmd("servernotifyregister event=textserver");
   await query.cmd(
     `serveredit virtualserver_name=Mluvka\\s·\\szkušebna virtualserver_password=${password} virtualserver_needed_identity_security_level=8 virtualserver_antiflood_points_needed_command_block=10000 virtualserver_antiflood_points_needed_ip_block=10000`,
   );
@@ -926,6 +935,37 @@ try {
     ok,
     restartBackend,
   });
+  if (!process.env.E2E_FOCUS || process.env.E2E_FOCUS === "files") {
+    // Velké souborové payloady a jejich GC patří až za měření latence zvuku.
+    const fileContexts = await Promise.all(
+      [0, 1].map(() => browser.newContext({
+        permissions: ["microphone"],
+        viewport: { width: 1440, height: 900 },
+      })),
+    );
+    try {
+      const [a, b] = await Promise.all(fileContexts.map((context) => context.newPage()));
+      pages = [a, b];
+      for (const page of pages) {
+        page.on("pageerror", (error) => errors.push(error.message));
+        page.on("console", (message) => {
+          if (message.type() === "error") errors.push(message.text());
+        });
+        await page.goto(base);
+      }
+      await fillLogin(a, "Adam");
+      await connected(a);
+      await fillLogin(b, "Bára");
+      await connected(b);
+      await moveToProtected(a);
+      await moveToProtected(b);
+      for (const page of pages)
+        await page.getByRole("button", { name: "Server", exact: true }).click();
+      await fileChecks({ a, b, query, base, root, tsAddress, password, channelPassword, ok });
+    } finally {
+      await Promise.all(fileContexts.map((context) => context.close()));
+    }
+  }
   const timing = backendOutput.split("\n").flatMap((line) => {
     const match = /audio_timing=(\{.*\})/.exec(line.replace(/\u001b\[[0-9;]*m/g, ""));
     if (!match) return [];

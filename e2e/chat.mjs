@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const escapeQuery = (text) =>
+export const escapeQuery = (text) =>
   text
     .replaceAll("\\", "\\\\")
     .replaceAll("/", "\\/")
@@ -10,7 +10,7 @@ const escapeQuery = (text) =>
     .replaceAll("|", "\\p")
     .replaceAll("\n", "\\n")
     .replaceAll("\r", "\\r");
-async function probe(base, tsAddress, password) {
+export async function probe(base, tsAddress, password) {
   const ws = new WebSocket(base.replace(/^http/, "ws") + "/ws");
   const token = await new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -113,8 +113,11 @@ export async function chatChecks({
     `sendtextmessage targetmode=3 target=1 msg=${escapeQuery(attachment)}`,
   );
   const card = b.locator(".ts-attachment").last();
-  await expect(card).toContainText("9854755_78f48.gif · 1,3 MB");
+  await expect(card).toContainText("9854755_78f48.gif · 1,2 MB");
   await expect(card).toContainText("TeamSpeak 5/6");
+  await expect(card).toContainText(
+    "leží na serveru myTeamSpeak a bez účtu je stáhnout nejde",
+  );
   await expect(b.getByRole("log")).not.toContainText('"msg_type"');
   await query.cmd(
     `sendtextmessage targetmode=3 target=1 msg=${escapeQuery('{"msg_type":"ts.other","body":"Text novějšího klienta"}')}`,
@@ -138,7 +141,7 @@ export async function chatChecks({
     gif = readFileSync(gifPath);
   expect(png.includes(Buffer.from("eXIf"))).toBe(true);
   const chooser = a.waitForEvent("filechooser");
-  await a.getByRole("button", { name: "Přidat obrázek" }).click();
+  await a.getByRole("button", { name: "Přidat soubor" }).click();
   await (await chooser).setFiles(pngPath);
   await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
   await a.getByLabel("Zpráva", { exact: true }).fill("Fotka bez polohy");
@@ -159,7 +162,14 @@ export async function chatChecks({
   const url = await preview.getAttribute("src");
   const response = await fetch(url),
     output = Buffer.from(await response.arrayBuffer());
-  expect(response.headers.get("content-type")).toBe("image/webp");
+  expect(response.headers.get("content-type")).toMatch(/^image\/(jpeg|png)$/);
+  expect(url).toMatch(/\/img\/[\w-]+\.(jpg|png)$/);
+  await expect
+    .poll(() => query.messages.find((m) => m.startsWith("Fotka bez polohy\n")))
+    .toBe(`Fotka bez polohy\n${url}`);
+  expect(
+    query.messages.find((m) => m.startsWith("Fotka bez polohy\n")),
+  ).not.toMatch(/\[IMG\]/i);
   expect(response.headers.get("cache-control")).toBe(
     "public, max-age=604800, immutable",
   );
@@ -189,7 +199,73 @@ export async function chatChecks({
     "A → B PNG s GPS: canvas odstraní EXIF, resize ≤2048, náhled i holá URL, viewer a Esc",
   );
 
-  await a.getByLabel("Vybrat obrázek").setInputFiles(gifPath);
+  // Skutečně odeslaný JPEG a PNG: žádná závislost na metadatech/názvu vstupu.
+  for (const kind of ["photo", "transparent", "screenshot"]) {
+    const encoded = await a.evaluate((kind) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 128;
+      const ctx = canvas.getContext("2d");
+      if (kind === "photo") {
+        const pixels = ctx.createImageData(128, 128);
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          pixels.data[i] = (i * 73) % 251;
+          pixels.data[i + 1] = Math.floor(i / 128) % 256;
+          pixels.data[i + 2] = (i * 13 + Math.floor(i / 256) * 17) % 253;
+          pixels.data[i + 3] = 255;
+        }
+        ctx.putImageData(pixels, 0, 0);
+      } else {
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, 128, 128);
+        ctx.fillStyle = "#234";
+        ctx.fillRect(20, 20, 50, 50);
+        if (kind === "transparent") ctx.clearRect(0, 0, 1, 1);
+      }
+      return canvas
+        .toDataURL(kind === "photo" ? "image/jpeg" : "image/png")
+        .split(",")[1];
+    }, kind);
+    await a
+      .getByLabel("Vybrat soubory")
+      .setInputFiles({
+        name: `${kind}.png`,
+        mimeType: "image/png",
+        buffer: Buffer.from(encoded, "base64"),
+      });
+    await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
+    await a.getByLabel("Zpráva", { exact: true }).fill(`Formát ${kind}`);
+    await a
+      .getByRole("button", { name: "Odeslat obrázek", exact: true })
+      .click();
+    const img = b
+      .locator(".message")
+      .filter({ hasText: `Formát ${kind}` })
+      .last()
+      .locator(".image-preview img");
+    await expect
+      .poll(() => img.evaluate((image) => image.naturalWidth))
+      .toBe(128);
+    const outputUrl = await img.getAttribute("src");
+    expect(outputUrl).toMatch(kind === "photo" ? /\.jpg$/ : /\.png$/);
+    await expect
+      .poll(() => query.messages.find((m) => m.startsWith(`Formát ${kind}\n`)))
+      .toBe(`Formát ${kind}\n${outputUrl}`);
+    if (kind === "transparent")
+      expect(
+        await img.evaluate((img) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = canvas.height = 128;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          return ctx.getImageData(0, 0, 1, 1).data[3];
+        }),
+      ).toBe(0);
+  }
+  ok(
+    "Odchozí zprávy zachycené ServerQuery: holé URL bez IMG; fotografie JPEG, průhlednost a malá paleta PNG",
+  );
+
+  await a.getByLabel("Vybrat soubory").setInputFiles(gifPath);
   await expect(a.getByAltText("Náhled před odesláním")).toBeVisible();
   await a.getByLabel("Zpráva", { exact: true }).fill("Animovaný GIF");
   await a.getByRole("button", { name: "Odeslat obrázek" }).click();
@@ -276,7 +352,7 @@ export async function chatChecks({
   await b.setViewportSize({ width: 390, height: 960 });
   await b.getByRole("button", { name: "Chat", exact: true }).click();
   const mobileChooser = b.waitForEvent("filechooser");
-  await b.getByRole("button", { name: "Přidat obrázek" }).click();
+  await b.getByRole("button", { name: "Přidat soubor" }).click();
   await (await mobileChooser).setFiles(gifPath);
   await expect(b.getByAltText("Náhled před odesláním")).toBeVisible();
   await b.getByRole("button", { name: "Zrušit", exact: true }).click();

@@ -1,0 +1,118 @@
+{
+  "date": "2026-11-05T01:11:32.384Z",
+  "scope": "files",
+  "complete": true,
+  "runs": [
+    {
+      "codec": "opus",
+      "exitCode": 0
+    },
+    {
+      "codec": "pcm",
+      "exitCode": 0
+    }
+  ],
+  "results": [
+    {
+      "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "HTTP frontend a /healthz → 200 ok",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Soubor A → B: 5 MiB náhodných bajtů, karta, download a SHA-256; attachment/octet-stream/nosniff/CSP/cache",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Soubory API: >25 MiB 413, bez/cizí token 401, HTML jen příloha, cizí TS server 403, path=/../x 400",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Libovolné přílohy: paste/drop a zrušení, více vybraných souborů dorazí postupně",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS přenos: neznámé heslo a nesouhlasící UID 403, nedostatečný download power česká chyba, nakonfigurovaný strop 1 MiB → 413; chat pokračuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS3 ftinitupload na vlastním FT portu → ts3file karta → download SHA-256, včetně známého hesla kanálu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS5/6 zip: 108,7 kB, žádný surový JSON; žádost po kliknutí dorazila soukromě odesílateli",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Karty Mluvka/TS3/TS5/6: desktop a mobil bez přesahu, picker bez accept, externí odkaz bez fetch; šest screenshotů",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "HTTP frontend a /healthz → 200 ok",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Soubor A → B: 5 MiB náhodných bajtů, karta, download a SHA-256; attachment/octet-stream/nosniff/CSP/cache",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Soubory API: >25 MiB 413, bez/cizí token 401, HTML jen příloha, cizí TS server 403, path=/../x 400",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Libovolné přílohy: paste/drop a zrušení, více vybraných souborů dorazí postupně",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS přenos: neznámé heslo a nesouhlasící UID 403, nedostatečný download power česká chyba, nakonfigurovaný strop 1 MiB → 413; chat pokračuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS3 ftinitupload na vlastním FT portu → ts3file karta → download SHA-256, včetně známého hesla kanálu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS5/6 zip: 108,7 kB, žádný surový JSON; žádost po kliknutí dorazila soukromě odesílateli",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Karty Mluvka/TS3/TS5/6: desktop a mobil bez přesahu, picker bez accept, externí odkaz bez fetch; šest screenshotů",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "result": "OK",
+      "runCodec": "pcm"
+    }
+  ],
+  "errors": []
+}

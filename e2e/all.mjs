@@ -7,7 +7,8 @@ const report = new URL("../docs/e2e-vysledky.json", import.meta.url);
 const partial = ["E2E_FOCUS", "E2E_TAIL", "E2E_NATIVE"].some((key) => !!process.env[key]);
 const results = [],
   errors = [],
-  runs = [];
+  runs = [],
+  knownAudioFailures = [];
 // Jedna TS3 instance zůstává rezervovaná přes oba transporty; samostatné
 // pracovní stromy jinak mohou obsadit local accounting mezi dvěma průchody.
 const admin = randomBytes(18).toString("hex");
@@ -59,16 +60,24 @@ try {
       ...run.results.map((result) => ({ ...result, runCodec: codec })),
     );
     errors.push(...run.errors);
+    knownAudioFailures.push(
+      ...(run.knownAudioFailures || []).map((failure) => ({
+        ...failure,
+        runCodec: codec,
+      })),
+    );
     writeFileSync(
       report,
       JSON.stringify(
         {
           date: new Date().toISOString(),
+          scope: process.env.E2E_FOCUS === "files" ? "files" : "all",
           complete:
             !partial && runs.length === 2 && runs.every((run) => run.exitCode === 0),
           runs,
           results,
           errors,
+          knownAudioFailures,
         },
         null,
         2,

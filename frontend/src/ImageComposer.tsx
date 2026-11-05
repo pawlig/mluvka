@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { fileSize, cleanName, fileCount } from "./files";
 import { Icon } from "./Icon";
 
 async function prepare(file: File): Promise<Blob> {
@@ -31,8 +32,25 @@ async function prepare(file: File): Promise<Blob> {
           0.85,
         ),
       );
-    let blob = await encode("image/webp");
-    if (blob.type !== "image/webp") blob = await encode("image/jpeg");
+    // Průhlednost a omezenou paletu zachová PNG, fotografie komprimuje JPEG.
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const colors = new Set<number>();
+    let transparent = false;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] !== 255) {
+        transparent = true;
+        break;
+      }
+      if (colors.size <= 256)
+        colors.add(
+          ((pixels[i] >> 3) << 10) |
+            ((pixels[i + 1] >> 3) << 5) |
+            (pixels[i + 2] >> 3),
+        );
+    }
+    const blob = await encode(
+      transparent || colors.size <= 256 ? "image/png" : "image/jpeg",
+    );
     if (blob.size > 10 * 1024 * 1024)
       throw Error("Obrázek po zmenšení přesahuje 10 MB.");
     return blob;
@@ -40,6 +58,7 @@ async function prepare(file: File): Promise<Blob> {
     bitmap.close();
   }
 }
+type Pending = { blob: Blob; name: string; image: boolean };
 export function ImageComposer({
   text,
   setText,
@@ -56,21 +75,23 @@ export function ImageComposer({
   thread: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  const [pending, setPending] = useState<Blob>();
+  const [pending, setPending] = useState<Pending[]>([]);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<number>();
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const revision = useRef(0);
-  const abort = useRef<AbortController | undefined>(undefined);
+  const abort = useRef<XMLHttpRequest | undefined>(undefined);
   const busyRef = useRef(false);
   function cancel() {
     ++revision.current;
     abort.current?.abort();
     busyRef.current = false;
-    setPending(undefined);
+    setPending([]);
     setError("");
     setBusy(false);
+    setProgress(undefined);
   }
   useEffect(() => {
     cancel();
@@ -83,27 +104,50 @@ export function ImageComposer({
     [],
   );
   useEffect(() => {
-    if (!pending) {
+    if (!pending[0]?.image) {
       setPreview("");
       return;
     }
-    const url = URL.createObjectURL(pending);
+    const url = URL.createObjectURL(pending[0].blob);
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [pending]);
-  async function choose(file?: File) {
-    if (!file || busyRef.current || !active) return;
+  async function choose(files: File[]) {
+    if (!files.length || busyRef.current || !active) return;
     const version = ++revision.current;
     setError("");
     setBusy(true);
     busyRef.current = true;
     try {
-      const blob = await prepare(file);
-      if (version === revision.current) setPending(blob);
-    } catch {
+      const selected: Pending[] = [];
+      for (const file of files) {
+        // Bitmapy zachovávají dosavadní resize a odstranění EXIF. Ostatní typy jsou přílohy.
+        const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+        const marker = String.fromCharCode(...bytes);
+        const image =
+          (bytes[0] === 0x89 && marker.slice(1, 4) === "PNG") ||
+          (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+          marker.startsWith("GIF89a") ||
+          marker.startsWith("GIF87a") ||
+          (marker.startsWith("RIFF") && marker.slice(8, 12) === "WEBP") ||
+          marker.startsWith("BM") ||
+          (marker.slice(4, 8) === "ftyp" &&
+            /^(avif|avis|heic|heix|mif1)$/.test(marker.slice(8, 12)));
+        selected.push({
+          blob: image ? await prepare(file) : file,
+          name: cleanName(file.name),
+          image,
+        });
+      }
+      if (version === revision.current) setPending(selected);
+    } catch (e) {
       if (version === revision.current)
         setError(
-          "Obrázek nelze připravit. Použij PNG, JPEG, WebP nebo GIF (do 8 MB), ostatní obrázky do 50 MB.",
+          e instanceof DOMException
+            ? "Obrázek nelze připravit. Použij PNG, JPEG, WebP nebo GIF."
+            : e instanceof Error
+              ? e.message
+              : "Soubor nelze připravit.",
         );
     } finally {
       if (version === revision.current) {
@@ -112,18 +156,15 @@ export function ImageComposer({
       }
     }
   }
-  // Schránka i drop platí pro celý panel, nikoli jen pro textové pole.
   useEffect(() => {
     const panel = input.current?.closest(".chat-panel");
     if (!panel) return;
     const paste = (event: Event) => {
       const e = event as ClipboardEvent;
-      const file = [...(e.clipboardData?.items || [])]
-        .find((item) => item.kind === "file" && item.type.startsWith("image/"))
-        ?.getAsFile();
-      if (file) {
+      const files = [...(e.clipboardData?.files || [])];
+      if (files.length) {
         e.preventDefault();
-        void choose(file);
+        void choose(files);
       }
     };
     const over = (event: Event) => {
@@ -139,11 +180,11 @@ export function ImageComposer({
     };
     const drop = (event: Event) => {
       const e = event as DragEvent;
-      const file = e.dataTransfer?.files[0];
-      if (!file) return;
+      const files = [...(e.dataTransfer?.files || [])];
+      if (!files.length) return;
       e.preventDefault();
       setDragging(false);
-      void choose(file);
+      void choose(files);
     };
     panel.addEventListener("paste", paste);
     panel.addEventListener("dragover", over);
@@ -156,54 +197,97 @@ export function ImageComposer({
       panel.removeEventListener("drop", drop);
     };
   }, [active]);
+  function upload(file: Pending) {
+    return new Promise<{ url: string; name?: string; size: number }>(
+      (resolve, reject) => {
+        const request = new XMLHttpRequest();
+        abort.current = request;
+        request.open("POST", "/api/upload");
+        request.timeout = 180000;
+        request.setRequestHeader("Authorization", `Bearer ${token}`);
+        request.setRequestHeader(
+          "Content-Type",
+          file.image ? file.blob.type : "application/octet-stream",
+        );
+        if (!file.image)
+          request.setRequestHeader(
+            "X-File-Name",
+            encodeURIComponent(file.name),
+          );
+        request.upload.onprogress = (e) => {
+          if (busyRef.current && e.lengthComputable)
+            setProgress(Math.round((e.loaded * 100) / e.total));
+        };
+        request.onerror = () =>
+          reject(
+            Error("Soubor se nepodařilo nahrát. Zkontroluj připojení k síti."),
+          );
+        request.ontimeout = () =>
+          reject(Error("Nahrávání trvalo příliš dlouho. Zkus to znovu."));
+        request.onabort = () => reject(Error("Nahrávání zrušeno."));
+        request.onload = () => {
+          if (request.status < 200 || request.status >= 300) {
+            reject(
+              Error(
+                request.status === 429
+                  ? "Příliš mnoho souborů. Počkej 5 minut."
+                  : request.status === 413
+                    ? "Soubor je příliš velký pro úložiště."
+                    : request.status === 401
+                      ? "Připojení vypršelo. Připoj se znovu."
+                      : request.status === 507
+                        ? "Úložiště nemá dost místa pro tento soubor."
+                        : "Soubor se nepodařilo nahrát. Zkus to znovu.",
+              ),
+            );
+            return;
+          }
+          try {
+            resolve(JSON.parse(request.responseText));
+          } catch {
+            reject(Error("Server vrátil neplatnou odpověď."));
+          }
+        };
+        request.send(file.blob);
+      },
+    );
+  }
   async function submit() {
-    if (busyRef.current || !active || (!text.trim() && !pending)) return;
+    if (busyRef.current || !active || (!text.trim() && !pending.length)) return;
     setError("");
-    if (new TextEncoder().encode(text).length > (pending ? 3000 : 4000)) {
+    if (
+      new TextEncoder().encode(text).length > (pending.length ? 2800 : 4000)
+    ) {
       setError("Zpráva je příliš dlouhá. Zkrať text a zkus to znovu.");
       return;
     }
-    if (!pending) {
+    if (!pending.length) {
       send(text);
       return;
     }
     if (!token) {
-      setError("Připojení se obnovuje. Zkus obrázek poslat za chvíli.");
+      setError("Připojení se obnovuje. Zkus soubor poslat za chvíli.");
       return;
     }
     const version = revision.current;
     setBusy(true);
     busyRef.current = true;
-    setError("");
-    const controller = new AbortController();
-    abort.current = controller;
     try {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": pending.type,
-        },
-        body: pending,
-        signal: controller.signal,
-      });
-      if (!response.ok)
-        throw Error(
-          response.status === 429
-            ? "Příliš mnoho obrázků. Počkej 5 minut."
-            : response.status === 413
-              ? "Obrázek je příliš velký."
-              : response.status === 401
-                ? "Připojení vypršelo. Připoj se znovu."
-                : "Obrázek se nepodařilo nahrát. Zkus to znovu.",
-        );
-      const { url } = await response.json();
-      if (version !== revision.current) return;
-      const message = `${text.trim() ? `${text.trim()}\n` : ""}[IMG]${url}[/IMG]`;
-      if (new TextEncoder().encode(message).length > 4000)
-        throw Error("Zpráva je příliš dlouhá. Zkrať doprovodný text.");
-      send(message);
-      setPending(undefined);
+      for (let i = 0; i < pending.length; i++) {
+        setProgress(0);
+        const file = pending[i],
+          result = await upload(file);
+        if (version !== revision.current) return;
+        const url = result.url;
+        const attachment = file.image
+          ? url
+          : `📎 ${result.name || file.name} (${fileSize(result.size)})\n${url}`;
+        const message = `${i === 0 && text.trim() ? `${text.trim()}\n` : ""}${attachment}`;
+        if (new TextEncoder().encode(message).length > 4000)
+          throw Error("Zpráva je příliš dlouhá. Zkrať doprovodný text.");
+        send(message);
+        setPending((old) => old.slice(1));
+      }
     } catch (e) {
       if (version === revision.current)
         setError(e instanceof Error ? e.message : "Nahrání selhalo.");
@@ -211,19 +295,38 @@ export function ImageComposer({
       if (version === revision.current) {
         setBusy(false);
         busyRef.current = false;
+        setProgress(undefined);
       }
     }
   }
+  const image = pending.length === 1 && pending[0].image;
   return (
     <>
-      {dragging && <div className="drop-hint">Pusť obrázek do chatu</div>}
+      {dragging && <div className="drop-hint">Pusť soubory do chatu</div>}
       <div className="image-compose">
-        {pending && (
+        {(pending.length > 0 || busy) && (
           <div className="pending-image">
             {preview && <img src={preview} alt="Náhled před odesláním" />}
             <div>
-              <strong>Obrázek je připravený</strong>
-              <span>Můžeš připsat zprávu.</span>
+              <strong>
+                {image
+                  ? "Obrázek je připravený"
+                  : pending.length
+                    ? `${fileCount(pending.length)} · ${pending[0].name}`
+                    : "Připravuji soubory…"}
+              </strong>
+              <span>
+                {progress !== undefined
+                  ? `Nahrávání ${progress} %`
+                  : "Můžeš připsat zprávu."}
+              </span>
+              {progress !== undefined && (
+                <progress
+                  aria-label="Průběh nahrávání"
+                  value={progress}
+                  max={100}
+                />
+              )}
               <button type="button" onClick={cancel}>
                 Zrušit
               </button>
@@ -246,18 +349,18 @@ export function ImageComposer({
             ref={input}
             className="image-file-input"
             type="file"
-            accept="image/*"
-            aria-label="Vybrat obrázek"
+            multiple
+            aria-label="Vybrat soubory"
             onChange={(e) => {
-              void choose(e.target.files?.[0]);
+              void choose([...(e.target.files || [])]);
               e.target.value = "";
             }}
           />
           <button
             type="button"
             className="attach-image"
-            aria-label="Přidat obrázek"
-            title="Přidat obrázek"
+            aria-label="Přidat soubor"
+            title="Přidat soubor nebo obrázek"
             disabled={busy || !active}
             onClick={() => input.current?.click()}
           >
@@ -270,21 +373,39 @@ export function ImageComposer({
             disabled={busy}
             onChange={(e) => setText(e.target.value)}
             placeholder={
-              pending
-                ? "Volitelná zpráva k obrázku…"
+              pending.length
+                ? "Volitelná zpráva k příloze…"
                 : `Napsat ${thread.startsWith("channel:") ? "do kanálu" : thread === "server" ? "na server" : "soukromou zprávu"}…`
             }
           />
           <button
-            className={pending ? "send-image" : undefined}
-            aria-label={pending ? "Odeslat obrázek" : "Odeslat zprávu"}
-            title={busy ? "Připravuji obrázek…" : "Odeslat"}
-            disabled={busy || !active || (!text.trim() && !pending)}
+            className={pending.length ? "send-image" : undefined}
+            aria-label={
+              pending.length
+                ? image
+                  ? "Odeslat obrázek"
+                  : "Odeslat soubory"
+                : "Odeslat zprávu"
+            }
+            title="Odeslat"
+            disabled={busy || !active || (!text.trim() && !pending.length)}
             type="submit"
           >
-            {busy ? "…" : pending ? "Odeslat" : <Icon name="send" size={20} />}
+            {busy ? (
+              "…"
+            ) : pending.length ? (
+              "Odeslat"
+            ) : (
+              <Icon name="send" size={20} />
+            )}
           </button>
-          <span>{busy ? "PŘIPRAVUJI OBRÁZEK…" : "ENTER PRO ODESLÁNÍ"}</span>
+          <span>
+            {progress !== undefined
+              ? `NAHRÁVÁNÍ ${progress} %`
+              : busy
+                ? "PŘIPRAVUJI…"
+                : "ENTER PRO ODESLÁNÍ"}
+          </span>
         </form>
       </div>
     </>

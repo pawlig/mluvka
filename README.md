@@ -17,22 +17,44 @@ pípnutí při příchodu/odchodu z kanálu. Mobil má záložky kanálů a chat
 TS identita (úroveň ≥8) zůstává v prohlížeči, lze ji exportovat/importovat jako text. Údaje
 připojení i hesla se pamatují podle voleb na formuláři (výchozí zapnuté).
 
-## Obrázky a odkazy v chatu
+## Soubory, obrázky a odkazy v chatu
 
 Odkazy HTTP/HTTPS a `www.` jsou klikatelné, `ts3server://` otevře TS klienta. Chat rozumí TS3
 BBCode URL, IMG, B, I, U, S a bezpečným pojmenovaným/hex barvám s upraveným kontrastem.
 Obrázky mají náhled a prohlížeč přes celé okno (klepnutí, tažení dolů nebo Esc zavírá,
 přiblížení dvěma prsty či kolečkem probíhá uvnitř prohlížeče).
 
-Tlačítkem 📎 vyberte obrázek z galerie či fotoaparátu, vložte jej ze schránky nebo přetáhněte
-do chatu. Před odesláním lze připsat text nebo obrázek zrušit. Prohlížeč zmenší delší stranu
-na 2048 px a přes canvas vytvoří WebP/JPEG bez EXIF včetně GPS. GIF zůstane beze změny
-kvůli animaci (nejvýše 8 MiB); ostatní výstupy nejvýše 10 MiB, vstup nejvýše 50 MiB.
-Přílohy z myTeamSpeak (TS5/TS6) ukážou název a velikost: prohlížejte je v TeamSpeak klientu.
-Mluvka se k myTeamSpeak nepřihlašuje.
+Tlačítkem 📎 vyberte jeden či více souborů (na mobilu Soubory/Fotky), vložte je ze schránky
+nebo přetáhněte do chatu. Před odesláním lze připsat text nebo výběr zrušit. Soubory se
+nahrávají postupně, s procenty a tlačítkem Zrušit. Běžná příloha má výchozí limit 25 MiB
+(`UPLOAD_FILE_MAX_MB`), náhodnou URL `/f/<id>/<jméno>` a kartu s tlačítkem Stáhnout.
+TS3 i TS5/6 dostanou holý klikatelný odkaz: obrázek otevřou přes `/img/`, soubor přes `/f/`
+(doprovází jej název a velikost). Mluvka z něj vytvoří náhled nebo kartu; starší `[IMG]` zprávy
+dál vykresluje. Přílohy se vždy stahují jako `application/octet-stream`
+s `Content-Disposition: attachment`, nosniff a CSP sandbox; ani HTML se nevykreslí.
 
-Nahrané obrázky mají veřejnou náhodnou URL sdílenou do TS chatu, kdokoli s odkazem je může
-otevřít. Výchozí uchování je 7 dní; při vyčerpání kapacity zmizí nejstarší soubory i dříve.
+U obrázků prohlížeč zmenší delší stranu
+na 2048 px a přes canvas vytvoří JPEG (fotografie) nebo PNG (průhlednost a málo barev) bez EXIF včetně GPS. GIF zůstane beze změny
+kvůli animaci (nejvýše 8 MiB); ostatní výstupy nejvýše 10 MiB, vstup nejvýše 50 MiB.
+Přílohy z myTeamSpeak (TS5/TS6) ukážou ikonu, název, velikost a vysvětlení, že je lze stáhnout
+v TeamSpeak klientu. Požádat o odkaz odešle soukromou zprávu jejich odesílateli.
+Mluvka se k myTeamSpeak nepřihlašuje. Externí HTTPS odkazy na archivy a dokumenty mají
+kartu odkazu; žádný soubor se automaticky nenačítá.
+
+Odkaz `ts3file://` z TS3 klienta zobrazí soubor úložiště kanálu. Stáhnout používá oprávnění
+vaší právě připojené TS relace, známé heslo kanálu a přenos přes backend bez uložení na disk.
+Stahování ukazuje procenta a lze ho zrušit. Na mobilu je kvůli paměti strop 50 MiB.
+Výchozí limit backendu je 200 MiB (`TS_FILE_MAX_MB`), navázání nejvýše 20 s a stream nejvýše 180 s.
+Jiný server lze zobrazit, ale nelze z něj stahovat. Pokud Mluvka heslo kanálu nezná,
+nejprve do něj vstupte a heslo zadejte. Posílání do úložiště kanálu zatím není součástí UI.
+Backend potřebuje také odchozí **TCP na port souborového přenosu TS serveru**, obvykle
+**30033** (server může ohlásit jiný). Při blokaci otevřete tento port na firewallu backendu
+i TS serveru; zobrazí se česká chyba přenosu, chat a hlas zůstávají připojené.
+
+Nahrané obrázky a soubory mají veřejnou náhodnou URL sdílenou do TS chatu, kdokoli s odkazem je může
+otevřít. Do kapacity úložiště se počítají i metadata; osiřelá metadata uklidí úklid.
+Odpověď na upload přijde až po flush a synchronizaci dat i metadat na disk (plný disk → 507).
+Výchozí uchování je 7 dní; při vyčerpání kapacity zmizí nejstarší soubory i dříve.
 Kopie již uložená v cache příjemce může přežít smazání na serveru. Chat není archiv.
 
 ## Na mobilu / instalace na plochu
@@ -113,9 +135,11 @@ Vite vypíše adresu a přesměruje `/ws`, `/healthz`, `/api` a `/img` na backen
 | `MAX_SESSIONS` | `20` | Současná spojení včetně WS čekajících na přihlášení. |
 | `RUST_LOG` | `mluvka=info` | Úroveň logů aplikace. TS paketové logy jsou kvůli přihlašovacím údajům vždy vypnuté. |
 | `STATIC_DIR` | `dist` | Cesta k frontendu. |
-| `UPLOAD_DIR` | `/data/uploads` | Adresář obrázků, zapisovatelný UID 10001. |
+| `UPLOAD_DIR` | `/data/uploads` | Adresář obrázků a příloh, zapisovatelný UID 10001. |
+| `UPLOAD_FILE_MAX_MB` | `25` | Největší běžná příloha v MiB, omezení během čtení těla. |
+| `TS_FILE_MAX_MB` | `200` | Největší soubor stahovaný z úložiště TS kanálu v MiB. |
 | `UPLOAD_TTL_DAYS` | `7` | Doba uchování; úklid při startu a každou hodinu. |
-| `UPLOAD_MAX_TOTAL_MB` | `1024` | Kapacita v MiB, při překročení se mažou nejstarší obrázky. |
+| `UPLOAD_MAX_TOTAL_MB` | `1024` | Kapacita v MiB, při překročení se mažou nejstarší obrázky i přílohy. |
 | `PUBLIC_URL` | z HTTP hlaviček | Doporučená veřejná HTTPS adresa Mluvky bez koncového lomítka. Jinak `Host` + `X-Forwarded-Proto` od Traefiku (lokálně HTTP). |
 
 
@@ -140,7 +164,7 @@ z `Dockerfile.build` a při každém pushi do `main` ho publikuje jako `ghcr.io/
    `FROM ghcr.io/pawlig/mluvka:latest`, takže se nic nepřekládá. Automatické nasazení po pushi ale pak
    vypněte, jinak Easypanel stáhne image dřív, než ho CI stihne postavit._
 2. Nastavte port **3000**. Kontejner běží jako UID 10001. Připojte trvalý **volume na `/data`**, zapisovatelný tímto UID; bez volume se obrázky po redeployi ztratí. Databázi nepotřebuje.
-3. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), nastavte `PUBLIC_URL=https://vase-domena` a případně `MAX_SESSIONS`, `RUST_LOG`, `UPLOAD_TTL_DAYS`, `UPLOAD_MAX_TOTAL_MB`. `UPLOAD_DIR` ponechte `/data/uploads`.
+3. Proměnné jsou volitelné: `ALLOWED_SERVERS` zatím nenastavujte (povolí se všechny servery), nastavte `PUBLIC_URL=https://mluvka.example.org` a případně `MAX_SESSIONS`, `RUST_LOG`, `UPLOAD_TTL_DAYS`, `UPLOAD_MAX_TOTAL_MB`. `UPLOAD_DIR` ponechte `/data/uploads`.
 
 4. Přidejte doménu s **HTTPS** a nasaďte. WSS jede na stejné doméně přes `/ws`; Traefik předává upgrade.
 5. **Automatické nasazení po buildu:** v Easypanelu zkopírujte _Deploy Webhook_ aplikace a uložte ho
@@ -190,12 +214,32 @@ strom potřebuje vlastní porty a kopii TS3 (`TS3_DIR`, bez `ts3server.sqlitedb*
 založil na nových portech):
 
 ```sh
-E2E_PORT=3101 TS3_VOICE_PORT=9101 TS3_QUERY_PORT=10101 TS3_FT_PORT=30101 npm run e2e
+(
+  mkdir -p "$HOME/.prace"
+  LOCK_DIR="$HOME/.prace/mluvka-ts3.lock"
+  until mkdir "$LOCK_DIR" 2>/dev/null; do echo "TS3 obsazený, čekám"; sleep 30; done
+  trap 'rmdir "$LOCK_DIR"' EXIT
+  E2E_PORT=3103 TS3_VOICE_PORT=9103 TS3_QUERY_PORT=10103 TS3_FT_PORT=30103 npm run e2e
+  rc=$?
+  exit "$rc"
+)
 ```
 
 Allowlist testovacího backendu používá stejnou adresu i port TS3. Pokud TS3 hlásí
 `local accounting reports an already running instance`, spouštějte celé E2E běhy
 postupně: samostatné porty tento limit počtu instancí neodstraní.
+Sdílený zámek výše držte jen po dobu běhu a nikdy nemažte cizí zámek.
+
+Pro samostatnou diagnostiku souborů lze přidat `E2E_FOCUS=files` ke stejnému zamčenému
+příkazu `npm run e2e`. Projde oba transporty, přenosy, oprávnění i screenshoty; report má
+`scope: "files"`. Tento režim nenahrazuje celý regresní běh. Velké uploady jsou v úplném
+běhu až za měřením zvukové latence a mobilními testy, v čerstvých browserových relacích.
+Při souborové přejímce se selhání měření tónu, sítě a VAD zapisují do `knownAudioFailures`
+a jako `KNOWN_AUDIO_FAILURE` ve výsledcích; běh pokračuje chatem i soubory. Přísné nulové
+limity PLC/podtečení/zahozených rámců zůstávají zachované. `complete` znamená dokončení
+obou průchodů; samostatné zvukové vady jsou v reportu uvedené i při exit 0. Chyby chatu,
+souborů a JS konzole běh ukončí neúspěšně.
+
 E2E vytváří dočasný `UPLOAD_DIR` a po skončení jej odstraní; výchozí `/data` nepoužívá.
 
 `E2E_URL` dovoluje připojit již běžící backend; úplná sada včetně restartu vyžaduje lokální backend bez této volby.
