@@ -793,7 +793,7 @@ try {
       b
         .locator(".client-row")
         .filter({ hasText: "Adam" })
-        .locator(".client-icons svg"),
+        .locator(".client-icons > svg"),
     ).toHaveCount(1);
     await expect.poll(() => rms(b)).toBeLessThan(0.001);
     await a
