@@ -363,12 +363,15 @@ export async function mobileChecks({
   );
   let restartedSockets = 0;
   fresh.page.on("websocket", () => restartedSockets++);
-  await restartBackend();
-  await expect(
+  // Banner hlídáme už během restartu: nový backend může klienta připojit
+  // dřív, než restartBackend() vrátí (po /healthz 200).
+  const restartBanner = expect(
     fresh.page
       .getByText("Mluvka se aktualizuje — připojuji znovu…", { exact: true })
       .first(),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 20000 });
+  await restartBackend();
+  await restartBanner;
   await expect
     .poll(() => restartedSockets, { timeout: 20000 })
     .toBeGreaterThan(0);
