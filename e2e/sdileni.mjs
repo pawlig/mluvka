@@ -244,6 +244,8 @@ export async function sharingChecks({
     "500 signalizačních zpráv: share_error, WS odpoví pong a hlasové rámce dál přibývají",
   );
 
+  // Nové uživatelské watch patří do dalšího okna, ne do záměrného 500zprávového burstu.
+  await b.waitForTimeout(1100);
   await a.evaluate(() => {
     window.__e2eDelayStartAck = true;
   });
@@ -297,6 +299,21 @@ export async function sharingChecks({
   ok(
     "Klepnutí na jméno otevírá panel uživatele; jeho tlačítko spustí sledování",
   );
+  await expect
+    .poll(() =>
+      a.evaluate(() =>
+        window.__e2eShareMessages.some((m) => m.type === "watch"),
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      b.evaluate(() =>
+        window.__e2eShareMessages.some((m) => m.type === "rtc_offer"),
+      ),
+    )
+    .toBe(true);
+
   ok("Sdílení A → B: dekódované snímky rostou alespoň 5 s", await flowing(b));
   await expect(a.locator(".share-live")).toContainText("1 diváků");
   for (const page of [a, b])
