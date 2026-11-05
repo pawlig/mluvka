@@ -3,7 +3,7 @@ use axum::extract::ws::Message;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -21,6 +21,8 @@ struct Member {
     sharing: bool,
     watching: Option<String>,
     ice_requests: Vec<Instant>,
+    changes: VecDeque<Instant>,
+    last_list: Option<Value>,
     tx: mpsc::Sender<Message>,
 }
 pub struct Lease {
@@ -39,20 +41,32 @@ fn emit(member: &Member, value: Value) -> Result<(), &'static str> {
         .try_send(Message::Text(value.to_string().into()))
         .map_err(|_| "Příjemce přestal přijímat signalizaci.")
 }
-fn lists(members: &HashMap<String, Member>) {
-    for (id, me) in members {
-        let clients: Vec<_> = members.iter().filter(|(_, p)| p.server == me.server)
-            .map(|(id, p)| json!({"session":id,"client":p.client,"uid":p.uid,"mluvka":true,"sharing":p.sharing && p.channel == me.channel})).collect();
-        let shares: Vec<_> = members.iter().filter(|(_, p)| p.server == me.server && p.channel == me.channel && p.sharing)
-            .map(|(id, p)| json!({"session":id,"client":p.client,"uid":p.uid,"name":p.name,"kind":"screen"})).collect();
-        let viewers = members
-            .values()
-            .filter(|p| p.watching.as_deref() == Some(id))
-            .count();
-        let _ = emit(
-            me,
-            json!({"type":"share_list","v":1,"self":id,"sharing":me.sharing,"viewers":viewers,"shares":shares,"clients":clients}),
-        );
+fn lists(members: &mut HashMap<String, Member>, server: &str) {
+    // Stabilní pořadí je nutné pro porovnání seznamů mezi příchody/odchody relací.
+    let mut ids: Vec<_> = members
+        .iter()
+        .filter(|(_, p)| p.server == server)
+        .map(|(id, _)| id.clone())
+        .collect();
+    ids.sort();
+    let updates: Vec<_> = ids.iter().map(|id| {
+        let me = &members[id];
+        let clients: Vec<_> = ids.iter().map(|id| {
+            let p = &members[id];
+            json!({"session":id,"client":p.client,"uid":p.uid,"mluvka":true,"sharing":p.sharing && p.channel == me.channel})
+        }).collect();
+        let shares: Vec<_> = ids.iter().filter_map(|id| {
+            let p = &members[id];
+            (p.channel == me.channel && p.sharing).then(|| json!({"session":id,"client":p.client,"uid":p.uid,"name":p.name,"kind":"screen"}))
+        }).collect();
+        let viewers = members.values().filter(|p| p.watching.as_ref() == Some(id)).count();
+        (id.clone(), json!({"type":"share_list","v":1,"self":id,"sharing":me.sharing,"viewers":viewers,"shares":shares,"clients":clients}))
+    }).collect();
+    for (id, value) in updates {
+        let me = members.get_mut(&id).unwrap();
+        if me.last_list.as_ref() != Some(&value) && emit(me, value.clone()).is_ok() {
+            me.last_list = Some(value);
+        }
     }
 }
 // Ukončí obě strany všech vazeb člena, ještě před zveřejněním nové místnosti.
@@ -105,6 +119,8 @@ impl Registry {
                 sharing: false,
                 watching: None,
                 ice_requests: vec![],
+                changes: VecDeque::new(),
+                last_list: None,
                 tx,
             },
         );
@@ -161,12 +177,14 @@ impl Lease {
             client["sharing"] = json!(p.is_some_and(|p| p.sharing && p.channel == channel));
         }
         if changed {
-            lists(&members);
+            lists(&mut members, &server);
         }
         state
     }
     pub fn publish(&self) {
-        lists(&self.registry.0.lock().unwrap());
+        let mut members = self.registry.0.lock().unwrap();
+        let server = members[&self.id].server.clone();
+        lists(&mut members, &server);
     }
     pub fn handle(&self, msg: &Value, bytes: usize) -> Result<(), &'static str> {
         let kind = msg["type"].as_str().unwrap_or("");
@@ -179,7 +197,20 @@ impl Lease {
             return Err("Neplatná verze, druh nebo velikost signalizace.");
         }
         let mut members = self.registry.0.lock().unwrap();
-        let me = members.get(&self.id).ok_or("Relace už není připojená.")?;
+        let me = members
+            .get_mut(&self.id)
+            .ok_or("Relace už není připojená.")?;
+        let server = me.server.clone();
+        if matches!(kind, "share_start" | "share_stop" | "watch" | "unwatch") {
+            let now = Instant::now();
+            me.changes
+                .retain(|at| now.duration_since(*at) < Duration::from_secs(1));
+            if me.changes.len() >= 5 {
+                return Err("Změny sdílení posíláte příliš rychle. Zkuste to za chvíli.");
+            }
+            me.changes.push_back(now);
+        }
+        let me = &members[&self.id];
         if kind == "share_start" {
             members.get_mut(&self.id).unwrap().sharing = true;
         } else if kind == "share_stop" {
@@ -286,16 +317,17 @@ impl Lease {
                 _ => return Err("Neznámá signalizace."),
             }
         }
-        lists(&members);
+        lists(&mut members, &server);
         Ok(())
     }
 }
 impl Drop for Lease {
     fn drop(&mut self) {
         let mut members = self.registry.0.lock().unwrap();
+        let server = members[&self.id].server.clone();
         detach(&mut members, &self.id);
         members.remove(&self.id);
-        lists(&members);
+        lists(&mut members, &server);
     }
 }
 pub fn is_signal(kind: &str) -> bool {
@@ -320,6 +352,43 @@ mod tests {
     }
     fn signal(lease: &Lease, kind: &str, to: &str) -> Result<(), &'static str> {
         lease.handle(&json!({"type":kind,"v":1,"kind":"screen","to":to}), 100)
+    }
+    #[test]
+    fn state_flood_is_limited_scoped_and_unchanged_lists_are_suppressed() {
+        let registry = Arc::new(Registry::default());
+        let (a, _a_rx) = join(&registry, "example.org:9987", 1, 1);
+        let (_b, mut b_rx) = join(&registry, "example.org:9987", 2, 1);
+        let (_foreign, mut foreign_rx) = join(&registry, "other.example.org:9987", 3, 1);
+        a.publish();
+        assert!(b_rx.try_recv().is_ok());
+        a.publish();
+        assert!(b_rx.try_recv().is_err());
+        let mut accepted = 0;
+        for i in 0..120 {
+            match signal(
+                &a,
+                if i % 2 == 0 {
+                    "share_start"
+                } else {
+                    "share_stop"
+                },
+                "",
+            ) {
+                Ok(()) => accepted += 1,
+                Err(message) => assert!(message.contains("příliš rychle")),
+            }
+        }
+        assert_eq!(accepted, 5);
+        let mut lists = 0;
+        while let Ok(Message::Text(s)) = b_rx.try_recv() {
+            assert_eq!(
+                serde_json::from_str::<Value>(&s).unwrap()["type"],
+                "share_list"
+            );
+            lists += 1;
+        }
+        assert_eq!(lists, 5);
+        assert!(foreign_rx.try_recv().is_err());
     }
     #[test]
     fn room_isolation_limit_switch_and_disconnect_revoke_permissions() {
