@@ -502,6 +502,10 @@ try {
   await query.cmd(
     "servergroupaddperm sgid=8 permsid=b_client_server_textmessage_send permvalue=1 permnegated=0 permskip=0",
   );
+  // Výchozí Guest nesmí měnit vlastní popis; sdílení ho nastavuje (bez práva se odmítnutí jen zaloguje).
+  await query.cmd(
+    "servergroupaddperm sgid=8 permsid=b_client_modify_own_description permvalue=1 permnegated=0 permskip=0",
+  );
   const channels = await query.cmd("channellist");
   const channelIds = [...channels.matchAll(/\bcid=(\d+)/g)].map((m) =>
     Number(m[1]),
