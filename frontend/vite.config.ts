@@ -3,8 +3,17 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
+function buildCommit() {
+  const supplied = process.env.VITE_BUILD_COMMIT;
+  if (supplied && /^[a-f0-9]{7,40}$/i.test(supplied)) return supplied;
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch { return "unknown"; }
+}
 export default defineConfig({
-  define: { "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim()) },
+  define: { "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildCommit()) },
   plugins: [
     {
       name: "mluvka-sw-version",

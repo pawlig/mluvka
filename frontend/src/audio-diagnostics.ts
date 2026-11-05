@@ -1,9 +1,17 @@
 // Výslovný seznam technických údajů. Nikdy nekopírovat celý stav aplikace.
 type Sample = { at: number; value: number };
 const gaps: Sample[] = [], decodes: Sample[] = [], underruns: number[] = [];
+const longTasks: Sample[] = [];
+const supportsLongTasks = typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("longtask");
+if (supportsLongTasks) {
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) longTasks.push({ at: entry.startTime + entry.duration, value: entry.duration });
+    trim(longTasks, performance.now());
+  }).observe({ type: "longtask", buffered: true });
+}
 let lastArrival: number | undefined;
 let websocketCompression: boolean | null = null;
-export function audioWebsocket(extensions: string) {
+export function audioWebsocket(extensions = "") {
   websocketCompression = extensions.split(",").some((v) => v.trim().split(";")[0] === "permessage-deflate");
 }
 let context: AudioContext | undefined;
@@ -35,6 +43,7 @@ export function audioDiagnostics() {
   const now = performance.now(), s = window.__mluvkaStats;
   trim(gaps, now);
   trim(decodes, now);
+  trim(longTasks, now);
   while (underruns.length && underruns[0] < now - 60000) underruns.shift();
   const sorted = gaps.map((v) => v.value).sort((a, b) => a - b);
   const round = (v: number | undefined) => v === undefined ? null : Math.round(v * 100) / 100;
@@ -54,6 +63,10 @@ export function audioDiagnostics() {
       upToMs: Number.isFinite(upper) ? upper : null,
       count: sorted.filter((v) => v <= upper && (i === 0 || v > limits[i - 1])).length,
     })),
+    mainThreadLongTasks: supportsLongTasks ? longTasks.length : null,
+    mainThreadLongTaskMaxMs: supportsLongTasks ? round(longTasks.reduce((m, v) => Math.max(m, v.value), 0)) : null,
+    incomingGapWithLongTaskMaxMs: supportsLongTasks ? round(gaps.reduce((m, gap) => Math.max(m,
+      longTasks.some((task) => task.at >= gap.at - gap.value && task.at - task.value <= gap.at) ? gap.value : 0), 0)) : null,
     decodeAverageMs: round(decodes.reduce((sum, v) => sum + v.value, 0) / Math.max(1, decodes.length)),
     decodeMaxMs: round(decodes.reduce((max, v) => Math.max(max, v.value), 0)),
     sampleRate: context?.sampleRate ?? null,
