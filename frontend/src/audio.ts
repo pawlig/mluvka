@@ -5,6 +5,33 @@ export class AudioEngine {
   player?: HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
   mediaOutput?: MediaStreamAudioDestinationNode;
   onBlocked: (blocked: boolean) => void = () => {};
+  onInputUnavailable: (unavailable: boolean) => void = () => {};
+  onOutputBlocked: (blocked: boolean) => void = () => {};
+  inputUnavailable = false;
+  private deferredInput = false;
+  private inputFailed() {
+    this.inputUnavailable = true;
+    this.onInputUnavailable(true);
+  }
+  setCallActive(active: boolean) {
+    const session = (
+      navigator as Navigator & {
+        audioSession?: { type: string };
+      }
+    ).audioSession;
+    if (session) {
+      try {
+        session.type = active ? "play-and-record" : "auto";
+      } catch {
+        /* Starší Safari. */
+      }
+    }
+  }
+  async retryMicrophone() {
+    this.inputUnavailable = false;
+    this.deferredInput = false;
+    await this.changeInput();
+  }
   recovering?: Promise<void>;
   startPromise?: Promise<void>;
   retryInput?: ReturnType<typeof setTimeout>;
@@ -74,7 +101,6 @@ export class AudioEngine {
       codec: "pcm",
       notifySounds: 0,
       notifyPokes: 0,
-
     };
   }
   start(): Promise<void> {
@@ -117,7 +143,7 @@ export class AudioEngine {
       );
       // Mobilní přehrávač dává Androidu aktivní mediální relaci i při zhasnutí.
       // Desktop zůstává na přímé cestě s nejmenší latencí.
-      if (matchMedia("(pointer: coarse)").matches) {
+      if (matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0) {
         this.mediaOutput = this.context.createMediaStreamDestination();
         this.output.connect(this.mediaOutput);
         this.player = document.createElement("audio");
@@ -199,7 +225,10 @@ export class AudioEngine {
     void this.resume();
     if (!this.context) return;
     if (this.settings.output) await this.setOutput(this.settings.output);
-    if (!this.stream) await this.changeInput();
+    if (!this.stream && !this.inputUnavailable) {
+      if (document.hidden) this.deferredInput = true;
+      else await this.changeInput();
+    }
     await this.update(this.settings);
     this.checkState();
   }
@@ -347,7 +376,11 @@ export class AudioEngine {
       settings = this.settings;
     const pending = this.inputQueue
       .catch(() => {})
-      .then(() => this.openInput(request, context, node, settings));
+      .then(() => this.openInput(request, context, node, settings))
+      .catch(() => {
+        if (request === this.inputRequest && this.context === context)
+          this.inputFailed();
+      });
     this.inputQueue = pending;
     return pending;
   }
@@ -396,7 +429,7 @@ export class AudioEngine {
       if (
         !s.input ||
         !(error instanceof DOMException) ||
-        !["NotFoundError", "OverconstrainedError"].includes(error.name)
+        error.name !== "OverconstrainedError"
       ) {
         this.checkState();
         throw error;
@@ -413,6 +446,9 @@ export class AudioEngine {
     this.stream?.getTracks().forEach((t) => t.stop());
     clearTimeout(this.retryInput);
     this.stream = stream;
+    this.inputUnavailable = false;
+    this.deferredInput = false;
+    this.onInputUnavailable(false);
     for (const track of stream.getAudioTracks()) {
       const reopen = () => {
         if (this.stream !== stream) return;
@@ -422,7 +458,8 @@ export class AudioEngine {
         }, 250);
       };
       track.addEventListener("ended", reopen);
-      track.addEventListener("mute", reopen);
+      // iOS pozastaví stopu na pozadí. Čekáme na unmute, neotevíráme další capturer.
+      track.addEventListener("unmute", this.checkState);
     }
     this.source = context.createMediaStreamSource(stream);
     this.source.connect(node);
@@ -431,27 +468,22 @@ export class AudioEngine {
   private async setOutput(id: string) {
     if (this.player?.setSinkId) await this.player.setSinkId(id);
     else if (this.context?.setSinkId) await this.context.setSinkId(id);
+    await this.playOutput();
   }
   private stateChanged = () => {
     this.checkState();
     if (
-      document.visibilityState === "visible" &&
-      this.context?.state !== "running"
+      this.context &&
+      this.context.state !== "running" &&
+      this.context.state !== "closed"
     )
       void this.resume();
   };
   checkState = () => {
     const context = this.context;
-    this.onBlocked(
-      !!context &&
-        (context.state !== "running" ||
-          !!this.player?.paused ||
-          !this.stream ||
-          this.stream
-            .getAudioTracks()
-            .some((t) => t.readyState === "ended" || t.muted)),
-    );
+    this.onBlocked(!!context && context.state !== "running");
   };
+
   async resume() {
     const context = this.context;
     if (!context) return;
@@ -461,42 +493,46 @@ export class AudioEngine {
     await this.playOutput();
   }
   async playOutput() {
-    if (!this.player) return;
+    const player = this.player;
+    if (!player) return;
     try {
-      await this.player.play();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "NotAllowedError") {
-        this.checkState();
-        return;
-      }
-      // Nepodporovaná MediaStream cesta: přímý výstup, žádný dvojitý poslech.
-      if (this.context && this.output && this.mediaOutput) {
-        this.output.disconnect(this.mediaOutput);
-        this.output.connect(this.context.destination);
-      }
-      this.player.srcObject = null;
-      this.player.remove();
-      this.player = undefined;
-      this.mediaOutput = undefined;
+      player.muted = false;
+      await player.play();
+      if (this.player === player) this.onOutputBlocked(false);
+    } catch {
+      // Ani přerušení play() nesmí mobil trvale přepnout na přímý výstup,
+      // který na pozadí ztratí mediální relaci. Další gesto obnoví stejný <audio>.
+      if (this.player === player) this.onOutputBlocked(true);
     }
     this.checkState();
   }
   recover(forceInput = false) {
     if (this.recovering) return this.recovering;
+    const context = this.context;
     this.recovering = (async () => {
-      if (!this.context) return;
+      if (!context || this.context !== context) return;
       void this.resume();
-      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (this.inputUnavailable) return; // Pouze ruční Zkusit znovu.
       const track = this.stream?.getAudioTracks()[0];
+      const devices = await navigator.mediaDevices?.enumerateDevices();
+      if (this.context !== context) return;
       const selectedGone =
         !!track?.getSettings().deviceId &&
+        !!devices &&
         !devices.some(
-          (d) =>
-            d.kind === "audioinput" &&
-            d.deviceId === track.getSettings().deviceId,
+          (device) =>
+            device.kind === "audioinput" &&
+            device.deviceId === track.getSettings().deviceId,
         );
+      if (document.hidden && (!track || track.readyState === "ended")) {
+        this.deferredInput = true;
+        return;
+      }
+      // Mute stopy na pozadí je dočasné přerušení systému.
+      if (track?.muted && document.hidden) return;
       if (
         forceInput ||
+        this.deferredInput ||
         !track ||
         track.readyState === "ended" ||
         track.muted ||
@@ -505,13 +541,7 @@ export class AudioEngine {
         await this.changeInput();
     })()
       .catch(() => {
-        if (!this.context) return;
-        this.onBlocked(true);
-        clearTimeout(this.retryInput);
-        // Návrat zařízení po hovoru může trvat několik sekund.
-        this.retryInput = setTimeout(() => {
-          void this.recover(true);
-        }, 2000);
+        if (context && this.context === context) this.inputFailed();
       })
       .finally(() => {
         this.recovering = undefined;
@@ -636,6 +666,11 @@ export class AudioEngine {
     }
   }
   async close() {
+    this.setCallActive(false);
+    this.inputUnavailable = false;
+    this.deferredInput = false;
+    this.onInputUnavailable(false);
+    this.onOutputBlocked(false);
     this.worker?.terminate();
     this.worker = undefined;
     this.codecReady = undefined;

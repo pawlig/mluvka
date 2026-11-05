@@ -318,3 +318,74 @@ Proto se přenos hesel instalací nespoléhá na `start_url` ani zanechaný frag
 Zkopírujte původní pozvánku, otevřete Mluvku z plochy a zvolte **Vložit pozvánku**.
 Odkaz vložte do pole (nebo použijte Načíst ze schránky, pokud ho prohlížeč dovolí).
 Takto funguje i pozvánka do již nainstalované aplikace.
+
+## Pro správce TS serveru
+
+Všichni uživatelé jednoho backendu Mluvky přicházejí ze stejné veřejné IP kontejneru.
+TS antiflood sčítá body za tuto IP, takže může dočasně zablokovat celou skupinu.
+Backend proto sdílí frontu pro cílovou IP:port: `TS_CMD_RATE=5` příkazů/s, burst 20,
+`TS_CONNECT_INTERVAL_MS=3000` mezi připojeními, navíc nejvýše 3 handshaky za 45 s
+na cíl. Samotné 3 s při měření na TS3 3.13.7 vedly k odmítnutí páté relace
+`0x0d01` bez položky v banlistu; delší okno brání i této handshake ochraně. Hodnoty musí být kladná čísla.
+TS3 používá pro handshake flood i `0x0d01` s přesným doplňkem `flood prevention, please try again later`.
+Lokální oprava tsclientlib zachová tento bezpečný příznak (upstream doplněk zahazoval).
+Backend jej zařadí jako flood `0x0d03`, v logu uvede i původní `wire_code=0x0d01`.
+Skutečný ban bez tohoto přesného příznaku zůstává trvalý. Při flood chybě všechny relace k cíli přeruší příkazy a připojení na 120 s; potom
+se vracejí postupně. Pro diagnostiku nastavte `RUST_LOG=mluvka=debug`: `ts_command`
+a `count` měří aplikační příkazy podle druhu a cíle, `client` a `session_count` po připojeních.
+Argumenty s osobními údaji se nelogují.
+Interní handshake a keepalive knihovny do tohoto počtu nepatří.
+
+Doporučené řešení na důvěryhodném TS serveru je samostatná serverová skupina pro
+identity Mluvky s `b_client_ignore_antiflood`. Přes přihlášený ServerQuery, po `use 1`:
+
+```text
+servergroupadd name=Mluvka type=1
+servergroupaddperm sgid=<vrácené_sgid> permsid=b_client_ignore_antiflood permvalue=1 permnegated=0 permskip=0
+servergroupaddclient sgid=<vrácené_sgid> cldbid=<databázové_id_identity>
+```
+
+Přidávejte jen důvěryhodné identity; oprávnění obchází ochranu proti zahlcení.
+Alternativně správce upraví limity podle počtu uživatelů a zatížení. Nejprve si
+uložte původní hodnoty ze `serverinfo`; příklad zvýšení (nikoli univerzální doporučení):
+
+```text
+serverinfo
+serveredit virtualserver_antiflood_points_needed_ip_block=1000 virtualserver_antiflood_points_needed_command_block=500
+clientlist -ip -uid
+clientinfo clid=<id_připojeného_klienta_Mluvky>
+```
+
+`connection_client_ip` v `clientinfo` ukazuje adresu viděnou TS (při NAT veřejnou
+odchozí IP hostitele). V síti Docker zjistíte vnitřní IP kontejneru příkazem
+`docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' <kontejner>`;
+pro antiflood rozhoduje adresa viděná TS, nikoli nutně tato vnitřní IP.
+
+## Hovor na pozadí
+
+Na dotykovém zařízení vede výstup přes skutečně hrající, neztlumený `<audio>`
+s MediaStreamem z AudioContext. Při přerušení se kontext pokouší obnovit i na pozadí.
+Media Session zůstává během hovoru `playing`; play/pause na zamčené obrazovce
+přepínají mikrofon. Safari s dostupným `navigator.audioSession` používá
+`play-and-record` a po odpojení `auto` ([WebKit: Safari 16.4](https://webkit.org/blog/13966/webkit-features-in-safari-16-4/),
+[Media Session](https://www.w3.org/TR/mediasession/)).
+
+Android: zkuste Chrome i instalovanou PWA. Povolte mikrofon a přehrávání, připojte
+se do kanálu s mluvícím druhým účastníkem, přepněte do jiné aplikace a na minutu
+zamkněte displej. Měli byste dál slyšet; v režimu Pořád zapnuto/VAD lze podle systému
+i mluvit. Pro Chrome vypněte omezení baterie v nastavení Androidu.
+
+iOS: stejnou zkoušku proveďte v Safari a v PWA přidané na plochu. WebKit a iOS mohou
+webovou aplikaci po čase uspat nebo přerušit mikrofon; nepřetržitý hovor na zamčeném
+fyzickém telefonu nelze zaručit samotným webovým kódem. Při návratu se spojení obnoví;
+pokud mikrofon na pozadí nešel otevřít, hovor pokračuje poslechem a vstup se zkusí
+po návratu. Zamítnutý/chybějící mikrofon má lištu se samostatným ručním „Zkusit znovu“.
+
+Živost backend ověřuje nativními WS ping/pong rámci bez JS časovačů stránky.
+Po návratu z pozadí či zmrazení má klient 5 s milosti; v popředí nadále rozpoznává
+20 s bez dat. Reconnect běží i na pozadí. Headless Chromium emulace ověřuje tok
+rámců, RMS a stejné WS/TS ID; omezení baterie, audio session a zámek iOS vyžadují
+zkoušku na fyzických telefonech.
+
+Barvu uživatele změníte přes jeho avatar nebo dlouhé podržení ve stromu → Barva….
+Platí jen u vás, ukládá se podle TS identity do `mluvka.colors`; přejmenování ji nezmění.

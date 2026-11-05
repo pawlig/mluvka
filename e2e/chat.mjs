@@ -15,7 +15,7 @@ async function probe(base, tsAddress, password) {
   const token = await new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(Error("Chybí upload token přihlášené relace")),
-      30000,
+      90000,
     );
     ws.onerror = () => {
       clearTimeout(timer);

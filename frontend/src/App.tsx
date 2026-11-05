@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChatMessage as MessageBody } from "./ChatMessage";
 import { ImageComposer } from "./ImageComposer";
+import {
+  Avatar,
+  ColorContext,
+  colorKey,
+  userPalette,
+  type UserColors,
+} from "./colors";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
@@ -52,29 +59,6 @@ const modeNames = {
   always: "Pořád zapnuto",
 };
 type ThreadMessage = ChatMessage & { thread: string };
-function initials(name: string) {
-  return name.slice(0, 2).toLocaleUpperCase("cs");
-}
-function Avatar({
-  client,
-  talking = false,
-}: {
-  client: Client;
-  talking?: boolean;
-}) {
-  return (
-    <span
-      className={`avatar ${talking ? "speaking" : ""}`}
-      style={
-        {
-          "--hue": `${[...client.name].reduce((n, c) => n + c.charCodeAt(0), 0) % 360}`,
-        } as React.CSSProperties
-      }
-    >
-      {initials(client.name)}
-    </span>
-  );
-}
 function Range({
   label,
   value,
@@ -110,6 +94,23 @@ function Range({
 }
 
 export function App() {
+  const [colors, setColors] = useState<UserColors>(() => load("colors", {}));
+  useEffect(() => {
+    save("colors", colors);
+  }, [colors]);
+  return (
+    <ColorContext.Provider value={colors}>
+      <AppContent colors={colors} setColors={setColors} />
+    </ColorContext.Provider>
+  );
+}
+function AppContent({
+  colors,
+  setColors,
+}: {
+  colors: UserColors;
+  setColors: React.Dispatch<React.SetStateAction<UserColors>>;
+}) {
   const [invitation, setInvitation] = useState(incomingInvitation.invitation);
   const [showInvite, setShowInvite] = useState(false);
   const [showPasteInvite, setShowPasteInvite] = useState(false);
@@ -136,6 +137,10 @@ export function App() {
   const roomRef = useRef<RoomState | undefined>(undefined);
   const [error, setError] = useState(incomingInvitation.error || "");
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [inputUnavailable, setInputUnavailable] = useState(false);
+  const [outputBlocked, setOutputBlocked] = useState(false);
+  const [kicked, setKicked] = useState(false);
+  const foregroundGrace = useRef(0);
   const [autoStarting, setAutoStarting] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
   const phase = useRef("idle");
@@ -160,7 +165,13 @@ export function App() {
   );
   const touchStart = useRef<{ x: number; y: number } | undefined>(undefined);
   const sheetStart = useRef<number | undefined>(undefined);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeText] = useState("");
+  const [noticeUser, setNoticeUser] = useState<Client>();
+  function setNotice(message: string) {
+    setNoticeText(message);
+    setNoticeUser(undefined);
+  }
+  const queueNotice = useRef(false);
   const [talking, setTalking] = useState<Set<number>>(new Set());
   const [level, setLevel] = useState(0);
   const [selfTalking, setSelfTalking] = useState(false);
@@ -168,6 +179,27 @@ export function App() {
   const [showIdentity, setShowIdentity] = useState(false);
   const [identityText, setIdentityText] = useState("");
   const [peerClient, setPeerClient] = useState<Client>();
+  const [showColors, setShowColors] = useState(false);
+  const knownUsers = useRef(new Map<number, Client>());
+  function messageClient(message: ChatMessage): Client {
+    const known = knownUsers.current.get(message.from);
+    return (
+      (known && (!message.uid || known.uid === message.uid)
+        ? known
+        : undefined) || {
+        id: message.from,
+        uid: message.uid || null,
+        name: message.name,
+        channel: 0,
+        microphone: false,
+        deafen: false,
+        away: false,
+      }
+    );
+  }
+  useEffect(() => {
+    setShowColors(false);
+  }, [peerClient]);
   const [move, setMove] = useState<Channel>();
   const [movePassword, setMovePassword] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -222,6 +254,8 @@ export function App() {
   const connected = status === "connected";
   useServiceWorker(status !== "idle" || retryAttempt > 0);
   audio.onBlocked = setAudioBlocked;
+  audio.onInputUnavailable = setInputUnavailable;
+  audio.onOutputBlocked = setOutputBlocked;
   audio.onCodecFailure = () => closeStale.current?.();
   const currentThread =
     thread === "channel" ? `channel:${me?.channel}` : thread;
@@ -341,10 +375,10 @@ export function App() {
   useEffect(() => {
     send({
       type: "mute",
-      microphone: settings.microphone,
+      microphone: settings.microphone || inputUnavailable,
       deafen: settings.deafen,
     });
-  }, [settings.microphone, settings.deafen]);
+  }, [settings.microphone, settings.deafen, inputUnavailable]);
   useEffect(() => {
     peersRef.current = peers;
     save("peers", peers);
@@ -433,7 +467,6 @@ export function App() {
     clearTimeout(retryTimer.current);
     const attempt = ++retryCount.current;
     setRetryAttempt(attempt);
-    if (document.visibilityState === "hidden") return;
     retryTimer.current = setTimeout(
       () => void openConnection(lastLogin.current),
       Math.max(
@@ -447,12 +480,7 @@ export function App() {
     );
   }
   function tryNow() {
-    if (
-      !wanted.current ||
-      document.visibilityState === "hidden" ||
-      phase.current !== "idle"
-    )
-      return;
+    if (!wanted.current || phase.current !== "idle") return;
     clearTimeout(retryTimer.current);
     if (Date.now() < retryAfter.current) {
       retryTimer.current = setTimeout(tryNow, retryAfter.current - Date.now());
@@ -464,6 +492,7 @@ export function App() {
     e?.preventDefault();
     if (phase.current !== "idle") return;
     wanted.current = true;
+    setKicked(false);
     setAutoStarting(false);
     try {
       sessionStorage.removeItem("mluvka.manual-disconnect");
@@ -477,12 +506,7 @@ export function App() {
     void openConnection(login);
   }
   async function openConnection(credentials: Login) {
-    if (
-      !wanted.current ||
-      phase.current !== "idle" ||
-      document.visibilityState === "hidden"
-    )
-      return;
+    if (!wanted.current || phase.current !== "idle") return;
     const token = ++generation.current;
     setUploadToken("");
     audio.ready = false;
@@ -491,7 +515,9 @@ export function App() {
     setError("");
     setNotice("");
     updateStatus("connecting");
+    audio.setCallActive(true);
     setMessages([]);
+    knownUsers.current.clear();
     setPrivateTabs({});
     setThread("channel");
     setTalking(new Set());
@@ -503,9 +529,7 @@ export function App() {
       .then(refreshDevices)
       .catch(() => {
         if (token === generation.current && wanted.current)
-          setError(
-            "Mikrofon není dostupný. Povolte přístup nebo ho zapněte klepnutím na zvuk.",
-          );
+          setError("Zvuk se nepodařilo spustit. Zkuste připojení znovu.");
       });
     await audio.prepareTransport();
     if (token !== generation.current || !wanted.current) return;
@@ -523,7 +547,7 @@ export function App() {
       const now = Date.now();
       // Pozastavené JS nemohlo převzít čekající WS události. Po probuzení jim
       // necháme celý heartbeat interval, místo okamžitého zrušení živého hovoru.
-      if (now - lastHeartbeat > 5000) lastMessage.current = now;
+      if (now - lastHeartbeat > 5000) foregroundGrace.current = now + 5000;
       lastHeartbeat = now;
       if (
         socket.readyState === WebSocket.OPEN &&
@@ -534,8 +558,12 @@ export function App() {
         lastPing = Date.now();
       }
       if (
-        Date.now() - lastMessage.current >= 20000 ||
-        (phase.current === "connecting" && Date.now() - opened > 40000)
+        (!document.hidden &&
+          now >= foregroundGrace.current &&
+          now - lastMessage.current >= 20000) ||
+        (phase.current === "connecting" &&
+          now - lastMessage.current > 40000 &&
+          now - opened > 40000)
       ) {
         socket.close();
         // close event při mrtvé síti nemusí dorazit; relaci zneplatníme hned.
@@ -580,11 +608,24 @@ export function App() {
         if (msg.code === "flood") retryAfter.current = Date.now() + 120000;
         if (
           msg.fatal !== false &&
-          ["bad_password", "banned", "not_allowed", "invalid"].includes(
-            msg.code,
-          )
+          (msg.retryable === false ||
+            [
+              "bad_password",
+              "banned",
+              "not_allowed",
+              "invalid",
+              "kicked",
+            ].includes(msg.code))
         ) {
           wanted.current = false;
+          if (msg.code === "kicked") {
+            setKicked(true);
+            try {
+              sessionStorage.setItem("mluvka.manual-disconnect", "1");
+            } catch {
+              /* Bez úložiště. */
+            }
+          }
           clearTimeout(retryTimer.current);
           setRetryAttempt(0);
           focusField.current = [
@@ -599,6 +640,8 @@ export function App() {
         if (msg.fatal === false) pendingMove.current = undefined;
       }
       if (msg.type === "notice") {
+        queueNotice.current = msg.code === "connect_queue";
+        setNoticeUser(undefined);
         setNotice(msg.message);
         if (msg.code === "server_restart") {
           restarting.current = true;
@@ -613,6 +656,10 @@ export function App() {
         }
       }
       if (msg.type === "state") {
+        if (queueNotice.current) {
+          setNotice("");
+          queueNotice.current = false;
+        }
         restarting.current = false;
         retryAfter.current = 0;
         audio.ready = true;
@@ -638,12 +685,15 @@ export function App() {
         } else {
           send({
             type: "mute",
-            microphone: settingsRef.current.microphone,
+            microphone:
+              settingsRef.current.microphone || audio.inputUnavailable,
             deafen: settingsRef.current.deafen,
           });
           for (const [uid, p] of Object.entries(peersRef.current))
             send({ type: "peer", uid, ...p });
         }
+        for (const client of next.clients)
+          knownUsers.current.set(client.id, client);
         const self = next.clients.find((c) => c.id === next.self);
         const previousChannel = prev?.clients.find(
           (c) => c.id === prev.self,
@@ -695,6 +745,12 @@ export function App() {
         });
       if (msg.type === "poke") {
         setNotice(`Šťouchnutí od ${msg.name}: ${msg.text}`);
+        setNoticeUser(
+          messageClient({
+            ...msg,
+            uid: msg.uid || knownUsers.current.get(msg.from)?.uid,
+          }),
+        );
         if (msg.from !== roomRef.current?.self)
           receiveNotification.current(
             "poke",
@@ -755,7 +811,12 @@ export function App() {
             return old;
           return [
             ...old.slice(-499),
-            { ...msg, thread: key, time: Date.now() },
+            {
+              ...msg,
+              uid: msg.uid || knownUsers.current.get(msg.from)?.uid,
+              thread: key,
+              time: Date.now(),
+            },
           ];
         });
       }
@@ -847,18 +908,17 @@ export function App() {
     const visible = () => {
       if (document.visibilityState !== "visible") return;
       void audio.recover();
-      if (
-        wanted.current &&
-        ws.current &&
-        Date.now() - lastMessage.current >= 20000
-      ) {
-        closeStale.current?.();
-      }
+      foregroundGrace.current = Date.now() + 5000;
       tryNow();
     };
     const online = () => {
       if (!wanted.current) return;
-      if (ws.current) closeStale.current?.();
+      if (
+        ws.current &&
+        (ws.current.readyState !== WebSocket.OPEN ||
+          Date.now() - lastMessage.current > 5000)
+      )
+        closeStale.current?.();
       tryNow();
     };
     document.addEventListener("visibilitychange", visible);
@@ -870,15 +930,20 @@ export function App() {
     };
   }, []);
   useEffect(() => {
+    audio.setCallActive(connected);
+    return () => audio.setCallActive(false);
+  }, [connected]);
+  useEffect(() => {
     if (!("mediaSession" in navigator) || !connected) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: `Mluvka — ${currentChannel?.name || "kanál"}`,
       artist: "Mluvka",
       artwork: [{ src: "/icons/512.png", sizes: "512x512", type: "image/png" }],
     });
-    navigator.mediaSession.playbackState = settings.microphone
-      ? "paused"
-      : "playing";
+  }, [connected, currentChannel?.name]);
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !connected) return;
+    navigator.mediaSession.playbackState = "playing";
     navigator.mediaSession.setActionHandler("play", () =>
       change("microphone", false),
     );
@@ -891,7 +956,7 @@ export function App() {
       navigator.mediaSession.setActionHandler("play", null);
       navigator.mediaSession.setActionHandler("pause", null);
     };
-  }, [connected, currentChannel?.name, settings.microphone]);
+  }, [connected]);
   useEffect(() => {
     if (!settings.wakeLock || !connected || !("wakeLock" in navigator)) return;
     let lock: WakeLockSentinel | undefined;
@@ -968,6 +1033,7 @@ export function App() {
         target: thread,
         thread: currentThread,
         from: me.id,
+        uid: me.uid || undefined,
         name: me.name,
         text,
         time: Date.now(),
@@ -1163,6 +1229,12 @@ export function App() {
           role={error ? "alert" : "status"}
         >
           <Icon name="info" />
+          {!error && noticeUser && (
+            <Avatar
+              client={noticeUser}
+              onClick={() => setPeerClient(noticeUser)}
+            />
+          )}
           <span>{error || notice}</span>
           <button
             aria-label="Zavřít upozornění"
@@ -1512,6 +1584,10 @@ export function App() {
                     data-active={thread === `private:${id}`}
                   >
                     <button onClick={() => setThread(`private:${id}`)}>
+                      <Avatar
+                        client={knownUsers.current.get(Number(id)) || { name }}
+                        className="tab-avatar"
+                      />
                       {name}{" "}
                       <UnreadBadge
                         count={notifications.unread[`private:${id}`]}
@@ -1562,9 +1638,11 @@ export function App() {
                 </div>
                 {visibleMessages.map((m, i) => (
                   <article className="message" key={i}>
-                    <span className="avatar message-avatar">
-                      {initials(m.name)}
-                    </span>
+                    <Avatar
+                      client={m}
+                      className="message-avatar"
+                      onClick={() => setPeerClient(messageClient(m))}
+                    />
                     <div>
                       <div className="message-meta">
                         <strong>{m.name}</strong>
@@ -1594,7 +1672,13 @@ export function App() {
           </main>
           <footer className="voice-bar">
             <div className="self-card">
-              {me && <Avatar client={me} talking={selfTalking} />}
+              {me && (
+                <Avatar
+                  client={me}
+                  talking={selfTalking}
+                  onClick={() => setPeerClient(me)}
+                />
+              )}
               <div>
                 <strong>{me?.name || login.nickname}</strong>
                 <span className={selfTalking ? "transmitting" : ""}>
@@ -1694,6 +1778,31 @@ export function App() {
         </>
       )}
 
+      {connected && (inputUnavailable || (outputBlocked && !audioBlocked)) && (
+        <div className="audio-banners">
+          {outputBlocked && !audioBlocked && (
+            <div className="microphone-banner" role="status">
+              Zvuk potřebuje vaše klepnutí.
+              <button onClick={() => void audio.resume()}>
+                Zapnout poslech
+              </button>
+            </div>
+          )}
+          {inputUnavailable && (
+            <div className="microphone-banner" role="status">
+              Mikrofon není povolený — posloucháte jen
+              <button onClick={() => void audio.retryMicrophone()}>
+                Zkusit znovu
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {kicked && !connected && (
+        <button className="primary" onClick={() => connect()}>
+          Připojit znovu
+        </button>
+      )}
       {connected && audioBlocked && (
         <div
           className="audio-unlock"
@@ -1704,12 +1813,13 @@ export function App() {
           <button
             className="primary"
             onClick={() => {
-              void audio.recover(true);
+              void audio.resume();
             }}
           >
             Klepni pro zapnutí zvuku
           </button>
           <p>Spojení běží. Zvuk potřebuje vaše klepnutí.</p>
+          <button onClick={disconnect}>Odpojit</button>
         </div>
       )}
       {showSettings && (
@@ -2158,6 +2268,47 @@ export function App() {
                 <Icon name="close" />
               </button>
             </header>
+            <button
+              className="secondary"
+              onClick={() => setShowColors((open) => !open)}
+            >
+              Barva…
+            </button>
+            {showColors && (
+              <div className="user-colors" aria-label="Barva uživatele">
+                <p className="help">Barvu vidíte jen vy. Ostatním se nemění.</p>
+                <div className="color-palette">
+                  {userPalette.map((color, index) => (
+                    <button
+                      key={color}
+                      aria-label={`Barva ${index + 1}`}
+                      style={{ background: color, color: "#152016" }}
+                      aria-pressed={colors[colorKey(peerClient)] === color}
+                      onClick={() =>
+                        setColors((old) => ({
+                          ...old,
+                          [colorKey(peerClient)]: color,
+                        }))
+                      }
+                    >
+                      {colors[colorKey(peerClient)] === color ? "✓" : "Aa"}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    setColors((old) => {
+                      const next = { ...old };
+                      delete next[colorKey(peerClient)];
+                      return next;
+                    })
+                  }
+                >
+                  Automaticky
+                </button>
+              </div>
+            )}
             {peerClient.id !== me?.id ? (
               <>
                 <Range

@@ -615,7 +615,7 @@ export async function fallbackCheck(browser, base, login, ok) {
     ok("Migrace AGC proběhne jednou a pozdější výslovná volba přežije reload");
     await login(page, "PCM záloha");
     await expect(page.locator(".connection-status")).toHaveText("Připojeno", {
-      timeout: 45000,
+      timeout: 90000,
     });
     expect(await page.evaluate(() => window.__mluvkaStats.codec)).toBe("pcm");
     await expect

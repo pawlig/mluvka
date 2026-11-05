@@ -117,6 +117,7 @@ tyto dva PLC čítače je nezahrnují.
 
 `code` je strojový kód, text `message` je český a neobsahuje původní text TS paketu.
 `field` určuje vstup formuláře (`server`, `password`, `channel_password`, `nickname`) pro fokus.
+`retryable` určuje možnost automatického návratu po trvalé chybě (`kicked`: false).
 `fatal: true` znamená ukončení relace; `fatal: false` odmítnutý příkaz v běžícím spojení.
 
 | `code`          | Význam                                | Opakování připojení po ukončení |
@@ -130,12 +131,14 @@ tyto dva PLC čítače je nezahrnují.
 | `request_failed` | Odmítnutý požadavek / jiná chyba | běžící relaci nepřerušuje |
 | `unreachable`   | Nedostupný server / transport         | ano                             |
 | `timeout`       | Vypršel čas                           | ano                             |
-| `kicked`        | Vyhození ze serveru                   | ano                             |
+| `kicked`        | Vyhození ze serveru                   | ne — ruční „Připojit znovu“                             |
 | `server_closed` | TS server ukončil spojení             | ano                             |
 | `full`          | Plný server                           | ano                             |
 
 Po nečekaném ukončení frontend používá prodlevy 1 → 2 → 4 → 8 → 15 s, dále 15 s.
-Na pozadí nové pokusy nespouští; při `online` a návratu do popředí pokus uspíší.
+Pokusy pokračují i na pozadí. `online` zachová otevřené spojení, které přijalo data v posledních 5 s.
+Po návratu z pozadí či zmrazení platí 5 s milosti před 20s hlídáním mrtvého spojení v popředí.
+Backend posílá protokolové WS ping/pong, jejichž obsluha nezávisí na JS časovači stránky.
 Ruční odpojení/zrušení vypne opakování i auto-start po reloadu stejného tabu (`sessionStorage`).
 Trvalá chyba připojení vrátí formulář. Odmítnutí přesunu/chatového příkazu běžící hovor neruší.
 
@@ -187,3 +190,17 @@ s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5
 `Content-Security-Policy: default-src 'none'`. URL z `PUBLIC_URL`, jinak `Host` a důvěryhodné
 `X-Forwarded-Proto` (http/https). Produkční proxy musí tyto hlavičky přepisovat.
 Úklid je při startu a každou hodinu; před zápisem se také hlídá celková kapacita.
+
+Aplikační TS příkazy čekají ve frontě (nejvýše 128 na relaci). Sdílený token bucket pro cílovou
+IP:port má burst 20 a `TS_CMD_RATE` příkazů/s (výchozí 5). Navázání včetně nového pokusu po
+zvýšení identity respektuje `TS_CONNECT_INTERVAL_MS` (výchozí 3000) a nejvýše 3 handshaky za 45 s. `connect_queue` notice vysvětluje čekání.
+`BanFlooding` / `ClientIsFlooding` a explicitní handshake `flood prevention` spustí 120s pauzu pro celý cíl; existující relace dostanou `flood`,
+přestanou posílat příkazy a po pauze se připojují postupně. V debug logu je `ts_command` a kumulativní
+`count` podle cíle a druhu příkazu; `client` a `session_count` rozlišují jednotlivá připojení. Hodnoty argumentů se nelogují. Interní handshake knihovny není aplikační příkaz.
+Chat/poke obsahuje navíc volitelné `uid` odesílatele; klient ho uchovává u zprávy i po odchodu uživatele.
+
+U hlasového handshake TS3 používá také kód 0x0d01 s `extra_message` přesně
+`flood prevention, please try again later`. Lokální oprava tsclientlib ho zachová jako bezpečný
+enum (žádný cizí text). Backend normalizuje tuto jednoznačnou dočasnou chybu na flood/0x0d03;
+v logu zachová `wire_code=0x0d01`. Ostatní 0x0d01 jsou nadále trvalé bany. Zdroj a rozdíly
+lokální kopie: `vendor/tsclientlib/MLUVKA-PATCH.md`.
