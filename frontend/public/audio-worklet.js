@@ -49,7 +49,6 @@ class MluvkaAudio extends AudioWorkletProcessor {
     this.arrival = undefined;
     this.mobile = false;
     this.gaps = [];
-    this.lastRisk = 0;
     this.adaptAt = 0;
     this.filtered = sampleRate * 0.05;
     this.integral = 0;
@@ -73,8 +72,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
           this.gaps.push({ at: this.clock, gap });
           // Rychlá reakce i na řídkou špičku, kterou p95 ještě nevidí.
           if (gap > sampleRate * 0.04) {
-            this.lastRisk = this.clock;
-            this.target = Math.max(this.target, Math.min(sampleRate * 0.32, gap + sampleRate * 0.04));
+            this.target = Math.max(this.target, Math.min(this.bufferLimit(), gap + sampleRate * 0.04));
           }
         }
         this.arrival = this.clock;
@@ -101,10 +99,9 @@ class MluvkaAudio extends AudioWorkletProcessor {
       if (data.flush) {
         this.read = this.write = 0;
         this.playing = this.started = false;
-        this.target = Math.max(this.target, sampleRate * (this.mobile ? 0.32 : 0.06));
+        this.target = Math.min(this.bufferLimit(), Math.max(this.target, sampleRate * (this.mobile ? 0.32 : 0.06)));
         this.arrival = undefined;
         this.gaps = [];
-        this.lastRisk = this.clock;
         this.filtered = this.target - sampleRate * 0.01;
         this.integral = this.correction = 0;
         this.playResampler = new Resampler(48000, sampleRate);
@@ -113,6 +110,10 @@ class MluvkaAudio extends AudioWorkletProcessor {
       }
     };
     this.port.onmessage = ({ data }) => receive(data);
+  }
+  bufferLimit() {
+    // Desktop: 120ms špička + rezerva, nejvýše 150 ms; mobil má 320 ms.
+    return sampleRate * (this.mobile ? 0.32 : 0.15);
   }
   process(inputs, outputs) {
     const input = inputs[0]?.[0],
@@ -165,14 +166,14 @@ class MluvkaAudio extends AudioWorkletProcessor {
     const seconds = output.length / sampleRate;
     if (this.clock - this.adaptAt >= sampleRate) {
       this.adaptAt = this.clock;
-      this.gaps = this.gaps.filter((v) => this.clock - v.at < sampleRate * 30);
+      this.gaps = this.gaps.filter((v) => this.clock - v.at < sampleRate * 10);
       const sorted = this.gaps.map((v) => v.gap).sort((a, b) => a - b);
       const p95 = sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0;
-      const desired = Math.min(sampleRate * 0.32, Math.max(sampleRate * 0.06, p95 + sampleRate * 0.04));
+      const desired = Math.min(this.bufferLimit(), Math.max(sampleRate * 0.06, p95 + sampleRate * 0.04));
       this.target = Math.max(this.target, desired);
-      // Po zlepšení spojení klesá latence nejvýš o 2 ms za sekundu.
-      if (this.clock - this.lastRisk > sampleRate * 30)
-        this.target = Math.max(desired, this.target - sampleRate * 0.002);
+      // P95 posledních 10 s dovolí pokles i při jednotlivých odlehlých mezerách.
+      // Pokles o 2 ms/s nezkracuje ani nezahazuje celé rámce.
+      this.target = Math.max(desired, this.target - sampleRate * 0.002);
     }
     this.filtered +=
       (this.write - this.read - this.filtered) * (1 - Math.exp(-seconds));
@@ -208,8 +209,9 @@ class MluvkaAudio extends AudioWorkletProcessor {
           this.playing = false;
           this.tail = this.last;
           this.fade = 0;
-          this.lastRisk = this.clock;
-          this.target = sampleRate * 0.32;
+            const gap = this.arrival === undefined ? 0 : this.clock - this.arrival;
+          this.target = this.mobile ? this.bufferLimit()
+            : Math.min(this.bufferLimit(), Math.max(this.target, gap + sampleRate * 0.04));
           this.port.postMessage({ underrun: true });
         }
         sample = this.tail * Math.max(0, 1 - ++this.fade / ramp);

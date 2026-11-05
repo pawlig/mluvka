@@ -98,6 +98,29 @@ export function jitterChecks(ok) {
   }
   {
     const { node, events } = processor();
+    let frame = 0, peak = 0;
+    for (let t = 0; t < 48000 * 60; t += 128) {
+      // Jediná 120ms mezera po 5 s, poté FIFO dávka všech opožděných rámců.
+      if (t < 48000 * 5 || t >= 48000 * 5.12) {
+        while (frame * 960 <= t) {
+          node.port.onmessage({ data: { pcm: new Int16Array(960).buffer } });
+          frame++;
+        }
+      }
+      node.process([], [[new Float32Array(128)]]);
+      peak = Math.max(peak, node.target / 48);
+    }
+    const underruns = events.filter((v) => v.underrun).length;
+    assert.equal(underruns, 1);
+    assert.ok(peak <= 150);
+    assert.ok(node.target / 48 <= 90);
+    assert.equal(events.filter((v) => v.dropped).length, 0);
+    ok("Desktop: jedno podtečení / 120ms špička, do 60 s cíl opět do 90 ms", {
+      underruns, peakTargetBufferMs: peak, targetBufferMs: node.target / 48,
+    });
+  }
+  {
+    const { node, events } = processor();
     node.port.onmessage({ data: { settings: { mobile: true, opus: true } } });
     let seed = 1291, gates = 0, frame = 0, phase = 0;
     const gap = () => {
