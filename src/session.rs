@@ -168,6 +168,25 @@ fn command(name: &str, args: &[(&str, String)]) -> OutCommand {
     }
     cmd
 }
+const SHARE_DESCRIPTION: &str = "🖥 sdílí obrazovku";
+fn is_description(cmd: &OutCommand) -> bool {
+    cmd.0.content().starts_with(b"clientupdate client_description=")
+}
+// Popis klienta v TS po dobu sdílení; po skončení se vrátí původní (i prázdný).
+fn sync_share_description(
+    active: &mut bool,
+    original: &str,
+    sharing: bool,
+    commands: &mut VecDeque<OutCommand>,
+) {
+    if *active == sharing {
+        return;
+    }
+    *active = sharing;
+    commands.retain(|cmd| !is_description(cmd));
+    let text = if sharing { SHARE_DESCRIPTION } else { original };
+    commands.push_back(command("clientupdate", &[("client_description", text.to_owned())]));
+}
 fn password_hash(password: &str) -> String {
     if password.is_empty() {
         String::new()
@@ -1443,6 +1462,13 @@ async fn connected(
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count, mut signal_count) = (0, 0, 0);
     let mut music = crate::music_bot::MusicBot::default();
+    let original_description = con
+        .get_state()
+        .ok()
+        .and_then(|book| book.clients.get(&book.own_client))
+        .map(|client| client.description.clone())
+        .unwrap_or_default();
+    let mut description_active = false;
     if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
     loop {
         tokio::select! {
@@ -1464,6 +1490,8 @@ async fn connected(
                             }
                             if let Err(message) = sharing.handle(&value, s.len()) {
                                 json_send(ws, json!({"type":"share_error","v":1,"message":message,"request":value["type"]})).await?;
+                            } else if let Some(kind @ ("share_start" | "share_stop")) = value["type"].as_str() {
+                                sync_share_description(&mut description_active, &original_description, kind == "share_start", &mut commands);
                             }
                             continue;
                         }
@@ -1560,7 +1588,11 @@ async fn connected(
                                 json_send(ws,json!({"type":if kind == "poke" {"poke"} else {"chat"},"target":kind,"client":client,"from":invoker.id.0,"uid":invoker.uid.map(|u| u.to_string()),"name":invoker.name,"text":message})).await?;
                             }
                         }
-                        json_send(ws, sharing.snapshot(snapshot(con)?)).await?;
+                        let state = sharing.snapshot(snapshot(con)?);
+                        // Přepnutí kanálu ukončí sdílení bez share_stop; popis se vrátí podle stavu.
+                        let own_sharing = state["clients"].as_array().and_then(|list| list.iter().find(|c| c["id"] == state["self"])).is_some_and(|c| c["sharing"].as_bool() == Some(true));
+                        sync_share_description(&mut description_active, &original_description, own_sharing, &mut commands);
+                        json_send(ws, state).await?;
                         if let Some(ev) = music.update(con.get_state().map_err(|e| ts_error(&e))?) { json_send(ws, ev).await?; }
                     },
                     Some(Ok(StreamItem::FileDownload(handle, result))) => { if let Some(reply) = downloads.remove(&handle) { let _ = reply.send(Ok(result)); } },
@@ -1595,6 +1627,8 @@ async fn connected(
                                 else if let Some((_, cmd)) = sent { commands.push_front(cmd); }
                                 slowing = true;
                                 json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
+                            } else if sent.as_ref().is_some_and(|(_, cmd)| is_description(cmd)) {
+                                tracing::debug!(error = %ts_error(&error), "TS odmítl popis klienta při sdílení");
                             } else { json_send(ws,error_message(&ts_error(&error), false)).await?; }
                         } else if slowing && commands.is_empty() {
                             slowing = false;
@@ -1721,6 +1755,24 @@ fn soft_limit(x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn share_description_follows_sharing_state() {
+        let mut commands = VecDeque::new();
+        let mut active = false;
+        sync_share_description(&mut active, "původní", false, &mut commands);
+        assert!(commands.is_empty());
+        sync_share_description(&mut active, "původní", true, &mut commands);
+        sync_share_description(&mut active, "původní", true, &mut commands);
+        assert_eq!(commands.len(), 1);
+        assert!(is_description(&commands[0]));
+        sync_share_description(&mut active, "původní", false, &mut commands);
+        // Nepotvrzená změna se sloučí; zůstane jen návrat původního popisu.
+        assert_eq!(commands.len(), 1);
+        assert!(!String::from_utf8_lossy(commands[0].0.content()).contains("sd"));
+        sync_share_description(&mut active, "", true, &mut commands);
+        sync_share_description(&mut active, "", false, &mut commands);
+        assert_eq!(commands.len(), 1);
+    }
     #[test]
     fn identity_roundtrip_preserves_leading_zero_key_and_uid() {
         for first in [0, 1] {

@@ -28,6 +28,7 @@ import {
   InvitationDetails,
   PasteInvitation,
   decodeInvitation,
+  encodeInvitation,
   invitationLogin,
   readInvitation,
 } from "./invitations";
@@ -125,6 +126,8 @@ function AppContent({
 }) {
   const [invitation, setInvitation] = useState(incomingInvitation.invitation);
   const [showInvite, setShowInvite] = useState(false);
+  const watchInvite = useRef(incomingInvitation.invitation?.watch);
+  const announced = useRef(new Map<number, number>());
   const [showPasteInvite, setShowPasteInvite] = useState(false);
   const [notificationTarget, setNotificationTarget] = useState<
     NotificationTarget | undefined
@@ -311,6 +314,55 @@ function AppContent({
       setText("");
     }
   }, [currentThread]);
+  // Po připojení z pozvánky s polem watch začni sledovat sdílení daného UID.
+  useEffect(() => {
+    const uid = watchInvite.current;
+    if (!connected || !uid) return;
+    watchInvite.current = undefined;
+    sharing.controller.watchUid(uid);
+    const timer = setTimeout(() => {
+      if (!sharing.controller.state.watching) setNotice("Sdílení už skončilo");
+    }, 15000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
+  // Oznámení sdílení do chatu kanálu pro nativní TS klienty: po potvrzeném
+  // startu a při přepnutí kanálu, nejvýše jednou za 60 s na kanál.
+  useEffect(() => {
+    if (!sharing.state.sharing || !connected || !me || !room) return;
+    const last = announced.current.get(me.channel) ?? 0;
+    if (Date.now() - last < 60000) return;
+    const credentials = lastLogin.current;
+    if (!me.uid) return;
+    announced.current.set(me.channel, Date.now());
+    const link = encodeInvitation({
+      v: 1,
+      server: credentials.server,
+      ...(room.name ? { name: room.name } : {}),
+      ...(credentials.channel ? { channel: credentials.channel } : {}),
+      watch: me.uid,
+    });
+    const text = `🖥 ${me.name} sdílí obrazovku v Mluvce — sledovat: ${link}`;
+    send({ type: "chat", target: "channel", text });
+    pendingEchoes.current.push({
+      thread: `channel:${me.channel}`,
+      text,
+      time: Date.now(),
+    });
+    setMessages((old) => [
+      ...old.slice(-499),
+      {
+        target: "channel",
+        thread: `channel:${me.channel}`,
+        from: me.id,
+        uid: me.uid || undefined,
+        name: me.name,
+        text,
+        time: Date.now(),
+      },
+    ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharing.state.sharing, me?.channel, connected]);
 
   const notifications = useNotifications(audio, settings, {
     thread: currentThread,
@@ -367,6 +419,7 @@ function AppContent({
         return;
       if (phase.current !== "idle") disconnect();
       setInvitation(next);
+      watchInvite.current = next.watch;
       setLogin(invitationLogin(next, login.nickname));
       setShowPasteInvite(false);
       setError("");

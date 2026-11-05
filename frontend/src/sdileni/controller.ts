@@ -51,6 +51,7 @@ interface State {
   clients: Presence[];
   sharing: boolean;
   starting: boolean;
+  switching: boolean;
   viewers: number;
   watching?: Share;
   stream?: MediaStream;
@@ -66,6 +67,19 @@ interface Peer {
   candidates: RTCIceCandidateInit[];
   timer?: ReturnType<typeof setTimeout>;
   offering?: boolean;
+  videoSender?: RTCRtpSender;
+  audioSender?: RTCRtpSender;
+}
+function displayOptions(quality: Quality, audio: boolean) {
+  const preset = qualities[quality];
+  return {
+    video: {
+      width: { ideal: preset.width, max: preset.width },
+      height: { ideal: preset.height, max: preset.height },
+      frameRate: { ideal: preset.fps, max: preset.fps },
+    },
+    audio,
+  };
 }
 declare global {
   interface Window {
@@ -80,6 +94,7 @@ export class Sharing {
     clients: [],
     sharing: false,
     starting: false,
+    switching: false,
     viewers: 0,
     status: "",
     error: "",
@@ -90,6 +105,7 @@ export class Sharing {
   private configExpires = 0;
   private capture?: MediaStream;
   private quality: Quality = "720";
+  private audio = false;
   private peers = new Map<string, Peer>();
   private queue = Promise.resolve();
   private desired?: string;
@@ -255,7 +271,9 @@ export class Sharing {
         }
         for (const track of this.capture.getTracks()) {
           const sender = peer.pc.addTrack(track, this.capture!);
+          if (track.kind === "audio") peer.audioSender = sender;
           if (track.kind === "video") {
+            peer.videoSender = sender;
             const tx = peer.pc
               .getTransceivers()
               .find((t) => t.sender === sender);
@@ -277,6 +295,16 @@ export class Sharing {
                 /* Starší Safari ponechá výchozí kodeky. */
               }
             }
+          }
+        }
+        // Prázdný audio transceiver: zvuk jde přidat i do sdílení bez zvuku.
+        if (!peer.audioSender) {
+          try {
+            peer.audioSender = peer.pc.addTransceiver("audio", {
+              direction: "sendonly",
+            }).sender;
+          } catch {
+            /* Bez transceiveru zůstane přepnutí jen u obrazu. */
           }
         }
         // Rezervované rozšíření: bez handleru příkazů, žádné vzdálené ovládání.
@@ -448,18 +476,13 @@ export class Sharing {
     if (this.capture || this.state.starting || !this.token) return;
     const generation = ++this.captureGeneration;
     this.quality = quality;
+    this.audio = audio;
     this.update({ starting: true, error: "" });
     let stream: MediaStream | undefined;
     try {
-      const preset = qualities[quality];
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: preset.width, max: preset.width },
-          height: { ideal: preset.height, max: preset.height },
-          frameRate: { ideal: preset.fps, max: preset.fps },
-        },
-        audio,
-      });
+      stream = await navigator.mediaDevices.getDisplayMedia(
+        displayOptions(quality, audio),
+      );
       if (generation !== this.captureGeneration || !this.token) {
         stream.getTracks().forEach((t) => t.stop());
         return;
@@ -489,6 +512,47 @@ export class Sharing {
         this.update({ starting: false });
     }
   }
+  async switchSource() {
+    if (!this.capture || this.state.starting || this.state.switching) return;
+    const generation = ++this.captureGeneration;
+    this.update({ switching: true, error: "" });
+    let stream: MediaStream | undefined;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia(
+        displayOptions(this.quality, this.audio),
+      );
+      if (generation !== this.captureGeneration || !this.capture) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const video = stream.getVideoTracks()[0];
+      const audio = stream.getAudioTracks()[0] ?? null;
+      for (const peer of this.peers.values()) {
+        if (!peer.sending) continue;
+        await peer.videoSender?.replaceTrack(video);
+        await peer.audioSender?.replaceTrack(audio);
+      }
+      if (generation !== this.captureGeneration || !this.capture) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      video.contentHint = this.quality === "motion" ? "motion" : "detail";
+      video.onended = () => this.stop();
+      this.capture.getTracks().forEach((t) => {
+        t.onended = null;
+        t.stop();
+      });
+      this.capture = stream;
+      stream = undefined;
+    } catch (e) {
+      stream?.getTracks().forEach((t) => t.stop());
+      if (!(e instanceof DOMException && e.name === "NotAllowedError"))
+        this.fail(e);
+    } finally {
+      if (generation === this.captureGeneration)
+        this.update({ switching: false });
+    }
+  }
   stop(notify = true) {
     ++this.captureGeneration;
     clearTimeout(this.startTimer);
@@ -501,7 +565,12 @@ export class Sharing {
     for (const peer of this.peers.values())
       if (peer.sending) this.close(peer.to, true);
     if (notify && this.token) this.send("share_stop");
-    this.update({ sharing: false, starting: false, viewers: 0 });
+    this.update({
+      sharing: false,
+      starting: false,
+      switching: false,
+      viewers: 0,
+    });
   }
   watch(share: Share) {
     this.unwatch();
@@ -543,6 +612,15 @@ export class Sharing {
     this.update({ status: "Spojení ztraceno — zkouším znovu" });
     this.send("watch", { to: share.session });
     this.watchDeadline();
+  }
+  // Pozvánka s polem watch: sleduj sdílení daného UID, jakmile se objeví ve stavu.
+  watchUid(uid: string, within = 15000) {
+    this.desired = uid;
+    this.restoreUntil = Date.now() + within;
+    const share = this.state.shares.find(
+      (p) => p.uid === uid && p.session !== this.state.self,
+    );
+    if (share && !this.state.watching) this.watch(share);
   }
   unwatch(notify = true) {
     clearTimeout(this.watchTimer);
