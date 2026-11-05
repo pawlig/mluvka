@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fork } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import { strict as assert } from "node:assert";
@@ -721,6 +722,17 @@ export async function fallbackCheck(browser, base, login, ok) {
       ),
     ).toBe(true);
     ok("Migrace AGC proběhne jednou a pozdější výslovná volba přežije reload");
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 15000 }).toBe(true);
+    const stale = await page.evaluate(async () => {
+      const names = await caches.keys();
+      for (const name of names.filter((v) => v.startsWith("mluvka-"))) {
+        const cache = await caches.open(name);
+        await cache.put("/audio-worklet.js", new Response('throw new Error("stary-worklet-z-cache");', { headers: { "content-type": "text/javascript" } }));
+      }
+      return (await (await fetch("/audio-worklet.js")).text()).includes("stary-worklet-z-cache");
+    });
+    expect(stale).toBe(true);
+    expect(await page.evaluate(() => window.__mluvkaStats.sampleRate)).toBe(0);
     await login(page, "PCM záloha");
     await expect(page.locator(".connection-status")).toHaveText("Připojeno", {
       timeout: 45000,
@@ -730,6 +742,9 @@ export async function fallbackCheck(browser, base, login, ok) {
       .poll(() => page.evaluate(() => window.__mluvkaStats.receivedFrames))
       .toBeGreaterThan(10);
     ok("Selhání konstruktoru WASM Workeru: vyjedná se funkční PCM");
+    const expectedWorklet = createHash("sha256").update(readFileSync(new URL("../frontend/public/audio-worklet.js", import.meta.url))).digest("hex").slice(0, 12);
+    await expect.poll(() => page.evaluate(() => window.__mluvkaStats.workletVersion), { timeout: 15000 }).toBe(expectedWorklet);
+    ok("PWA: stará cache neversionovaného workletu neovlivní nový přehrávač", { workletVersion: expectedWorklet });
   } finally {
     await context.close();
   }
@@ -811,6 +826,8 @@ export async function codecRecoveryCheck(ok) {
   )
     .replace(/import\s*\{[^}]*\}\s*from\s*"\.\/audio-diagnostics";/, "")
     .replace("export class AudioEngine", "class AudioEngine")
+    .replaceAll("import.meta.env.DEV", "false")
+    .replaceAll("import.meta.env.VITE_AUDIO_WORKLET_URL", '"/audio-worklet.js"')
     .replaceAll("import.meta.url", '"http://test.invalid/audio.ts"');
   let clock = 0,
     sent = 0;
@@ -858,12 +875,13 @@ export async function diagnosticCheck(page, ok, privateValues = []) {
   await expect(panel.getByRole("status")).toHaveText("Diagnostika zkopírována");
   const text = await page.evaluate(() => navigator.clipboard.readText());
   const diagnostic = JSON.parse(text);
-  for (const key of ["bufferMs", "targetBufferMs", "underruns", "underrunsLastMinute", "plcFrames", "droppedFrames", "incomingGapP95Ms", "incomingGapMaxMs", "decodeAverageMs", "decodeMaxMs", "sampleRate", "baseLatency", "outputLatency", "renderQuantum", "codec", "outputRoute", "effectiveType", "userAgent", "build"])
+  for (const key of ["bufferMs", "targetBufferMs", "underruns", "underrunsLastMinute", "plcFrames", "droppedFrames", "incomingGapP95Ms", "incomingGapMaxMs", "decodeAverageMs", "decodeMaxMs", "sampleRate", "baseLatency", "outputLatency", "renderQuantum", "codec", "outputRoute", "effectiveType", "userAgent", "build", "workletVersion", "expectedWorkletVersion"])
     expect(diagnostic).toHaveProperty(key);
   for (const key of Object.keys(diagnostic)) expect(key).not.toMatch(/server|nickname|uid|password|token|identity/i);
   for (const value of privateValues) if (value) expect(text).not.toContain(value);
   expect(diagnostic.build).toMatch(/^[a-f0-9]{7,40}$/);
   expect(diagnostic.renderQuantum).toBeGreaterThan(0);
+  expect(diagnostic.workletVersion).toBe(diagnostic.expectedWorkletVersion);
   await page.evaluate((value) => { window.testAudioDiagnostics = value; }, diagnostic);
   if (page.viewportSize()?.width === 390) await page.screenshot({ path: `docs/screenshots/diagnostika-mobil-${diagnostic.codec}.png` });
   await page.getByRole("button", { name: "Hotovo", exact: true }).click();

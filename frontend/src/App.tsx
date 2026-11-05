@@ -2244,6 +2244,7 @@ function AudioDebug() {
         <dt>Maximální skok vzorků</dt><dd>{stats.maxJump}</dd>
         <dt>Kodek / výstup</dt><dd>{stats.codec} / {stats.outputRoute}</dd>
         <dt>Síť / stav zvuku</dt><dd>{stats.effectiveType ?? "nezjištěno"} / {stats.contextState}</dd>
+        <dt>Verze workletu</dt><dd>{stats.workletVersion ?? "—"}</dd>
         <dt>Build</dt><dd>{stats.build}</dd>
         <dt>Prohlížeč</dt><dd>{stats.userAgent}</dd>
       </dl>

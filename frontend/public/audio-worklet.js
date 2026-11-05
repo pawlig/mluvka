@@ -24,6 +24,7 @@ class Resampler {
 class MluvkaAudio extends AudioWorkletProcessor {
   constructor() {
     super();
+    this.workletVersion = /*__WORKLET_VERSION__*/ "dev";
     this.captureResampler = new Resampler(sampleRate, 48000);
     this.playResampler = new Resampler(48000, sampleRate);
     this.capture = new Int16Array(960);
@@ -231,6 +232,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
     if (this.clock % sampleRate < output.length)
       this.port.postMessage({
         stats: {
+          workletVersion: this.workletVersion,
           renderQuantum: output.length,
           bufferMs: ((this.write - this.read) / sampleRate) * 1000,
           targetBufferMs: (this.target / sampleRate) * 1000,

@@ -101,7 +101,9 @@ export class AudioEngine {
       window.__mluvkaStats.sampleRate = this.context.sampleRate;
       audioEnvironment(this.context, () => this.player?.srcObject ? "<audio> / MediaStreamDestination" : "přímo / AudioDestinationNode");
       const startingContext = this.context;
-      await startingContext.audioWorklet.addModule("/audio-worklet.js");
+      await startingContext.audioWorklet.addModule(
+        import.meta.env.DEV ? "/audio-worklet.js" : import.meta.env.VITE_AUDIO_WORKLET_URL,
+      );
       if (this.context !== startingContext) return;
       this.node = new AudioWorkletNode(this.context, "mluvka-audio", {
         numberOfInputs: 1,

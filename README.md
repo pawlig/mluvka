@@ -266,7 +266,8 @@ problému. Nechte panel běžet během praskání a pošlete zkopírovaný text 
 Kopie obsahuje pouze technické údaje: buffer/cíl, podtečení za minutu i celkem, PLC/ztráty,
 mezery doručení za posledních 30 s, čas dekódování, latence a vzorkování zařízení, cestu
 výstupu, prohlížeč a commit buildu. Build bez `.git` může dostat commit přes
-`VITE_BUILD_COMMIT`; bez něj poctivě ukáže `unknown`. Neobsahuje adresu TS, přezdívky, UID ani přihlašovací údaje.
+`VITE_BUILD_COMMIT`; bez něj poctivě ukáže `unknown`. Worklet má navíc vlastní hash obsahu a verzovanou URL,
+aby stará PWA cache nemíchala nový klient se starým přehrávačem. Neobsahuje adresu TS, přezdívky, UID ani přihlašovací údaje.
 
 Na čistém desktopu začíná buffer na 60 ms; jitter jej může zvýšit až na 320 ms.
 Mobil začíná s rezervou 320 ms, po 30 s klidu cíl pomalu klesá. Dekodér zpracovává

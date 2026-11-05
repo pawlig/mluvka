@@ -132,6 +132,7 @@ declare global {
       uid: string;
       sampleRate: number;
       renderQuantum?: number;
+      workletVersion?: string;
       bufferMs: number;
       targetBufferMs: number;
       driftCorrection: number;

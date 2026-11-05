@@ -53,12 +53,14 @@ export function audioDiagnostics() {
     build: import.meta.env.VITE_BUILD_COMMIT as string,
     capturedAt: new Date().toISOString(),
     codec: s.codec,
+    workletVersion: s.workletVersion ?? null,
+    expectedWorkletVersion: import.meta.env.DEV ? "dev" : import.meta.env.VITE_AUDIO_WORKLET_HASH as string,
     bufferMs: round(s.bufferMs), targetBufferMs: round(s.targetBufferMs),
     underruns: s.underruns, underrunsLastMinute: underruns.length,
     plcFrames: s.plcFrames, lostFrames: s.lostFrames, droppedFrames: s.droppedFrames,
     droppedCaptureFrames: s.droppedCaptureFrames,
     incomingGapP95Ms: round(sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0),
-    incomingGapMaxMs: round(sorted.at(-1) ?? 0), incomingGapSamples: sorted.length,
+    incomingGapMaxMs: round(sorted[sorted.length - 1] ?? 0), incomingGapSamples: sorted.length,
     // Histogram platí pro stejné klouzavé okno 30 s jako p95/max.
     incomingGapHistogram: [25, 50, 100, 200, 300, 400, Infinity].map((upper, i, limits) => ({
       upToMs: Number.isFinite(upper) ? upper : null,

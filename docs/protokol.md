@@ -92,7 +92,7 @@ rychlá reakce na jednotlivou špičku a podtečení; strop je 320 ms. Po 30 s b
 klesá nejvýše o 2 ms/s. Naučený cíl přežije reconnect; podtečení vynutí doplnění celé rezervy. PI regulátor se při doplnění resetuje a má anti-windup. Čistý desktop má cíl ≤90 ms. PI regulátor mění lineární
 interpolaci nejvýše ±1,05 %, aby zvládl drift ±1 %. Nouzové srovnání s prolnutím
 nastává až po překročení větší z mezí 800 ms a cíl + 400 ms. Podtečení i obnovení mají 5ms rampu.
-Mobil používá nativní vzorkování AudioContextu a latencyHint playback; desktop interactive.
+Worklet se načítá z URL s hashem obsahu; SW přednačítá i tuto konkrétní verzi, takže nový HTML nemůže převzít starý worklet ze stejné cache položky. Diagnostika porovnává skutečný a očekávaný hash. Mobil používá nativní vzorkování AudioContextu a latencyHint playback; desktop interactive.
 
 `window.__mluvkaStats` obsahuje počty rámců, RMS, podtečení, zahození, buffer/cíl,
 korekci driftu, skok sousedních vzorků, kb/s, PLC/ztráty, kodek, vzorkování a render quantum.

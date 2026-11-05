@@ -12,13 +12,22 @@ function buildCommit() {
     }).trim();
   } catch { return "unknown"; }
 }
+const workletSource = readFileSync(new URL("./public/audio-worklet.js", import.meta.url), "utf8");
+const workletVersion = createHash("sha256").update(workletSource).digest("hex").slice(0, 12);
+const workletUrl = `/audio-worklet.js?v=${workletVersion}`;
 export default defineConfig({
-  define: { "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildCommit()) },
+  define: {
+    "import.meta.env.VITE_BUILD_COMMIT": JSON.stringify(buildCommit()),
+    "import.meta.env.VITE_AUDIO_WORKLET_URL": JSON.stringify(workletUrl),
+    "import.meta.env.VITE_AUDIO_WORKLET_HASH": JSON.stringify(workletVersion),
+  },
   plugins: [
     {
       name: "mluvka-sw-version",
       closeBundle() {
         const dist = fileURLToPath(new URL("../dist/", import.meta.url));
+        const worklet = workletSource.replace('/*__WORKLET_VERSION__*/ "dev"', JSON.stringify(workletVersion));
+        writeFileSync(`${dist}/audio-worklet.js`, worklet);
         const assets = readdirSync(`${dist}/assets`).map(
           (name) => `/assets/${name}`,
         );
@@ -43,7 +52,7 @@ export default defineConfig({
           .replace(
             /\/\*__ASSETS__\*\/\s*\[\]/,
             JSON.stringify(
-              assets.filter((asset) => !asset.includes("codec-worker")),
+              [...assets.filter((asset) => !asset.includes("codec-worker")), workletUrl],
             ),
           );
         writeFileSync(`${dist}/sw.js`, sw);
