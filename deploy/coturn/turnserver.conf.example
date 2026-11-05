@@ -1,0 +1,29 @@
+# Šablona; ${...} musí při startu nahradit entrypoint (coturn sám env nerozbaluje).
+listening-port=3478
+min-port=49160
+max-port=49200
+use-auth-secret
+static-auth-secret=${TURN_SECRET}
+realm=example.org
+external-ip=${TURN_EXTERNAL_IP}
+fingerprint
+no-cli
+no-multicast-peers
+no-tls
+no-dtls
+user-quota=12
+total-quota=120
+max-bps=1500000
+# Rozsahy se zapisují jako inclusive IP intervaly, nikoli CIDR.
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=224.0.0.0-239.255.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=ff00::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff

@@ -73,6 +73,8 @@ export interface Client {
   microphone: boolean;
   deafen: boolean;
   away: boolean;
+  mluvka?: boolean;
+  sharing?: boolean;
 }
 export interface RoomState {
   type: "state";

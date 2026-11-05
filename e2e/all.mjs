@@ -1,4 +1,5 @@
 // Úplné regresní kroky běží v obou vyjednaných transportech proti skutečnému TS3.
+import { localTurn } from "./turn.mjs";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -10,6 +11,12 @@ const results = [],
   runs = [];
 // Jedna TS3 instance zůstává rezervovaná přes oba transporty; samostatné
 // pracovní stromy jinak mohou obsadit local accounting mezi dvěma průchody.
+const buildStatus = await new Promise((resolve, reject) => {
+  const child = spawn("npm", ["run", "build"], { cwd: new URL("..", import.meta.url).pathname, env: { ...process.env, VITE_E2E_SHARING: "1" }, stdio: "inherit" });
+  child.on("error", reject); child.on("exit", resolve);
+});
+if (buildStatus !== 0) throw Error("Sestavení testovacího frontendu selhalo.");
+const turn = await localTurn();
 const admin = randomBytes(18).toString("hex");
 const directory =
   process.env.TS3_DIR ||
@@ -46,7 +53,7 @@ try {
         process.execPath,
         [new URL("./run.mjs", import.meta.url).pathname],
         {
-          env: { ...process.env, E2E_CODEC: codec, E2E_TS_ADMIN: admin },
+          env: { ...process.env, ...turn.env, E2E_CODEC: codec, E2E_TS_ADMIN: admin },
           stdio: "inherit",
         },
       );
@@ -79,6 +86,7 @@ try {
     }
   }
 } finally {
+  await turn.stop();
   if (server.exitCode === null && server.signalCode === null)
     await new Promise((resolve) => {
       const timer = setTimeout(() => {

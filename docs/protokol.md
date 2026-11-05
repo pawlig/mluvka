@@ -187,3 +187,68 @@ s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5
 `Content-Security-Policy: default-src 'none'`. URL z `PUBLIC_URL`, jinak `Host` a důvěryhodné
 `X-Forwarded-Proto` (http/https). Produkční proxy musí tyto hlavičky přepisovat.
 Úklid je při startu a každou hodinu; před zápisem se také hlídá celková kapacita.
+
+## Sdílení obrazovky (signalizace v1)
+
+Obraz a volitelný zvuk sdílení běží přes WebRTC, nezatěžují binární hlasový WS protokol ani TS.
+Místnost tvoří ověřené relace na stejném normalizovaném TS `host:port` a ve stejném TS kanálu.
+Backend zjišťuje kanál, client ID a UID z TS knihy, klient je ve zprávě neurčuje.
+Registr je v paměti jednoho backendu; pro více replik je třeba sticky routing nebo sdílený registr.
+TS klienti mimo Mluvku sdílení nevidí. Všechny přeposílané zprávy používají náhodné **ID relace**,
+nikdy TS client ID. `from` doplňuje backend; vstupní `from` ignoruje.
+
+Po TS přihlášení přijde `share_session: {v:1, session:string, token:string}`. `session` je veřejné
+směrovací ID, `token` je odlišný náhodný bearer token pouze pro `/api/ice`; neukládat ani nelogovat.
+
+Každý klientský signalizační JSON obsahuje `v:1, kind:"screen"`:
+
+| `type` | Další pole | Význam |
+| --- | --- | --- |
+| `share_start` | — | Zveřejní vlastní sdílení v místnosti. |
+| `share_stop` | — | Ukončí vlastní vysílání i vazby jeho diváků; zachová vlastní sledování. |
+| `watch` | `to` | Požádá sdílejícího o offer. Opakovaný watch pro stejné sdílení slouží také k ICE restartu. |
+| `unwatch` | `to` | Uvolní divácké místo a obě peer spojení této vazby. |
+| `rtc_offer` | `to`, `call`, `sdp:{type:"offer",sdp:string}` | Jen sdílející → předem přijatý divák. |
+| `rtc_answer` | `to`, `call`, `sdp:{type:"answer",sdp:string}` | Jen divák → sledovaný sdílející. |
+| `rtc_ice` | `to`, `call`, `candidate:RTCIceCandidateInit \| null` | ICE v obou směrech již vyžádané vazby. |
+
+Backend předává `watch`, `unwatch`, `rtc_offer`, `rtc_answer`, `rtc_ice` s `from` a `to`.
+`call` (1–64 bajtů) identifikuje konkrétní RTCPeerConnection; staré kandidáty pro jiné spojení
+klient ignoruje. Kandidáty ukládá do fronty do nastavení remote description. Sender nabízí
+VP9 → H.264 → VP8, pokud je prohlížeč podporuje. ICE restart vytváří nový offer na stávající vazbě.
+V každém směru dvojice mohou existovat samostatná spojení, takže lidé mohou sdílet vzájemně.
+
+Backend při změně registru rozesílá `share_list`:
+
+```json
+{"type":"share_list","v":1,"self":"session-A","sharing":false,"viewers":0,
+ "shares":[{"session":"session-B","client":12,"uid":"public-uid","name":"Pavel","kind":"screen"}],
+ "clients":[{"session":"session-B","client":12,"uid":"public-uid","mluvka":true,"sharing":true}]}
+```
+
+`shares` obsahuje jen aktivní sdílení vlastní místnosti. `clients` je presence Mluvek stejného TS serveru,
+pro příznaky ve stromu (`sharing` se zveřejňuje pouze ve vlastní místnosti); páruje se vždy přes client ID **i UID**, nikoli přezdívku.
+Snímky `state.clients` navíc obsahují `mluvka:boolean` a `sharing:boolean`.
+Přesun/odpojení zruší sledování dané relace i všechny její diváky, při přesunu se vlastní vysílání zastaví
+(včetně stop capture v klientovi). `share_stop` od backendu oznámí divákovi zánik přenosu.
+Limit je šest diváků na sdílejícího, jeden sledovaný na diváka, libovolně více sdílejících v místnosti.
+Odmítnutí vrátí nefatální `share_error:{v:1,message:string,request:string}` s českou hláškou.
+
+WS transport má maximum 32 KiB, ale původní řízení zůstává omezené na 16 KiB a 40 zpráv/s.
+Výhradně offer/answer smějí mít 32 KiB JSON (samotné SDP max. 30 KiB), ICE 4 KiB (candidate max. 2 KiB),
+ostatní signalizace 1 KiB. Signalizace má zvláštní strop 120 zpráv/s pro šest paralelních ICE jednání.
+Překročení tempa ukončí relaci; odmítnutí obsahu nebo směrování vrátí `share_error`.
+Fronty zůstávají omezené, signalizace nepřebírá audio frontu.
+
+`GET /api/ice` vyžaduje `Authorization: Bearer <token>` živé TS relace, jinak 401.
+Vrací `{iceServers:RTCIceServer[], expiresAt:number}`, `Cache-Control: no-store`, max. 30 požadavků/min
+na relaci (potom 429). STUN z `STUN_URLS` (výchozí Google), TURN z `TURN_URLS` a `TURN_SECRET`.
+Username = `<now+43200>:<base64(SHA1(uid)) bez +/=>`, credential = base64(HMAC-SHA1(secret, username)).
+Bez TURN URL se vrací pouze STUN, žádné statické heslo nikdy. Odpověď klient používá pro nová spojení;
+přihlášení nové WS relace zneplatní klientský cache configu a obnoví sledování podle UID (do 90 s).
+
+Data channel `label:"mluvka.v1", protocol:"mluvka.v1"` je vyhrazený pro budoucí typované zprávy
+`{v:1,kind:...,type:...,payload:...}`. Tato verze nepřijímá žádné příkazy a nedává oprávnění k ovládání.
+Budoucí `kind` streamu/verze vyžadují výslovné rozšíření validace backendu i klienta.
+Debug okno a `window.__mluvkaShareStats` uvádějí šířku/výšku, fps, kb/s (`bitrate`),
+`framesDecoded` a vybraný ICE typ `host/srflx/relay` (relay má přednost, pokud ho používá jedna strana).

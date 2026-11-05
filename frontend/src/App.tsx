@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChatMessage as MessageBody } from "./ChatMessage";
 import { ImageComposer } from "./ImageComposer";
+import { useSharing } from "./sdileni/controller";
+import { SharingArea, SharingControls, ScreenIcon } from "./sdileni/Sdileni";
 import { AudioEngine } from "./audio";
 import { Icon } from "./Icon";
 import { Vlna } from "./Vlna";
@@ -181,6 +183,9 @@ export function App() {
   const [mobile, setMobile] = useState("channels");
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const ws = useRef<WebSocket | undefined>(undefined);
+  const sharing = useSharing((data) => {
+    if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(JSON.stringify(data));
+  });
   const peersRef = useRef(peers);
   const settingsRef = useRef(settings);
   const levelTime = useRef(0);
@@ -568,6 +573,7 @@ export function App() {
         socket.close();
         return;
       }
+      sharing.controller.receive(msg);
       if (msg.type === "hello") audio.negotiate(msg.audio?.codec);
       if (msg.type === "upload_token") setUploadToken(msg.token);
 
@@ -766,6 +772,7 @@ export function App() {
     function closed() {
       clearInterval(heartbeat);
       if (ws.current !== socket) return;
+      sharing.controller.disconnected();
       ws.current = undefined;
       audio.ready = false;
       audio.ptt = false;
@@ -799,6 +806,7 @@ export function App() {
     };
   }
   function disconnect() {
+    sharing.controller.disconnected(true);
     wanted.current = false;
     setAutoStarting(false);
     ++generation.current;
@@ -1086,7 +1094,11 @@ export function App() {
                     onPointerUp={stopLongPress}
                     onPointerCancel={stopLongPress}
                     onLostPointerCapture={stopLongPress}
-                    onClick={() => setPeerClient(p)}
+                    onClick={() => {
+                      const share = sharing.state.shares.find(s => s.client === p.id && s.uid === p.uid && s.session !== sharing.state.self);
+                      if (share) { sharing.controller.watch(share); setMobile("chat"); }
+                      else setPeerClient(p);
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setPeerClient(p);
@@ -1103,6 +1115,8 @@ export function App() {
                       {p.id === room?.self && <small> vy</small>}
                     </span>
                     <span className="client-icons">
+                      {sharing.state.clients.some(c => c.client === p.id && c.uid === p.uid && c.sharing) && <span className="share-tree-icon" title="Sdílí obrazovku"><ScreenIcon /></span>}
+                      {sharing.state.clients.some(c => c.client === p.id && c.uid === p.uid) && <span title="Připojeno přes Mluvku" aria-label="Mluvka">m</span>}
                       {p.microphone && <Icon name="micOff" size={14} />}{" "}
                       {p.deafen && <Icon name="deaf" size={14} />}{" "}
                       {p.away && <Icon name="moon" size={14} />}{" "}
@@ -1482,6 +1496,7 @@ export function App() {
                   }
                 </span>
               </header>
+              <SharingArea controller={sharing.controller} output={settings.output} />
               <nav className="chat-tabs" aria-label="Chat">
                 <button
                   className={thread === "channel" ? "active" : ""}
@@ -1593,6 +1608,7 @@ export function App() {
             </section>
           </main>
           <footer className="voice-bar">
+            <SharingControls controller={sharing.controller} />
             <div className="self-card">
               {me && <Avatar client={me} talking={selfTalking} />}
               <div>
@@ -2227,6 +2243,7 @@ function AudioDebug() {
     <pre className="audio-debug">
       {JSON.stringify(
         {
+          sharing: window.__mluvkaShareStats,
           codec: stats.codec,
           underruns: stats.underruns,
           bufferMs: Math.round(stats.bufferMs),

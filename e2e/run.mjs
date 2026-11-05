@@ -1,4 +1,5 @@
 // Skutečný TS3 + dvě izolované relace Chrome. Testovací hesla vznikají jen v paměti.
+import { installSharingCapture, sharingChecks } from "./sdileni.mjs";
 import { chromium, expect } from "@playwright/test";
 import { mobileChecks, pwaChecks } from "./mobil.mjs";
 import {
@@ -391,7 +392,7 @@ function startBackend() {
       ALLOWED_SERVERS: tsAddress,
       UPLOAD_DIR: uploadDir,
       PUBLIC_URL: base,
-      MAX_SESSIONS: "6",
+      MAX_SESSIONS: "12",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -552,6 +553,7 @@ try {
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (...args) => {
     const context = await newContext(...args);
+    await installSharingCapture(context);
     if (process.env.E2E_CODEC === "pcm")
       await context.addInitScript(() => {
         const send = WebSocket.prototype.send;
@@ -674,6 +676,7 @@ try {
     await moveToProtected(a);
     await moveToProtected(b);
     ok("Přesun obou relací do kanálu s heslem");
+    await sharingChecks({ a, b, browser, base, root, query, login: fillLogin, connected, moveToProtected, password, channelPassword, tsAddress, ok });
     if (!process.env.E2E_FOCUS) {
       await notificationChecks({ a, b, bContext, root, query, moveToProtected, ok });
       await invitationChecks({

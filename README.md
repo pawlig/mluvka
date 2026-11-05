@@ -319,3 +319,37 @@ Proto se přenos hesel instalací nespoléhá na `start_url` ani zanechaný frag
 Zkopírujte původní pozvánku, otevřete Mluvku z plochy a zvolte **Vložit pozvánku**.
 Odkaz vložte do pole (nebo použijte Načíst ze schránky, pokud ho prohlížeč dovolí).
 Takto funguje i pozvánka do již nainstalované aplikace.
+
+## Sdílení obrazovky a TURN
+
+V dolní liště desktopové Mluvky zvolte kvalitu a **Sdílet obrazovku**. Výchozí je 720p/30 fps
+(2,5 Mb/s na diváka), další volby 1080p/30 (4 Mb/s) a 1080p/60 (6 Mb/s, pro hry/video).
+Volitelný zvuk karty/systému závisí na tom, co prohlížeč při výběru zdroje nabídne.
+Tlačítko i systémové „Zastavit sdílení“ přenos ukončí. Sdílet jde jen z počítače v HTTPS/localhost.
+
+Ve stejném TS serveru a kanálu vidí ostatní Mluvky kartu **Sledovat** a ikonu ve stromu.
+Klepnutí na sdílejícího ve stromu otevře přenos i na mobilu; dlouhý stisk zachová nastavení uživatele.
+Více lidí může vysílat najednou, sledujete jednoho. Mesh omezuje jednoho sdílejícího na šest diváků;
+TS klienti mimo Mluvku obraz nedostávají. Při přesunu kanálu se přenos zastaví.
+
+Přehrávač má vlastní hlasitost zvuku sdílení, používá vybraný výstup z Nastavení, kde jej prohlížeč podporuje.
+Mobil umí sevřením přiblížit 1–4× a obraz posunout prstem; dvojklep přepíná 1×/2×.
+Stránka se nezoomuje. Na šířku přehrávač zabere plochu, tlačítko Celá obrazovka používá standardní API
+nebo iOS video fullscreen. Po síťovém výpadku zkusí ICE restart, po WS reconnectu obnoví sledování.
+Debug v Nastavení ukazuje také rozlišení/fps/bitrate a `host/srflx/relay`; stav **Přes TURN** znamená relay.
+
+Martin na Easypanelu doplní **`TURN_URLS`** (UDP i TCP, skutečná DNS doména jen v env) a ověří shodu již
+nastaveného **`TURN_SECRET`** s `static-auth-secret` coturn. Volitelně `STUN_URLS` (jinak Google STUN).
+DNS A míří přímo na hostitele coturn, bez HTTP proxy; porty jsou **3478/udp + 3478/tcp** a
+**49160–49200/udp**, stejně na hostiteli i kontejneru. `external-ip` odpovídá veřejné IP hostitele.
+TLS TURN není vyžadované. Podrobný postup, ochrana privátních sítí a ověření přes Trickle ICE /
+`turnutils_uclient`: [deploy/coturn/README.md](deploy/coturn/README.md).
+
+Backend vydává dočasné TURN REST přihlašovací údaje na 12 hodin přes autorizované `/api/ice`;
+statické heslo prohlížeč nedostane. Bez TURN je dostupný jen STUN a některé NAT/mobilní sítě spojení znemožní.
+Signalizace a limity: [docs/protokol.md](docs/protokol.md#sdílení-obrazovky-signalizace-v1).
+
+E2E sdílení používá skutečné WebRTC a lokální coturn (`brew install coturn`), potřebuje volné porty
+3479 a 49220–49260/udp. `npm run e2e` sestaví frontend s testovacím relay přepínačem a přidá testovací
+canvas capture jen injekcí Playwrightu. Po ověření spusťte `npm run build` pro produkční dist.
+TS3 E2E spouštějte pod sdíleným zámkem podle zadání worktree; žádná druhá TS3 instance nesmí běžet souběžně.
