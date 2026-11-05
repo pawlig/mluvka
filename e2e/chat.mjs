@@ -71,25 +71,25 @@ export async function chatChecks({
   // Antiflood fronta může legitimně rozložit rychlou sérii do několika sekund.
   const wire = await b.context().newCDPSession(b);
   await wire.send("Network.enable");
-  const received = new Map();
+  const deliveryCounts = new Map();
   wire.on("Network.webSocketFrameReceived", ({ response }) => {
     if (response.opcode !== 1) return;
     try {
       const message = JSON.parse(response.payloadData);
       if (message.type === "chat")
-        received.set(message.text, (received.get(message.text) || 0) + 1);
+        deliveryCounts.set(message.text, (deliveryCounts.get(message.text) || 0) + 1);
     } catch {
       /* Jiné protokolové rámce nejsou chat. */
     }
   });
   const send = async (text) => {
-    const before = received.get(text) || 0;
+    const before = deliveryCounts.get(text) || 0;
     await a.getByLabel("Zpráva", { exact: true }).fill(text);
     await a
       .getByRole("button", { name: "Odeslat zprávu", exact: true })
       .click();
     await expect
-      .poll(() => received.get(text) || 0, { timeout: 15000 })
+      .poll(() => deliveryCounts.get(text) || 0, { timeout: 15000 })
       .toBeGreaterThan(before);
   };
   const text =
