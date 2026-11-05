@@ -389,3 +389,12 @@ zkoušku na fyzických telefonech.
 
 Barvu uživatele změníte přes jeho avatar nebo dlouhé podržení ve stromu → Barva….
 Platí jen u vás, ukládá se podle TS identity do `mluvka.colors`; přejmenování ji nezmění.
+
+### Povolení mikrofonu
+
+Otevřená stránka drží jeden mikrofonní stream a znovu jej použije při odpojení,
+připojení i reconnectu. Po odpojení jsou stopy vypnuté a odpojené od zpracování;
+při zavření stránky se uvolní. Změna zařízení nebo parametrů zpracování může
+vyžadovat nové otevření. Permissions API, kde je dostupné, ověří stav oprávnění.
+Dotykový klient při dosud neuděleném oprávnění jednou ukáže nápovědu pro jeho
+trvalé povolení. Uložení oprávnění při příštím otevření stránky řídí prohlížeč.

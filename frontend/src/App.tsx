@@ -138,6 +138,7 @@ function AppContent({
   const [error, setError] = useState(incomingInvitation.error || "");
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [inputUnavailable, setInputUnavailable] = useState(false);
+  const [permissionHelp, setPermissionHelp] = useState(false);
   const [outputBlocked, setOutputBlocked] = useState(false);
   const [kicked, setKicked] = useState(false);
   const foregroundGrace = useRef(0);
@@ -255,6 +256,7 @@ function AppContent({
   useServiceWorker(status !== "idle" || retryAttempt > 0);
   audio.onBlocked = setAudioBlocked;
   audio.onInputUnavailable = setInputUnavailable;
+  audio.onPermissionHelp = () => setPermissionHelp(true);
   audio.onOutputBlocked = setOutputBlocked;
   audio.onCodecFailure = () => closeStale.current?.();
   const currentThread =
@@ -358,7 +360,7 @@ function AppContent({
       clearTimeout(retryTimer.current);
       clearTimeout(longPress.current);
       clearTimeout(peerTimer.current);
-      void audio.close();
+      void audio.close(true);
     };
   }, []);
   useEffect(() => {
@@ -1778,6 +1780,16 @@ function AppContent({
         </>
       )}
 
+      {permissionHelp && (
+        <div className="toast" role="status">
+          <span>
+            Pro trvalý přístup k mikrofonu: iPhone — Nastavení → Safari →
+            Mikrofon → Povolit. Chrome na Androidu — zámek u adresy → Mikrofon →
+            Povolit.
+          </span>
+          <button onClick={() => setPermissionHelp(false)}>Rozumím</button>
+        </div>
+      )}
       {connected && (inputUnavailable || (outputBlocked && !audioBlocked)) && (
         <div className="audio-banners">
           {outputBlocked && !audioBlocked && (

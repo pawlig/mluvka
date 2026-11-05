@@ -8,6 +8,15 @@ export class AudioEngine {
   onInputUnavailable: (unavailable: boolean) => void = () => {};
   onOutputBlocked: (blocked: boolean) => void = () => {};
   inputUnavailable = false;
+  onPermissionHelp: () => void = () => {};
+  private captureConfig = "";
+  private microphoneLifetime = 0;
+  private releaseMicrophone = () => {
+    ++this.microphoneLifetime;
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = undefined;
+    this.captureConfig = "";
+  };
   private deferredInput = false;
   private inputFailed() {
     this.inputUnavailable = true;
@@ -77,6 +86,9 @@ export class AudioEngine {
     onFrame: AudioEngine["onFrame"],
   ) {
     this.settings = settings;
+    window.addEventListener("pagehide", (event) => {
+      if (!event.persisted) this.releaseMicrophone();
+    });
     this.onLevel = onLevel;
     this.onFrame = onFrame;
     window.__mluvkaStats = {
@@ -143,7 +155,10 @@ export class AudioEngine {
       );
       // Mobilní přehrávač dává Androidu aktivní mediální relaci i při zhasnutí.
       // Desktop zůstává na přímé cestě s nejmenší latencí.
-      if (matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0) {
+      if (
+        matchMedia("(pointer: coarse)").matches ||
+        navigator.maxTouchPoints > 0
+      ) {
         this.mediaOutput = this.context.createMediaStreamDestination();
         this.output.connect(this.mediaOutput);
         this.player = document.createElement("audio");
@@ -225,8 +240,8 @@ export class AudioEngine {
     void this.resume();
     if (!this.context) return;
     if (this.settings.output) await this.setOutput(this.settings.output);
-    if (!this.stream && !this.inputUnavailable) {
-      if (document.hidden) this.deferredInput = true;
+    if (!this.inputUnavailable) {
+      if (document.hidden && !this.stream) this.deferredInput = true;
       else await this.changeInput();
     }
     await this.update(this.settings);
@@ -397,6 +412,23 @@ export class AudioEngine {
       request !== this.inputRequest
     )
       return;
+    const config = JSON.stringify([s.input, s.echo, s.noise, s.autoGain]);
+    if (
+      this.stream
+        ?.getAudioTracks()
+        .some((track) => track.readyState === "live") &&
+      this.captureConfig === config
+    ) {
+      this.stream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      this.source?.disconnect();
+      this.source = context.createMediaStreamSource(this.stream);
+      this.source.connect(node);
+      this.deferredInput = false;
+      this.checkState();
+      return;
+    }
     const actual = this.stream?.getAudioTracks()[0]?.getSettings();
     if (
       actual &&
@@ -422,6 +454,29 @@ export class AudioEngine {
       },
       video: false,
     };
+    // Permissions API není na starších Safari dostupné. Nejde o vlastní výzvu;
+    // již udělené oprávnění pouze přeskočí jednorázovou nápovědu.
+    let permission: PermissionState | undefined;
+    try {
+      permission = (
+        await navigator.permissions?.query({
+          name: "microphone" as PermissionName,
+        })
+      )?.state;
+    } catch {
+      /* Safari bez podpory microphone v Permissions API. */
+    }
+    if (permission !== "granted" && navigator.maxTouchPoints > 0) {
+      try {
+        if (!localStorage.getItem("mluvka.microphone-help")) {
+          localStorage.setItem("mluvka.microphone-help", "1");
+          this.onPermissionHelp();
+        }
+      } catch {
+        /* Soukromý režim nemusí dovolit úložiště. */
+      }
+    }
+    const lifetime = this.microphoneLifetime;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -438,12 +493,14 @@ export class AudioEngine {
       (constraints.audio as MediaTrackConstraints).deviceId = undefined;
       stream = await navigator.mediaDevices.getUserMedia(constraints);
     }
-    if (request !== this.inputRequest || this.context !== context) {
+    if (lifetime !== this.microphoneLifetime) {
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
     this.source?.disconnect();
-    this.stream?.getTracks().forEach((t) => t.stop());
+    if (this.stream !== stream)
+      this.stream?.getTracks().forEach((t) => t.stop());
+    this.captureConfig = config;
     clearTimeout(this.retryInput);
     this.stream = stream;
     this.inputUnavailable = false;
@@ -460,6 +517,12 @@ export class AudioEngine {
       track.addEventListener("ended", reopen);
       // iOS pozastaví stopu na pozadí. Čekáme na unmute, neotevíráme další capturer.
       track.addEventListener("unmute", this.checkState);
+    }
+    if (request !== this.inputRequest || this.context !== context) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      return;
     }
     this.source = context.createMediaStreamSource(stream);
     this.source.connect(node);
@@ -665,7 +728,7 @@ export class AudioEngine {
       // Chyba načtení upozornění nesmí přerušit hovor.
     }
   }
-  async close() {
+  async close(releaseMicrophone = false) {
     this.setCallActive(false);
     this.inputUnavailable = false;
     this.deferredInput = false;
@@ -697,13 +760,15 @@ export class AudioEngine {
     this.notifyBuffers = undefined;
     this.lastNotify = -Infinity;
     this.onBlocked(false);
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream?.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
+    if (releaseMicrophone) this.releaseMicrophone();
     this.source?.disconnect();
     this.node?.disconnect();
     const context = this.context;
     this.context = undefined;
     this.node = undefined;
-    this.stream = undefined;
     this.source = undefined;
     this.ptt = false;
     await context?.close();

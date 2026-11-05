@@ -293,6 +293,40 @@ export async function mobileRegressionChecks({
       "Barvy UID: strom = zprávy, změna všude, přejmenování i reload zachová, Automaticky vrátí; mobilní dlouhé podržení a kontrast",
       { minContrast: Math.min(...contrast) },
     );
+    const microphoneCalls = await b.evaluate(() => window.regMicCalls);
+    const originalStream = await b.evaluate(() => {
+      window.savedStream = window.regStreams[0];
+      return window.regStreams.length;
+    });
+    expect(microphoneCalls).toBe(1);
+    await b.getByRole("button", { name: "Odpojit", exact: true }).click();
+    expect(
+      await b.evaluate(() => window.savedStream.getAudioTracks()[0].readyState),
+    ).toBe("live");
+    expect(
+      await b.evaluate(() => window.savedStream.getAudioTracks()[0].enabled),
+    ).toBe(false);
+    await login(b, "Regrese1");
+    await ready(b);
+    expect(await b.evaluate(() => window.regMicCalls)).toBe(microphoneCalls);
+    expect(await b.evaluate(() => window.regStreams.length)).toBe(
+      originalStream,
+    );
+    expect(
+      await b.evaluate(() => window.savedStream.getAudioTracks()[0].enabled),
+    ).toBe(true);
+    expect(faults).toEqual([]);
+    const listing = await query.cmd("clientlist -uid");
+    expect(
+      listing
+        .split("|")
+        .filter((client) => client.includes("client_nickname=Regrese1")),
+    ).toHaveLength(1);
+    await control(b, { type: "move", channel });
+    await expect(b.locator(".room-title h1")).toHaveText("Odpočívárna");
+    ok(
+      "Mobil: okamžité odpojení a připojení bez banu a dvojí identity; stejný živý MediaStream, getUserMedia pouze jednou",
+    );
     const sockets = await b.evaluate(() => window.regSockets.length);
     const currentBId = await selfId(b);
     await b.evaluate(() => window.dispatchEvent(new Event("online")));
