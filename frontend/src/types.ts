@@ -76,6 +76,7 @@ export interface Client {
 }
 export interface RoomState {
   type: "state";
+  server_uid: string;
   name: string;
   self: number;
   channels: Channel[];

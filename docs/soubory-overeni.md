@@ -1,5 +1,7 @@
 # Ověření souborů v chatu (5. 11. 2026)
 
+> Historický doklad původní přejímky. Aktuální navázání (holé odkazy, JPEG/PNG a opravy) popisuje [soubory-navazani-overeni.md](soubory-navazani-overeni.md).
+
 Samostatný worktree `mluvka-soubory`, větev `soubory`. Bez pushování a bez změn zvukového řetězce.
 
 - `cargo clippy --all-targets -- -D warnings`: exit 0.
@@ -22,8 +24,8 @@ Volitelné posílání přímo do úložiště TS kanálu není implementované.
 
 Samostatný zamčený `E2E_FOCUS=files E2E_PORT=3103 TS3_VOICE_PORT=9103 TS3_QUERY_PORT=10103 TS3_FT_PORT=30103 npm run e2e`
 skončil **exit 0 pro Opus i PCM**, 20 výsledků OK, bez chyb konzole.
-[Strojový výsledek souborů](e2e-soubory.json) má `scope: "files"`; původní
-[e2e-vysledky.json](e2e-vysledky.json) zachovává neúspěšný úplný běh.
+[Strojový výsledek souborů](e2e-soubory.json) má `scope: "files"`; neúspěšný úplný běh je
+archivován v [soubory-cely-beh-selhani.json](soubory-cely-beh-selhani.json).
 Ověřeny vlastní přílohy, skutečný FT včetně hesla, české chyby (i poškozený obrázek),
 privátní žádost o odkaz i všechny screenshoty. Ověření nadlimitního uploadu
 používá chunked HTTP tělo bez Content-Length, tedy kontroluje i limit během čtení.

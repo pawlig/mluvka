@@ -28,11 +28,13 @@ Tlačítkem 📎 vyberte jeden či více souborů (na mobilu Soubory/Fotky), vlo
 nebo přetáhněte do chatu. Před odesláním lze připsat text nebo výběr zrušit. Soubory se
 nahrávají postupně, s procenty a tlačítkem Zrušit. Běžná příloha má výchozí limit 25 MiB
 (`UPLOAD_FILE_MAX_MB`), náhodnou URL `/f/<id>/<jméno>` a kartu s tlačítkem Stáhnout.
-TS klient dostane běžný BBCode odkaz. Přílohy se vždy stahují jako `application/octet-stream`
+TS3 i TS5/6 dostanou holý klikatelný odkaz: obrázek otevřou přes `/img/`, soubor přes `/f/`
+(doprovází jej název a velikost). Mluvka z něj vytvoří náhled nebo kartu; starší `[IMG]` zprávy
+dál vykresluje. Přílohy se vždy stahují jako `application/octet-stream`
 s `Content-Disposition: attachment`, nosniff a CSP sandbox; ani HTML se nevykreslí.
 
 U obrázků prohlížeč zmenší delší stranu
-na 2048 px a přes canvas vytvoří WebP/JPEG bez EXIF včetně GPS. GIF zůstane beze změny
+na 2048 px a přes canvas vytvoří JPEG (fotografie) nebo PNG (průhlednost a málo barev) bez EXIF včetně GPS. GIF zůstane beze změny
 kvůli animaci (nejvýše 8 MiB); ostatní výstupy nejvýše 10 MiB, vstup nejvýše 50 MiB.
 Přílohy z myTeamSpeak (TS5/TS6) ukážou ikonu, název, velikost a vysvětlení, že je lze stáhnout
 v TeamSpeak klientu. Požádat o odkaz odešle soukromou zprávu jejich odesílateli.
@@ -41,7 +43,8 @@ kartu odkazu; žádný soubor se automaticky nenačítá.
 
 Odkaz `ts3file://` z TS3 klienta zobrazí soubor úložiště kanálu. Stáhnout používá oprávnění
 vaší právě připojené TS relace, známé heslo kanálu a přenos přes backend bez uložení na disk.
-Výchozí limit je 200 MiB (`TS_FILE_MAX_MB`), navázání nejvýše 20 s a stream nejvýše 180 s.
+Stahování ukazuje procenta a lze ho zrušit. Na mobilu je kvůli paměti strop 50 MiB.
+Výchozí limit backendu je 200 MiB (`TS_FILE_MAX_MB`), navázání nejvýše 20 s a stream nejvýše 180 s.
 Jiný server lze zobrazit, ale nelze z něj stahovat. Pokud Mluvka heslo kanálu nezná,
 nejprve do něj vstupte a heslo zadejte. Posílání do úložiště kanálu zatím není součástí UI.
 Backend potřebuje také odchozí **TCP na port souborového přenosu TS serveru**, obvykle
@@ -49,7 +52,9 @@ Backend potřebuje také odchozí **TCP na port souborového přenosu TS serveru
 i TS serveru; zobrazí se česká chyba přenosu, chat a hlas zůstávají připojené.
 
 Nahrané obrázky a soubory mají veřejnou náhodnou URL sdílenou do TS chatu, kdokoli s odkazem je může
-otevřít. Výchozí uchování je 7 dní; při vyčerpání kapacity zmizí nejstarší soubory i dříve.
+otevřít. Do kapacity úložiště se počítají i metadata; osiřelá metadata uklidí úklid.
+Odpověď na upload přijde až po flush a synchronizaci dat i metadat na disk (plný disk → 507).
+Výchozí uchování je 7 dní; při vyčerpání kapacity zmizí nejstarší soubory i dříve.
 Kopie již uložená v cache příjemce může přežít smazání na serveru. Chat není archiv.
 
 ## Na mobilu / instalace na plochu
@@ -229,6 +234,11 @@ Pro samostatnou diagnostiku souborů lze přidat `E2E_FOCUS=files` ke stejnému 
 příkazu `npm run e2e`. Projde oba transporty, přenosy, oprávnění i screenshoty; report má
 `scope: "files"`. Tento režim nenahrazuje celý regresní běh. Velké uploady jsou v úplném
 běhu až za měřením zvukové latence a mobilními testy, v čerstvých browserových relacích.
+Při souborové přejímce se selhání měření tónu, sítě a VAD zapisují do `knownAudioFailures`
+a jako `KNOWN_AUDIO_FAILURE` ve výsledcích; běh pokračuje chatem i soubory. Přísné nulové
+limity PLC/podtečení/zahozených rámců zůstávají zachované. `complete` znamená dokončení
+obou průchodů; samostatné zvukové vady jsou v reportu uvedené i při exit 0. Chyby chatu,
+souborů a JS konzole běh ukončí neúspěšně.
 
 E2E vytváří dočasný `UPLOAD_DIR` a po skončení jej odstraní; výchozí `/data` nepoužívá.
 

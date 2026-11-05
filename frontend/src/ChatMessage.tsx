@@ -107,7 +107,7 @@ function renderMessage(
       /(?:https?:\/\/|www\.|ts3file:\/\/|ts3server:\/\/)[^\s<>\[\]]+/gi;
     let start = 0;
     for (const m of value.matchAll(urls)) {
-      result.push(value.slice(start, m.index));
+      let preceding = value.slice(start, m.index);
       let raw = m[0].replace(/[.,!?;:]+$/, "");
       while (
         raw.endsWith(")") &&
@@ -115,7 +115,24 @@ function renderMessage(
       )
         raw = raw.slice(0, -1);
       const url = safeUrl(raw);
-      result.push(url ? link(url, short(raw), result.length, context) : raw);
+      const ownFile =
+        url &&
+        new URL(url).origin === location.origin &&
+        /^\/f\/[\w-]{43}\//.test(new URL(url).pathname);
+      const attachmentLabel = ownFile
+        ? preceding.match(/(?:^|\n)(📎 [^\n]+\([^()\n]+(?:B|kB|MB)\))\n$/)?.[1]
+        : undefined;
+      if (attachmentLabel)
+        preceding = preceding.slice(
+          0,
+          preceding.length - attachmentLabel.length - 1,
+        );
+      result.push(preceding);
+      result.push(
+        url
+          ? link(url, attachmentLabel || short(raw), result.length, context)
+          : raw,
+      );
       result.push(m[0].slice(raw.length));
       if (
         url &&
@@ -231,6 +248,10 @@ function attachment(
             {formatted && ` · ${formatted}`}
           </strong>
           <p>Soubor z TeamSpeak 5/6 — stáhneš ho v TeamSpeak klientu</p>
+          <p>
+            Obrázky z TeamSpeak 5/6 leží na serveru myTeamSpeak a bez účtu je
+            stáhnout nejde — požádej odesílatele o odkaz
+          </p>
           <button type="button" onClick={() => requestLink(name)}>
             Požádat o odkaz
           </button>

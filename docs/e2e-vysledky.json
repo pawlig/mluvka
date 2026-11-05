@@ -1,10 +1,15 @@
 {
-  "date": "2026-11-05T00:51:43.772Z",
-  "complete": false,
+  "date": "2026-11-05T01:38:28.537Z",
+  "scope": "all",
+  "complete": true,
   "runs": [
     {
       "codec": "opus",
-      "exitCode": 1
+      "exitCode": 0
+    },
+    {
+      "codec": "pcm",
+      "exitCode": 0
     }
   ],
   "results": [
@@ -238,6 +243,11 @@
       "runCodec": "opus"
     },
     {
+      "test": "Odchozí zprávy zachycené ServerQuery: holé URL bez IMG; fotografie JPEG, průhlednost a malá paleta PNG",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
       "test": "A → B GIF: zachované bajty animovaného souboru",
       "result": "OK",
       "runCodec": "opus"
@@ -280,28 +290,813 @@
     {
       "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
       "result": "OK",
-      "receivedFrames": 1168,
+      "receivedFrames": 1136,
       "sentFrames": 0,
-      "rms": 0.11050279732453185,
-      "micRms": 0.01961556861379893,
-      "underruns": 3,
+      "rms": 0.11146005751026473,
+      "micRms": 0.019808177246297555,
+      "underruns": 2,
       "droppedFrames": 0,
       "droppedCaptureFrames": 0,
       "sampleRate": 48000,
-      "bufferMs": 116.80089764417912,
+      "bufferMs": 120.3058661700646,
       "targetBufferMs": 100,
-      "driftCorrection": 0.844487375105367,
-      "maxJump": 0.00005831829003000166,
-      "outputRms": 0.0000016822736415695635,
+      "driftCorrection": 0.7704764256458982,
+      "maxJump": 0.00005804728789371438,
+      "outputRms": 0.0000016515148880235469,
       "upKbps": 0,
-      "downKbps": 36.36363635676786,
-      "plcFrames": 12,
+      "downKbps": 35.25884469654462,
+      "plcFrames": 8,
       "lostFrames": 0,
       "codec": "opus",
       "notifySounds": 7,
       "notifyPokes": 1,
       "runCodec": "opus"
+    },
+    {
+      "test": "TS3 tón 440 Hz / opus, 30 s měření (výpadky viz metriky)",
+      "result": "OK",
+      "underruns": 0,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "binaryGapMs": 39.69999980926514,
+      "inputGapMs": 123,
+      "outputGapMs": 123,
+      "maxJump": 0.011669885367155075,
+      "minBufferMs": 83.46879346483425,
+      "maxBufferMs": 106.61845369413884,
+      "dominantHz": 439.453125,
+      "rmsDifferenceDb": 0.0014982409868495852,
+      "maxDownKbps": 91.55084492423855,
+      "runCodec": "opus"
+    },
+    {
+      "test": "CDP síť 1,5 Mb/s / 80 ms, opus, 30 s",
+      "result": "OK",
+      "underruns": 0,
+      "downKbps": 89.16616678365037,
+      "plcFrames": 0,
+      "note": "CDP doplněné skutečným WS shaperem: 1,5 Mb/s a 80 ms pro binární rámce.",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Pomalý příjemce opus: Debugger.pause 20 s, A drží spojení a B obnoví zvuk",
+      "result": "OK",
+      "cleanReconnect": false,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Lokální mute A u B → RMS < 0,001, A dál vysílá",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Mute mikrofonu se propíše do TS a zastaví hlas",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Deafen zastaví poslech a po vypnutí obnoví audio",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Test mikrofonu nic nevysílá na server",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "PTT reaguje na mezerník mimo textová pole",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Hlasová aktivace vysílá nad prahem",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Obnovení: stejné UID na TS, údaje uloženy bez hesel",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Desktop 1440×900: žádný přesah ani ovládání mimo okno",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Mobil 390×844: strom bez přesahu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Mobil 390×844: chat bez přesahu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Zavření prohlížeče odpojí jeho TS klienta",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "VAD / opus: ticho 3 s, předběh a vyrovnaný začátek",
+      "result": "OK",
+      "onsetDb": 0.06643232985400888,
+      "precursorMs": 80,
+      "lostOnsetMs": 0,
+      "firstRms": 0.13195613963385053,
+      "steadyRms": 0.1309507485509758,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Migrace AGC proběhne jednou a pozdější výslovná volba přežije reload",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Selhání konstruktoru WASM Workeru: vyjedná se funkční PCM",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Auto-připojení bez formuláře: heslo serveru i posledního kanálu, stejné UID a přezdívka",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Trvalá chyba bad_password: formulář, fokus hesla, právě 1 WS za 10 s",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Aktualizace SW čeká i při žádosti z jiného tabu; po odpojení aktivuje bez reloadu hovoru",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Ruční Odpojit + reload zůstane na formuláři; nový kontext automaticky připojí",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
+      "result": "OK",
+      "elapsed_ms": 51,
+      "runCodec": "opus"
+    },
+    {
+      "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
+      "result": "OK",
+      "elapsedMs": 13,
+      "disconnectedClients": 1,
+      "disconnectReasons": [
+        8
+      ],
+      "runCodec": "opus"
+    },
+    {
+      "test": "Restart backendu za hovoru: automatický návrat, původní UID a přezdívka",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "iPhone: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
+      "result": "OK",
+      "scale": 1,
+      "minFontPx": 16,
+      "runCodec": "opus"
+    },
+    {
+      "test": "iPhone touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Pixel: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
+      "result": "OK",
+      "scale": 1,
+      "minFontPx": 16,
+      "runCodec": "opus"
+    },
+    {
+      "test": "Pixel touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "AudioContext 44100 Hz: hlas A → B i B → A; suspend → překryv → gesto resume bez odpojení TS",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Ukončená/ztlumená mikrofonní stopa: nové getUserMedia, hlas pokračuje bez odpojení TS",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "devicechange bez vybraného vstupu: mikrofon se znovu otevře, TS zůstává připojený",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "iOS: instalace Sdílet → Přidat na plochu, zavření nápovědy se pamatuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "PWA a mobilní relace bez JS výjimek",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Soubor A → B: 5 MiB náhodných bajtů, karta, download a SHA-256; attachment/octet-stream/nosniff/CSP/cache",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Soubory API: >25 MiB 413, bez/cizí token 401, HTML jen příloha, cizí TS server 403, path=/../x 400",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Libovolné přílohy: paste/drop a zrušení, více vybraných souborů dorazí postupně",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS download: procenta, AbortController/Zrušit bez chyby; mobilní strop 50 MiB podle odkazu i skutečné délky",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS přenos: neznámé heslo a nesouhlasící UID 403, nedostatečný download power česká chyba, nakonfigurovaný strop 1 MiB → 413; chat pokračuje",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS3 ftinitupload na vlastním FT portu → ts3file karta → download SHA-256, včetně známého hesla kanálu",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "TS5/6 zip: 108,7 kB, žádný surový JSON; žádost po kliknutí dorazila soukromě odesílateli",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Karty Mluvka/TS3/TS5/6: desktop a mobil bez přesahu, picker bez accept, externí odkaz bez fetch; šest screenshotů",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "result": "OK",
+      "runCodec": "opus"
+    },
+    {
+      "test": "Lokální TS3 3.13.7: heslo serveru, kanál s heslem a podkanál",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "HTTP frontend a /healthz → 200 ok",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "ALLOWED_SERVERS odmítá nepovolený cíl před UDP připojením",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Neplatný řídicí protokol → česká chyba a uzavření WS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Limit WS zprávy 16 KiB ukončí spojení",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Cizí Origin při WS upgradu → HTTP 403",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "MAX_SESSIONS=6 odmítne sedmý současný WS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Backend zahodí audio během navazování a použije poslední mute/deafen",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Uplink: dávka nejvýše 8 rámců a dále 50 rámců/s i po zdržení prohlížeče",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Opus Worker: 30 PLC rámců nezablokuje pozdější zvuk; skutečná mezera se počítá samostatně",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Worklet 16000 → 48000 → 16000: 50 × 960 vzorků, zpět 16000 vzorků",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Worklet 44100 → 48000 → 44100: 50 × 960 vzorků, zpět 44100 vzorků",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Worklet 48000 → 48000 → 48000: 50 × 960 vzorků, zpět 48000 vzorků",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Worklet 96000 → 48000 → 96000: 50 × 960 vzorků, zpět 96000 vzorků",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jitter buffer 30 s, takt 1: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.028814637567847967,
+      "minBufferMs": 41.89575610583097,
+      "maxBufferMs": 68.36914514340242,
+      "driftPercent": 0.0016007147073475937,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jitter buffer 60 s, takt 1.01: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.029110440984368324,
+      "minBufferMs": 46.38743751762862,
+      "maxBufferMs": 93.51948747589874,
+      "driftPercent": 1.0283399274832088,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Jitter buffer 60 s, takt 0.99: bez podtečení a zahození",
+      "result": "OK",
+      "underruns": 0,
+      "droppedFrames": 0,
+      "maxJump": 0.028673477470874786,
+      "minBufferMs": 24.206585917267756,
+      "maxBufferMs": 68.62027426928398,
+      "driftPercent": -0.9921940054301805,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Podtečení a obnovení používají plynulé prolnutí",
+      "result": "OK",
+      "fadeMaxJump": 0.0020833611488342285,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "PWA manifest, MIME, rozměry 192/512/maskable/180 a no-cache index/SW",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Chrome CDP: instalovatelnost bez chyb, SW registrován, /ws a /healthz mimo SW, offline skořápka",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Obnovený režim always: žádné zprávy před state, připojení a hlas pokračují",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Obnovený režim vad: žádné zprávy před state, připojení a hlas pokračují",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Klik na mute/deafen během připojování přežije a stav se přenese do TS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Špatné heslo → česká chyba",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Dvě relace se vidí ve stromu TS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Identita z prohlížeče odpovídá UID na TS serveru",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Obsazená přezdívka se automaticky doplní o 1",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Živý vznik, přejmenování a smazání kanálu v obou relacích",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Přesun obou relací do kanálu s heslem",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "3 zprávy → odznak Kanál, mobilní Chat, titulek a app badge = 3; jediný zvuk; přečtení vynuluje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Otevřená viditelná konverzace → žádný zvuk ani odznak",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Viditelné okno bez fokusu upozorní; návrat fokusu přečte konverzaci",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Soukromá zpráva vytvoří odznak a zvuk; otevření ji přečte",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Serverový odznak a zvuk; vypnutý zvuk se uloží a ponechá počty; změna kanálu vynuluje Kanál",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Skrytá aplikace → SW showNotification (titulek, text, tag, renotify); notificationclick otevře konverzaci",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Poke používá vlastní dekódovaný zvuk; deafen umlčí zprávy i poke, systémová upozornění běží dál",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Pozvánka A → C: jediná přezdívka, připojení do kanálu s heslem, údaje uložené; fragment prázdný, HTTP i backend log bez hesel",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Pozvánka za připojení vyžádá odpojení; neplatná → česká chyba a formulář; Vložit pozvánku opět připojí",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Chat kanálu A → B",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Chat: bezpečné URL, BBCode, barvy, neznámé značky a HTML bez spuštění",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS5/TS6 JSON přes ServerQuery: karta, velikost, fallback; bez surového JSON",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "A → B PNG s GPS: canvas odstraní EXIF, resize ≤2048, náhled i holá URL, viewer a Esc",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Odchozí zprávy zachycené ServerQuery: holé URL bez IMG; fotografie JPEG, průhlednost a malá paleta PNG",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "A → B GIF: zachované bajty animovaného souboru",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Nenačtený obrázek ponechá pouze bezpečný odkaz",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Schránka a přetažení obrázku otevřou náhled, Zrušit jej odstraní",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Mobil: dlouhá URL bez přesahu, výběr souboru, viewer zavře tažení; stránka 100 %",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Upload API: 401 bez/po relaci, SVG/HTML 415, 10 MiB a GIF 8 MiB 413, jedenáctý upload 429",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Chat serveru A → B",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Soukromá zpráva A → B",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Změny potlačení ozvěny/šumu a AGC se skutečně použijí na mikrofonní stopě",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Skutečný mikrofon → Worklet → PCM → Opus → TS → mix → PCM u B",
+      "result": "OK",
+      "receivedFrames": 1084,
+      "sentFrames": 0,
+      "rms": 0.11075564410243577,
+      "micRms": 0.019615461257369685,
+      "underruns": 2,
+      "droppedFrames": 0,
+      "droppedCaptureFrames": 0,
+      "sampleRate": 48000,
+      "bufferMs": 115.64861471587089,
+      "targetBufferMs": 100,
+      "driftCorrection": 0.7591761234321832,
+      "maxJump": 0,
+      "outputRms": 0,
+      "upKbps": 0,
+      "downKbps": 778.7064083457526,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "codec": "pcm",
+      "notifySounds": 7,
+      "notifyPokes": 1,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS3 tón 440 Hz / pcm, 30 s měření (výpadky viz metriky)",
+      "result": "OK",
+      "underruns": 0,
+      "plcFrames": 0,
+      "lostFrames": 0,
+      "binaryGapMs": 24.90000009536743,
+      "inputGapMs": 53,
+      "outputGapMs": 53,
+      "maxJump": 0.010904962662607431,
+      "minBufferMs": 93.19769738087537,
+      "maxBufferMs": 95.67797837845865,
+      "dominantHz": 439.453125,
+      "rmsDifferenceDb": 0.004679947858492623,
+      "maxDownKbps": 776.238486825845,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "CDP síť 1,5 Mb/s / 80 ms, pcm, 30 s",
+      "result": "OK",
+      "underruns": 0,
+      "downKbps": 775.4704661599973,
+      "plcFrames": 0,
+      "note": "CDP doplněné skutečným WS shaperem: 1,5 Mb/s a 80 ms pro binární rámce.",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Pomalý příjemce pcm: Debugger.pause 20 s, A drží spojení a B obnoví zvuk",
+      "result": "OK",
+      "cleanReconnect": true,
+      "disconnectReason": 8,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Lokální mute A u B → RMS < 0,001, A dál vysílá",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Mute mikrofonu se propíše do TS a zastaví hlas",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Deafen zastaví poslech a po vypnutí obnoví audio",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Test mikrofonu nic nevysílá na server",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "PTT reaguje na mezerník mimo textová pole",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Hlasová aktivace vysílá nad prahem",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Obnovení: stejné UID na TS, údaje uloženy bez hesel",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Desktop 1440×900: žádný přesah ani ovládání mimo okno",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Mobil 390×844: strom bez přesahu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Mobil 390×844: chat bez přesahu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Zavření prohlížeče odpojí jeho TS klienta",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "VAD / pcm: ticho 3 s, předběh a vyrovnaný začátek",
+      "result": "OK",
+      "onsetDb": -0.017896142083866043,
+      "precursorMs": 80,
+      "lostOnsetMs": 0,
+      "firstRms": 0.13063279974370412,
+      "steadyRms": 0.13090222904653936,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Migrace AGC proběhne jednou a pozdější výslovná volba přežije reload",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Selhání konstruktoru WASM Workeru: vyjedná se funkční PCM",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Auto-připojení bez formuláře: heslo serveru i posledního kanálu, stejné UID a přezdívka",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Trvalá chyba bad_password: formulář, fokus hesla, právě 1 WS za 10 s",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Aktualizace SW čeká i při žádosti z jiného tabu; po odpojení aktivuje bez reloadu hovoru",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Ruční Odpojit + reload zůstane na formuláři; nový kontext automaticky připojí",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Offline/online: návrat do 20 s do posledního kanálu, stejné UID a původní přezdívka",
+      "result": "OK",
+      "elapsed_ms": 37,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "SIGTERM: všechny TS relace zmizely přes clientdisconnect před novým startem",
+      "result": "OK",
+      "elapsedMs": 4,
+      "disconnectedClients": 1,
+      "disconnectReasons": [
+        8
+      ],
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Restart backendu za hovoru: automatický návrat, původní UID a přezdívka",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iPhone: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
+      "result": "OK",
+      "scale": 1,
+      "minFontPx": 16,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iPhone touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Pixel: fokus bez zoomu, vstupy ≥16 px, pinch gesto blokované",
+      "result": "OK",
+      "scale": 1,
+      "minFontPx": 16,
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Pixel touch: PTT pustit/cancel zastaví audio, dlouhé podržení, lokální mute, portrét/šířka bez přesahu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "AudioContext 44100 Hz: hlas A → B i B → A; suspend → překryv → gesto resume bez odpojení TS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Ukončená/ztlumená mikrofonní stopa: nové getUserMedia, hlas pokračuje bez odpojení TS",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "devicechange bez vybraného vstupu: mikrofon se znovu otevře, TS zůstává připojený",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "iOS: instalace Sdílet → Přidat na plochu, zavření nápovědy se pamatuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "PWA a mobilní relace bez JS výjimek",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Soubor A → B: 5 MiB náhodných bajtů, karta, download a SHA-256; attachment/octet-stream/nosniff/CSP/cache",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Soubory API: >25 MiB 413, bez/cizí token 401, HTML jen příloha, cizí TS server 403, path=/../x 400",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Libovolné přílohy: paste/drop a zrušení, více vybraných souborů dorazí postupně",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS download: procenta, AbortController/Zrušit bez chyby; mobilní strop 50 MiB podle odkazu i skutečné délky",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS přenos: neznámé heslo a nesouhlasící UID 403, nedostatečný download power česká chyba, nakonfigurovaný strop 1 MiB → 413; chat pokračuje",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS3 ftinitupload na vlastním FT portu → ts3file karta → download SHA-256, včetně známého hesla kanálu",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "TS5/6 zip: 108,7 kB, žádný surový JSON; žádost po kliknutí dorazila soukromě odesílateli",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Karty Mluvka/TS3/TS5/6: desktop a mobil bez přesahu, picker bez accept, externí odkaz bez fetch; šest screenshotů",
+      "result": "OK",
+      "runCodec": "pcm"
+    },
+    {
+      "test": "Žádné JS výjimky ani chyby konzole v obou relacích",
+      "result": "OK",
+      "runCodec": "pcm"
     }
   ],
-  "errors": []
+  "errors": [],
+  "knownAudioFailures": []
 }

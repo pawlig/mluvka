@@ -138,18 +138,40 @@ impl Uploads {
         let now = SystemTime::now();
         let mut total = reserve;
         while let Some(entry) = entries.next_entry().await? {
-            if !entry.file_type().await?.is_file()
-                || !stored_name(&entry.file_name().to_string_lossy())
-            {
+            if !entry.file_type().await?.is_file() {
                 continue;
             }
-            let meta = entry.metadata().await?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(data_name) = name.strip_suffix(".json").filter(|n| stored_name(n)) {
+                if !fs::symlink_metadata(self.dir.join(data_name))
+                    .await
+                    .is_ok_and(|m| m.is_file())
+                {
+                    remove_if_exists(&entry.path()).await?;
+                }
+                continue;
+            }
+            if !stored_name(&name) {
+                continue;
+            }
+            let meta = match entry.metadata().await {
+                Ok(meta) => meta,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+            let metadata_len = match fs::symlink_metadata(metadata_path(&entry.path())).await {
+                Ok(meta) if meta.is_file() => meta.len(),
+                Ok(_) => 0,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+                Err(e) => return Err(e),
+            };
+            let len = meta.len().saturating_add(metadata_len);
             let modified = meta.modified()?;
             if now.duration_since(modified).unwrap_or_default() >= self.ttl {
                 remove_stored(&entry.path()).await?;
             } else {
-                total = total.saturating_add(meta.len());
-                files.push((modified, entry.path(), meta.len()));
+                total = total.saturating_add(len);
+                files.push((modified, entry.path(), len));
             }
         }
         files.sort_by_key(|f| f.0);
@@ -291,37 +313,22 @@ pub async fn upload(
     };
     let _guard = storage.gate.lock().await;
     storage.sessions.check(token, false)?;
-    if bytes.len() as u64 > storage.max_total {
+    let metadata = filename
+        .as_ref()
+        .map(serde_json::to_vec)
+        .transpose()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let reserve = bytes.len() as u64 + metadata.as_ref().map_or(0, |m| m.len() as u64);
+    if reserve > storage.max_total {
         return Err(StatusCode::INSUFFICIENT_STORAGE);
     }
-    storage
-        .cleanup(bytes.len() as u64)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    storage.cleanup(reserve).await.map_err(storage_error)?;
     let name = format!("{}.{}", random_id(), ext);
     let path = storage.dir.join(&name);
-    use tokio::io::AsyncWriteExt;
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
+    write_stored(&path, &bytes, metadata.as_deref())
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if file.write_all(&bytes).await.is_err() {
-        let _ = fs::remove_file(&path).await;
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
+        .map_err(storage_error)?;
     let url = if let Some(filename) = &filename {
-        if fs::write(
-            storage.dir.join(format!("{name}.json")),
-            serde_json::to_vec(filename).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        )
-        .await
-        .is_err()
-        {
-            let _ = fs::remove_file(&path).await;
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
         format!(
             "{base}/f/{}/{}",
             name.trim_end_matches(".bin"),
@@ -429,12 +436,68 @@ fn valid_id(id: &str) -> bool {
 fn stored_name(name: &str) -> bool {
     valid_name(name).is_some() || name.strip_suffix(".bin").is_some_and(valid_id)
 }
-async fn remove_stored(path: &std::path::Path) -> std::io::Result<()> {
-    fs::remove_file(path).await?;
-    if path.extension().is_some_and(|e| e == "bin") {
-        let _ = fs::remove_file(path.with_extension("bin.json")).await;
+fn metadata_path(path: &std::path::Path) -> PathBuf {
+    path.with_file_name(format!(
+        "{}.json",
+        path.file_name().unwrap().to_string_lossy()
+    ))
+}
+fn storage_error(error: std::io::Error) -> StatusCode {
+    if error.kind() == std::io::ErrorKind::StorageFull
+        || error.kind() == std::io::ErrorKind::QuotaExceeded
+    {
+        StatusCode::INSUFFICIENT_STORAGE
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
     }
-    Ok(())
+}
+async fn write_complete(file: &mut fs::File, bytes: &[u8]) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    file.write_all(bytes).await?;
+    // write_all může skončit před zápisem bufferu Tokio na disk.
+    file.flush().await?;
+    file.sync_all().await
+}
+async fn write_stored(
+    path: &std::path::Path,
+    bytes: &[u8],
+    metadata: Option<&[u8]>,
+) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .await?;
+    let result = async {
+        write_complete(&mut file, bytes).await?;
+        if let Some(metadata) = metadata {
+            let mut meta = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(metadata_path(path))
+                .await?;
+            write_complete(&mut meta, metadata).await?;
+        }
+        Ok(())
+    }
+    .await;
+    if result.is_err() {
+        // I při chybě flush/sync se oba soubory uklidí, odpověď 201 nikdy neodejde.
+        let _ = remove_stored(path).await;
+    }
+    result
+}
+async fn remove_if_exists(path: &std::path::Path) -> std::io::Result<()> {
+    match fs::remove_file(path).await {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+async fn remove_stored(path: &std::path::Path) -> std::io::Result<()> {
+    // Druhý pokus se provede i po chybě prvního mazání.
+    let data = remove_if_exists(path).await;
+    let metadata = remove_if_exists(&metadata_path(path)).await;
+    data.and(metadata)
 }
 pub async fn file(
     State(app): State<crate::App>,
@@ -527,15 +590,15 @@ mod tests {
             public_base(&storage, &headers).unwrap(),
             "https://mluvka.example.org"
         );
-        headers.insert("host", "attacker.example/path".parse().unwrap());
+        headers.insert("host", "attacker.example.org/path".parse().unwrap());
         assert_eq!(
             public_base(&storage, &headers),
             Err(StatusCode::BAD_REQUEST)
         );
-        storage.public_url = Some("https://configured.example".into());
+        storage.public_url = Some("https://configured.example.org".into());
         assert_eq!(
             public_base(&storage, &headers).unwrap(),
-            "https://configured.example"
+            "https://configured.example.org"
         );
         assert!(!valid_base("javascript:alert(1)"));
     }
@@ -562,6 +625,64 @@ mod tests {
         );
         drop(lease);
         assert_eq!(sessions.check(&token, false), Err(StatusCode::UNAUTHORIZED));
+    }
+    #[test]
+    fn disk_errors_have_distinct_status() {
+        use std::io::{Error, ErrorKind};
+        for kind in [ErrorKind::StorageFull, ErrorKind::QuotaExceeded] {
+            assert_eq!(
+                storage_error(Error::from(kind)),
+                StatusCode::INSUFFICIENT_STORAGE
+            );
+        }
+        assert_eq!(
+            storage_error(Error::from(ErrorKind::PermissionDenied)),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+    #[tokio::test]
+    async fn metadata_capacity_orphans_and_failed_write() {
+        let dir = env::temp_dir().join(random_id());
+        fs::create_dir(&dir).await.unwrap();
+        let storage = Uploads {
+            sessions: Arc::default(),
+            dir: dir.clone(),
+            ttl: Duration::from_secs(60),
+            max_total: 8,
+            max_file: 25 * 1024 * 1024,
+            public_url: None,
+            gate: Arc::default(),
+        };
+        let path = dir.join(format!("{}.bin", random_id()));
+        write_stored(&path, b"1234", Some(b"\"name\""))
+            .await
+            .unwrap();
+        // Data samotná se vejdou, s metadaty už ne.
+        storage.cleanup(0).await.unwrap();
+        assert!(!path.exists());
+        assert!(!metadata_path(&path).exists());
+        fs::write(metadata_path(&path), b"\"orphan\"")
+            .await
+            .unwrap();
+        storage.cleanup(0).await.unwrap();
+        assert!(!metadata_path(&path).exists());
+        // Chyba při zápisu druhé části nesmí nechat data ani metadata.
+        fs::write(metadata_path(&path), b"stale").await.unwrap();
+        assert!(
+            write_stored(&path, b"data", Some(b"\"name\""))
+                .await
+                .is_err()
+        );
+        assert!(!path.exists());
+        assert!(!metadata_path(&path).exists());
+        // Úspěšný návrat je až po flush a sync_all obou souborů.
+        write_stored(&path, b"data", Some(b"\"x\"")).await.unwrap();
+        assert_eq!(fs::read(&path).await.unwrap(), b"data");
+        assert_eq!(fs::read(metadata_path(&path)).await.unwrap(), b"\"x\"");
+        // Rezervace dalšího uploadu počítá i jeho metadata.
+        storage.cleanup(2).await.unwrap();
+        assert!(!path.exists());
+        fs::remove_dir_all(dir).await.unwrap();
     }
     #[tokio::test]
     async fn ttl_and_oldest_first_total_limit() {

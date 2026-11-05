@@ -98,21 +98,20 @@ pub struct Download {
     pub link: FileLink,
     pub reply: oneshot::Sender<Result<FileDownloadResult, String>>,
 }
+fn same_server(link: &FileLink, server: &str, uid: &str) -> bool {
+    match &link.uid {
+        Some(link_uid) => link_uid == uid,
+        None => link.server == server,
+    }
+}
 pub fn start(
     con: &mut Connection,
     link: &FileLink,
     server: &str,
     passwords: &std::collections::HashMap<u64, String>,
 ) -> Result<tsclientlib::FiletransferHandle, String> {
-    if link.server != server {
-        return Err("Soubor je z jiného serveru.".into());
-    }
     let book = con.get_state().map_err(|_| "Relace TS serveru skončila.")?;
-    if link
-        .uid
-        .as_ref()
-        .is_some_and(|uid| uid != &book.server.public_key.get_uid())
-    {
+    if !same_server(link, server, &book.server.public_key.get_uid()) {
         return Err("Soubor je z jiného serveru.".into());
     }
     let channel = book
@@ -245,6 +244,17 @@ async fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn uid_is_authoritative_but_address_is_required_without_uid() {
+        let mut link =
+            FileLink::parse("ts3file://example.org?channel=1&path=/&filename=x.zip&serverUID=abc")
+                .unwrap();
+        assert!(same_server(&link, "127.0.0.1:9987", "abc"));
+        assert!(!same_server(&link, "example.org:9987", "different"));
+        link.uid = None;
+        assert!(!same_server(&link, "127.0.0.1:9987", "abc"));
+        assert!(same_server(&link, "example.org:9987", "abc"));
+    }
     #[test]
     fn ts3_client_url_and_traversal() {
         let base = "ts3file://example.org?port=9987&serverUID=abc%3D&channel=12&path=%2Ffotky%2F&filename=%C5%BElu%C5%A5ou%C4%8Dk%C3%BD.zip&isDir=0&size=111303&fileDateTime=0";

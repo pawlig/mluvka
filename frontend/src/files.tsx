@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 export function cleanName(name: string) {
   return (
     [...name]
@@ -17,6 +17,9 @@ export function cleanName(name: string) {
 
 export const fileExtension =
   /\.(zip|7z|rar|tar|gz|bz2|xz|pdf|docx?|xlsx?|pptx?|odt|ods|txt|csv|rtf|epub|json)(?:\?[^#]*)?(?:#.*)?$/i;
+export function fileCount(count: number) {
+  return `${count} ${count === 1 ? "soubor" : count >= 2 && count <= 4 ? "soubory" : "souborů"}`;
+}
 export function fileSize(size: number) {
   if (size < 1024) return `${size} B`;
   const unit = size >= 1024 * 1024 ? "MB" : "kB";
@@ -34,6 +37,7 @@ export function fileIcon(name: string) {
 export type FileContext = {
   token: string;
   server: string;
+  serverUID?: string;
   channels: { id: number; name: string }[];
 };
 function serverAddress(value: string) {
@@ -67,6 +71,9 @@ export function FileCard({
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const transfer = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => transfer.current?.abort(), []);
   const u = new URL(url),
     ts = u.protocol === "ts3file:";
   let name = label || "Soubor",
@@ -82,7 +89,10 @@ export function FileCard({
   const port = u.searchParams.get("port") || u.port || "9987";
   const other =
     ts &&
-    serverAddress(`${u.hostname}:${port}`) !== serverAddress(context.server);
+    (u.searchParams.has("serverUID")
+      ? u.searchParams.get("serverUID") !== context.serverUID
+      : serverAddress(`${u.hostname}:${port}`) !==
+        serverAddress(context.server));
   const path = u.searchParams.get("path") || "";
   const invalid =
     ts &&
@@ -98,33 +108,70 @@ export function FileCard({
     const n = Number(u.searchParams.get("size"));
     if (Number.isFinite(n) && n >= 0) size = n;
   }
-  // Velikost vlastní přílohy je součástí BBCode popisku, bez dalšího HTTP požadavku.
+  // Velikost starší přílohy v BBCode popisku, bez dalšího HTTP požadavku.
   const ownSize = !ts && label?.match(/\(([^()]*(?:B|kB|MB))\)$/)?.[1];
   async function download() {
-    if (busy) return;
+    if (transfer.current) return;
+    const controller = new AbortController();
+    transfer.current = controller;
     setBusy(true);
+    setProgress(0);
     setError("");
+    const mobileLimit = matchMedia("(max-width: 600px), (pointer: coarse)")
+      .matches
+      ? 50 * 1024 * 1024
+      : Infinity;
+    const tooLarge = () =>
+      Error(
+        "Na mobilu lze stáhnout soubor nejvýše 50 MiB. Větší soubor otevři na počítači nebo v TeamSpeak klientu.",
+      );
     try {
+      if (size !== undefined && size > mobileLimit) throw tooLarge();
       const response = await fetch(
         `/api/ts-file?${new URLSearchParams({ url })}`,
-        { headers: { Authorization: `Bearer ${context.token}` } },
+        {
+          headers: { Authorization: `Bearer ${context.token}` },
+          signal: controller.signal,
+        },
       );
       if (!response.ok) throw Error(await response.text());
-      const blob = URL.createObjectURL(await response.blob());
+      const total = Number(response.headers.get("content-length"));
+      if (total > mobileLimit) throw tooLarge();
+      if (!response.body)
+        throw Error("Prohlížeč nepodporuje stažení tohoto souboru.");
+      const reader = response.body.getReader();
+      const chunks: BlobPart[] = [];
+      let loaded = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        loaded += value.byteLength;
+        if (loaded > mobileLimit) throw tooLarge();
+        chunks.push(value);
+        if (total > 0)
+          setProgress(Math.min(100, Math.round((loaded * 100) / total)));
+      }
+      if (controller.signal.aborted) return;
+      const blob = URL.createObjectURL(
+        new Blob(chunks, { type: "application/octet-stream" }),
+      );
       const a = document.createElement("a");
       a.href = blob;
       a.download = cleanName(name);
       a.click();
       setTimeout(() => URL.revokeObjectURL(blob), 60000);
     } catch (e) {
-      setError(
-        e instanceof TypeError
-          ? "Přenos se přerušil. Zkontroluj síť a TCP port souborového přenosu TS serveru."
-          : e instanceof Error
-            ? e.message
-            : "Stažení selhalo.",
-      );
+      if (!(e instanceof DOMException && e.name === "AbortError"))
+        setError(
+          e instanceof TypeError
+            ? "Přenos se přerušil. Zkontroluj síť a TCP port souborového přenosu TS serveru."
+            : e instanceof Error
+              ? e.message
+              : "Stažení selhalo.",
+        );
     } finally {
+      controller.abort();
+      transfer.current = undefined;
       setBusy(false);
     }
   }
@@ -160,13 +207,29 @@ export function FileCard({
       {ts ? (
         !other &&
         !invalid && (
-          <button
-            type="button"
-            disabled={busy || !context.token}
-            onClick={() => void download()}
-          >
-            {busy ? "Stahuji…" : "Stáhnout"}
-          </button>
+          <span className="file-actions">
+            {busy ? (
+              <>
+                <span role="status">Stahování {progress} %</span>
+                <progress
+                  aria-label="Průběh stahování"
+                  value={progress}
+                  max={100}
+                />
+                <button type="button" onClick={() => transfer.current?.abort()}>
+                  Zrušit
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={!context.token}
+                onClick={() => void download()}
+              >
+                Stáhnout
+              </button>
+            )}
+          </span>
         )
       ) : (
         <a

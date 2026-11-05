@@ -1581,6 +1581,7 @@ export function App() {
                         context={{
                           token: uploadToken,
                           server: login.server,
+                          serverUID: room?.server_uid,
                           channels: room?.channels || [],
                         }}
                         requestLink={(name) => {

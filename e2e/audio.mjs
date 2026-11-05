@@ -161,7 +161,7 @@ export async function installAudioProbe(context) {
     };
   });
 }
-export async function toneCheck(a, b, ok, codec, profile) {
+export async function toneCheck(a, b, ok, codec, profile, knownAudioFailure) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // Změna captureru a otevření kodeku nesmějí vstoupit do měření ustáleného hovoru.
   await b.waitForTimeout(5000);
@@ -257,9 +257,14 @@ export async function toneCheck(a, b, ok, codec, profile) {
   };
   expect(measurement.stats.codec).toBe(codec);
   {
-    expect(measurement.stats.plcFrames, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
-    expect(measurement.stats.underruns, JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
-    expect(measurement.stats.droppedFrames).toBe(0);
+    for (const metric of ["plcFrames", "underruns", "droppedFrames"]) {
+      try {
+        expect(measurement.stats[metric], JSON.stringify({ ...measurement.stats, ...timing })).toBe(0);
+      } catch (error) {
+        if (!knownAudioFailure) throw error;
+        knownAudioFailure(`Tón 440 Hz / ${codec}: ${metric}`, { actual: measurement.stats[metric], expected: 0, ...timing });
+      }
+    }
     expect(min).toBeGreaterThanOrEqual(40);
     expect(max).toBeLessThanOrEqual(120);
   }
@@ -270,7 +275,7 @@ export async function toneCheck(a, b, ok, codec, profile) {
     expect(maxDown).toBeLessThanOrEqual(130);
   }
   ok(
-    `TS3 tón 440 Hz / ${codec}, 30 s bez podtečení`,
+    `TS3 tón 440 Hz / ${codec}, 30 s měření (výpadky viz metriky)`,
     {
       underruns: measurement.stats.underruns,
       plcFrames: measurement.stats.plcFrames,

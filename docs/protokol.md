@@ -37,7 +37,7 @@ Checkboxy zapamatování jsou klientské; dodatečná pole backend ignoruje.
 | ---------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hello`    | `audio: {codec: "opus" \| "pcm", version: 1, quality: string}`                                                         | Vyjednaný transport, před prvním `state`. Bez nabídky Opus v1 se použije PCM.                                                                                                         |
 | `identity` | `identity: string`, `uid: string`, `level: number`                                                                     | Privátní text `čítačVbase64-klíč` se uloží do `mluvka.identity`. Nová identita má úroveň ≥8. Posílá se znovu i při zvýšení úrovně požadovaném TS serverem. `uid` je veřejná identita. |
-| `state`    | `name: string`, `self: number`, `channels: Channel[]`, `clients: Client[]`                                             | Úplný snímek po připojení a změnách TS knihy. První snímek může být bez klientů, další jej doplní.                                                                                    |
+| `state`    | `name: string`, `server_uid: string`, `self: number`, `channels: Channel[]`, `clients: Client[]`                                             | Úplný snímek po připojení a změnách TS knihy. První snímek může být bez klientů, další jej doplní.                                                                                    |
 | `talking`  | `client: number`, `active: boolean`                                                                                    | Indikátor příchodu hlasových paketů; po 300 ms bez paketu `false`. Lokální mute ho nepotlačí. Vlastní indikátor řídí mikrofon v prohlížeči.                                           |
 | `chat`     | `target: "channel" \| "server" \| "private"`, `client: number \| null`, `from: number`, `name: string`, `text: string` | `from` je odesílatel, `client` příjemce soukromé zprávy. Vlastní odeslanou zprávu přidává UI ihned, TS ji nemusí vrátit.                                                              |
 | `poke`     | `target: "poke"`, `client: number`, `from: number`, `name: string`, `text: string`                                     | Výrazné upozornění na šťouchnutí.                                                                                                                                                     |
@@ -173,13 +173,15 @@ a `Content-Type` obrázku, nikoli multipart ani jméno souboru. Autoritativní j
 bajty PNG/JPEG/GIF/WebP. SVG/HTML → 415, přes 10 MiB (GIF 8 MiB) → 413, chybějící/neplatný
 nebo zrušený token → 401, jedenáctý pokus v klouzavých 5 minutách → 429. Pokusy o upload
 se počítají včetně odmítnutých formátů/velikostí. Nedostatečná kapacita pro jediný soubor → 507.
-Úspěch: HTTP 201, `Cache-Control: no-store`, JSON `{"url":"https://host/img/<id>.webp"}`.
+Úspěch: HTTP 201, `Cache-Control: no-store`, JSON `{"url":"https://example.org/img/<id>.jpg"}`.
 `id` má 256 náhodných bitů v base64url, příponu volí backend. Jména/obsah ani TS cíl se nelogují.
 
 Klient před uploadem provede orientaci, resize a nové zakódování přes canvas bez EXIF/GPS;
 GIF posílá beze změny. Přímé API kontroluje typ a velikost, metadata samo neodstraňuje.
-URL pak odešle běžnou zprávou `chat` jako `[IMG]https://host/img/<id>.webp[/IMG]`, případně
-s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5/TS6 nebylo ověřeno.
+Canvas volí JPEG pro fotografie, PNG pro průhlednost nebo málo barev. URL pak odešle běžnou
+zprávou `chat` jako holý `https://example.org/img/<id>.jpg` (nebo `.png`/`.gif`), případně
+s textem před odkazem. TS3 i TS5/6 dostanou klikatelnou URL, Mluvka zobrazí náhled.
+Příjem starších `[IMG]…[/IMG]` zůstává podporovaný; nativní klienty ověřuje orchestrátor.
 
 `GET /img/<id>.<ext>` je veřejný, po expiraci/odstranění vrací 404. Hlavičky:
 `Content-Type: image/png|image/jpeg|image/gif|image/webp`,
@@ -197,8 +199,10 @@ přílohy. Bez této hlavičky zůstává původní kontrolovaná cesta pro bitm
 `UPLOAD_FILE_MAX_MB` (výchozí 25 MiB), překročení → 413; bez platné relace → 401.
 Odpověď 201: `{"url":"https://mluvka.example.org/f/<id>/<jméno>","name":"<očištěné jméno>","size":111303}`.
 Jméno nemá lomítka, zakázané znaky ani řídicí znaky, nejvýše 120 znaků; metadata leží vedle
-binárního souboru a mizí spolu s ním. Do logu nepatří obsah, původní jméno ani token.
-Zpráva do TS: `[URL=https://mluvka.example.org/f/<id>/<jméno>]📎 <jméno> (108,7 kB)[/URL]`.
+binárního souboru a mizí spolu s ním. Data i JSON se počítají do stropu kapacity; osiřelé JSON uklízí úklid.
+201 se vrací až po `write_all`, `flush` a `sync_all` dat i metadat; při chybě se obojí smaže (plný disk/kvóta → 507, ostatní I/O → 500).
+Odchozí zpráva obsahuje `📎 jméno (velikost)` a holou URL `/f/<id>/<jméno>`, bez BBCode. Do logu nepatří obsah, původní jméno ani token.
+Zpráva do TS: `📎 <jméno> (108,7 kB)`, nový řádek a `https://mluvka.example.org/f/<id>/<jméno>`.
 
 `GET /f/<id>/<jméno>` používá jméno z metadat, nikdy typ odhadnutý z přípony.
 Hlavičky: `Content-Type: application/octet-stream`,
@@ -221,9 +225,12 @@ nejde o ručně podstrčenou HTTP odpověď. Skutečný desktopový TS3/TS5 klie
 `GET /api/ts-file?url=<percent-encoded celý ts3file odkaz>` vyžaduje `Authorization: Bearer <token>`.
 URL se parsuje až po autentizaci. Kanál, cesta a jméno jsou validované, `.`/`..`, lomítko
 ve jméně, řídicí znaky, opakované parametry a nadměrné délky se odmítají (400).
-Server i volitelný serverUID musí odpovídat relaci (jinak 403); API neprovádí DNS ani
+Je-li přítomný `serverUID`, musí odpovídat relaci (jinak 403); host/port pak mohou být jiným aliasem.
+Bez UID musí odpovídat host a port relace. API neprovádí DNS ani
 TCP připojení podle URL. Oprávnění a heslo kontroluje TS server, známá hesla žijí jen v paměti relace.
 Chybějící heslo, oprávnění nebo nedostupný port mají českou chybu (403/504), nikoli odpojení chatu.
+Prohlížeč ukazuje průběh v procentech a umožňuje přenos zrušit přes AbortController. Na úzkém displeji
+nebo coarse pointeru omezuje blob na 50 MiB (kontrola velikosti z odkazu, Content-Length i během čtení).
 Nad `TS_FILE_MAX_MB` → 413. Navázání má deadline 20 s, samotný stream 180 s; nejvýše 64 KiB
 buffer a serverem ohlášená velikost, žádný soubor na disku. Hlavičky stejné jako `/f/`, ale
 `Cache-Control: no-store`. Tato cesta má se zápisy společné tempo 10 pokusů / 5 minut.

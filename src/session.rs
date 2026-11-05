@@ -650,7 +650,7 @@ fn snapshot(con: &Connection) -> Result<Value, String> {
     let channels: Vec<_> = book.channels.values().map(|c| json!({"id":c.id.0,"parent":c.parent.0,"order":c.order.0,"name":c.name,"password":c.has_password.unwrap_or(false),"topic":c.topic})).collect();
     let clients: Vec<_> = book.clients.values().map(|c| json!({"id":c.id.0,"channel":c.channel.0,"uid":c.uid.as_ref().map(|u| u.as_ref().to_string()),"name":c.name,"microphone":c.input_muted || !c.input_hardware_enabled,"deafen":c.output_muted || !c.output_hardware_enabled,"away":c.away_message.is_some()})).collect();
     Ok(
-        json!({"type":"state", "name":book.server.name,"self":book.own_client.0,"channels":channels,"clients":clients}),
+        json!({"type":"state", "name":book.server.name,"server_uid":book.server.public_key.get_uid(),"self":book.own_client.0,"channels":channels,"clients":clients}),
     )
 }
 

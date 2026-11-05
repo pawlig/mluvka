@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fileSize, cleanName } from "./files";
+import { fileSize, cleanName, fileCount } from "./files";
 import { Icon } from "./Icon";
 
 async function prepare(file: File): Promise<Blob> {
@@ -32,8 +32,25 @@ async function prepare(file: File): Promise<Blob> {
           0.85,
         ),
       );
-    let blob = await encode("image/webp");
-    if (blob.type !== "image/webp") blob = await encode("image/jpeg");
+    // Průhlednost a omezenou paletu zachová PNG, fotografie komprimuje JPEG.
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const colors = new Set<number>();
+    let transparent = false;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] !== 255) {
+        transparent = true;
+        break;
+      }
+      if (colors.size <= 256)
+        colors.add(
+          ((pixels[i] >> 3) << 10) |
+            ((pixels[i + 1] >> 3) << 5) |
+            (pixels[i + 2] >> 3),
+        );
+    }
+    const blob = await encode(
+      transparent || colors.size <= 256 ? "image/png" : "image/jpeg",
+    );
     if (blob.size > 10 * 1024 * 1024)
       throw Error("Obrázek po zmenšení přesahuje 10 MB.");
     return blob;
@@ -263,8 +280,8 @@ export function ImageComposer({
         if (version !== revision.current) return;
         const url = result.url;
         const attachment = file.image
-          ? `[IMG]${url}[/IMG]`
-          : `[URL=${url}]📎 ${result.name || file.name} (${fileSize(result.size)})[/URL]`;
+          ? url
+          : `📎 ${result.name || file.name} (${fileSize(result.size)})\n${url}`;
         const message = `${i === 0 && text.trim() ? `${text.trim()}\n` : ""}${attachment}`;
         if (new TextEncoder().encode(message).length > 4000)
           throw Error("Zpráva je příliš dlouhá. Zkrať doprovodný text.");
@@ -295,7 +312,7 @@ export function ImageComposer({
                 {image
                   ? "Obrázek je připravený"
                   : pending.length
-                    ? `${pending.length} souborů · ${pending[0].name}`
+                    ? `${fileCount(pending.length)} · ${pending[0].name}`
                     : "Připravuji soubory…"}
               </strong>
               <span>

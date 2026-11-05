@@ -69,13 +69,11 @@ export async function fileChecks({
       .getByRole("button", { name: "Odeslat zprávu", exact: true })
       .click();
   };
-  await a
-    .getByLabel("Vybrat soubory")
-    .setInputFiles({
-      name: "poskozeny.png",
-      mimeType: "image/png",
-      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    });
+  await a.getByLabel("Vybrat soubory").setInputFiles({
+    name: "poskozeny.png",
+    mimeType: "image/png",
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  });
   await expect(a.getByRole("alert")).toContainText("Obrázek nelze připravit.");
   const bytes = randomBytes(5 * 1024 * 1024);
   await a.getByLabel("Vybrat soubory").setInputFiles({
@@ -83,12 +81,21 @@ export async function fileChecks({
     mimeType: "application/zip",
     buffer: bytes,
   });
-  await expect(a.locator(".pending-image")).toContainText("zkouska.zip");
+  await expect(a.locator(".pending-image")).toContainText(
+    "1 soubor · zkouska.zip",
+  );
   await a.getByRole("button", { name: "Odeslat soubory", exact: true }).click();
   const zip = b.locator(".file-card").filter({ hasText: "zkouska.zip" }).last();
   await expect(zip).toBeVisible();
   await browserDownload(b, zip, bytes);
   const url = await zip.locator("a").getAttribute("href");
+  await expect(zip).toContainText("5 MB");
+  await expect
+    .poll(() => query.messages.find((m) => m.includes("📎 zkouska.zip")))
+    .toBe(`📎 zkouska.zip (5 MB)\n${url}`);
+  expect(query.messages.find((m) => m.includes("📎 zkouska.zip"))).not.toMatch(
+    /\[URL/i,
+  );
   const response = await fetch(url);
   expect(sha(Buffer.from(await response.arrayBuffer()))).toBe(sha(bytes));
   for (const [key, value] of Object.entries({
@@ -207,6 +214,15 @@ export async function fileChecks({
     await a.getByRole("button", { name: "Zrušit", exact: true }).click();
     await expect(a.locator(".pending-image")).toHaveCount(0);
   }
+  await a.getByLabel("Vybrat soubory").setInputFiles(
+    Array.from({ length: 5 }, (_, i) => ({
+      name: `pocet-${i}.txt`,
+      mimeType: "text/plain",
+      buffer: Buffer.from("x"),
+    })),
+  );
+  await expect(a.locator(".pending-image")).toContainText("5 souborů");
+  await a.getByRole("button", { name: "Zrušit", exact: true }).click();
   await a.getByLabel("Vybrat soubory").setInputFiles([
     { name: "prvni.txt", mimeType: "text/plain", buffer: Buffer.from("prvni") },
     {
@@ -215,7 +231,7 @@ export async function fileChecks({
       buffer: Buffer.from("druhy"),
     },
   ]);
-  await expect(a.locator(".pending-image")).toContainText("2 souborů");
+  await expect(a.locator(".pending-image")).toContainText("2 soubory");
   await a.getByRole("button", { name: "Odeslat soubory", exact: true }).click();
   await expect(
     b.locator(".file-card").filter({ hasText: "druhy.zip" }),
@@ -256,11 +272,17 @@ export async function fileChecks({
     );
     await browserDownload(b, card, native);
     if (channel === 1) {
+      // Shodné UID přebíjí jiný alias/port; spojení backend bere výhradně z relace.
+      const alias = link
+        .replace(`ts3file://${host}`, "ts3file://example.org")
+        .replace(`port=${port}`, "port=9988");
+      await send(`[URL=${alias}]alias[/URL]`);
+      await browserDownload(b, b.locator(".file-card").last(), native);
       // Stejný skutečný TS přenos i přes API; kontrola hlaviček a UID.
       const session = await probe(base, tsAddress, password);
       try {
         const res = await fetch(
-          `${base}/api/ts-file?${new URLSearchParams({ url: link })}`,
+          `${base}/api/ts-file?${new URLSearchParams({ url: alias })}`,
           { headers: { Authorization: `Bearer ${session.token}` } },
         );
         expect(res.status).toBe(200);
@@ -275,6 +297,104 @@ export async function fileChecks({
       }
     }
   }
+  const progressLink = `ts3file://${host}?${new URLSearchParams({ port, serverUID: uid, channel: "1", path: "/", filename: "prubeh.zip", size: "131072" })}`;
+  await send(`[URL=${progressLink}]prubeh.zip[/URL]`);
+  const progressCard = b
+    .locator(".file-card")
+    .filter({ hasText: "prubeh.zip" })
+    .last();
+  let releaseRequest;
+  const held = new Promise((resolve) => {
+    releaseRequest = resolve;
+  });
+  await b.route("**/api/ts-file?**", async (route) => {
+    await held;
+    await route.abort().catch(() => {});
+  });
+  await progressCard
+    .getByRole("button", { name: "Stáhnout", exact: true })
+    .click();
+  await expect(progressCard.getByRole("status")).toHaveText("Stahování 0 %");
+  await progressCard
+    .getByRole("button", { name: "Zrušit", exact: true })
+    .click();
+  await expect(
+    progressCard.getByRole("button", { name: "Stáhnout", exact: true }),
+  ).toBeVisible();
+  await expect(progressCard.getByRole("alert")).toHaveCount(0);
+  releaseRequest();
+  await b.unroute("**/api/ts-file?**");
+  // Řízený stream ověří mezilehlé procento, nejen stav před začátkem fetch.
+  await b.evaluate(() => {
+    window.fileFetch = window.fetch;
+    window.fetch = async (input, options) => {
+      if (String(input).startsWith("/api/ts-file?")) {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(32768).fill(7));
+            window.finishFileDownload = () => {
+              controller.enqueue(new Uint8Array(98304).fill(7));
+              controller.close();
+            };
+          },
+        });
+        return new Response(stream, {
+          headers: { "Content-Length": "131072" },
+        });
+      }
+      return window.fileFetch(input, options);
+    };
+  });
+  try {
+    await progressCard
+      .getByRole("button", { name: "Stáhnout", exact: true })
+      .click();
+    await expect(progressCard.getByRole("status")).toHaveText("Stahování 25 %");
+    const downloaded = b.waitForEvent("download");
+    await b.evaluate(() => window.finishFileDownload());
+    const file = await downloaded;
+    expect(sha(readFileSync(await file.path()))).toBe(
+      sha(Buffer.alloc(131072, 7)),
+    );
+  } finally {
+    await b.evaluate(() => {
+      window.fetch = window.fileFetch;
+      delete window.fileFetch;
+      delete window.finishFileDownload;
+    });
+  }
+  await b.setViewportSize({ width: 390, height: 844 });
+  await b.getByRole("button", { name: "Chat", exact: true }).click();
+  await send(
+    `[URL=${progressLink.replace("prubeh.zip", "velky.zip").replace("size=131072", "size=52428801")}]velky.zip[/URL]`,
+  );
+  const largeCard = b
+    .locator(".file-card")
+    .filter({ hasText: "velky.zip" })
+    .last();
+  await largeCard
+    .getByRole("button", { name: "Stáhnout", exact: true })
+    .click();
+  await expect(largeCard.getByRole("alert")).toContainText(
+    "Na mobilu lze stáhnout soubor nejvýše 50 MiB.",
+  );
+  // Ani podvržená malá velikost v odkazu neobejde kontrolu skutečné Content-Length.
+  await b.route("**/api/ts-file?**", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "Content-Length": "52428801" },
+      body: "",
+    }),
+  );
+  await progressCard
+    .getByRole("button", { name: "Stáhnout", exact: true })
+    .click();
+  await expect(progressCard.getByRole("alert")).toContainText("nejvýše 50 MiB");
+  await b.unroute("**/api/ts-file?**");
+  await b.setViewportSize({ width: 1440, height: 900 });
+  ok(
+    "TS download: procenta, AbortController/Zrušit bez chyby; mobilní strop 50 MiB podle odkazu i skutečné délky",
+  );
   const access = await probe(base, tsAddress, password);
   try {
     const linkFor = (channel, name) =>
@@ -340,6 +460,9 @@ export async function fileChecks({
   const myts = b.locator(".ts-attachment").last();
   await expect(myts).toContainText("108,7 kB");
   await expect(myts).toContainText("Soubor z TeamSpeak 5/6");
+  await expect(myts).toContainText(
+    "leží na serveru myTeamSpeak a bez účtu je stáhnout nejde",
+  );
   await expect(b.getByRole("log")).not.toContainText('"msg_type"');
   await myts.getByRole("button", { name: "Požádat o odkaz" }).click();
   await a

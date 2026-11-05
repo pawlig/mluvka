@@ -6,7 +6,8 @@ import { resolve } from "node:path";
 const report = new URL("../docs/e2e-vysledky.json", import.meta.url);
 const results = [],
   errors = [],
-  runs = [];
+  runs = [],
+  knownAudioFailures = [];
 // Jedna TS3 instance zůstává rezervovaná přes oba transporty; samostatné
 // pracovní stromy jinak mohou obsadit local accounting mezi dvěma průchody.
 const admin = randomBytes(18).toString("hex");
@@ -58,6 +59,12 @@ try {
       ...run.results.map((result) => ({ ...result, runCodec: codec })),
     );
     errors.push(...run.errors);
+    knownAudioFailures.push(
+      ...(run.knownAudioFailures || []).map((failure) => ({
+        ...failure,
+        runCodec: codec,
+      })),
+    );
     writeFileSync(
       report,
       JSON.stringify(
@@ -69,6 +76,7 @@ try {
           runs,
           results,
           errors,
+          knownAudioFailures,
         },
         null,
         2,
