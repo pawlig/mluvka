@@ -579,6 +579,8 @@ function AppContent({
           ...credentials,
           identity: load<string | null>("identity", null),
           audio: audio.transportOffer(),
+          microphone: settingsRef.current.microphone || audio.inputUnavailable,
+          deafen: settingsRef.current.deafen,
         }),
       );
     };

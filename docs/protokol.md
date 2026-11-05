@@ -206,3 +206,8 @@ v logu zachová `wire_code=0x0d01`. Ostatní 0x0d01 jsou nadále trvalé bany. Z
 lokální kopie: `vendor/tsclientlib/MLUVKA-PATCH.md`.
 
 Příkazový `ClientIsFlooding` (0x020c) živou relaci neukončí: fronta cíle vyčká 5 s a odmítnutý příkaz opakuje. Klient dostane `command_slow`. Příkazy se potvrzují postupně; lokální bodový rozpočet (burst 60, obnova 5 bodů/s) tlumí delší série zpráv vedle společného limitu počtu příkazů.
+
+Počáteční `microphone` a `deafen` jsou volitelné položky `connect` (výchozí false),
+zaslané rovnou v TS `clientinit`. Bez další změny stavu se po handshake posílá jen
+jeden `channelsubscribeall`; seznamy kanálů a klientů přicházejí v oznámeních TS,
+žádné `clientlist` / `channellist` ani dodatečný `clientmove` se při připojení neposílají.

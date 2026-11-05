@@ -57,6 +57,10 @@ enum Control {
         channel_password: String,
         identity: Option<String>,
         #[serde(default)]
+        microphone: bool,
+        #[serde(default)]
+        deafen: bool,
+        #[serde(default)]
         audio: AudioOptions,
     },
     Move {
@@ -604,6 +608,8 @@ async fn session(
         channel,
         channel_password,
         identity,
+        microphone,
+        deafen,
         audio,
     } = serde_json::from_str(&first).map_err(|_| "Neplatné údaje připojení.")?
     else {
@@ -645,7 +651,7 @@ async fn session(
     .await
     .map_err(|_| "Identitu se nepodařilo vytvořit.")??;
     json_send(ws, json!({"type":"identity", "identity":identity_text(&id), "uid":id.key().to_pub().get_uid().to_string(), "level":id.level()})).await?;
-    let slot = identity_slot(format!("{server}/{}", id.key().to_pub().get_uid()));
+    let slot = identity_slot(format!("{addr}/{}", id.key().to_pub().get_uid()));
     slot.changed
         .send_modify(|version| *version = version.wrapping_add(1));
     let mut superseded = slot.changed.subscribe();
@@ -664,12 +670,15 @@ async fn session(
     if *shutdown.borrow() {
         return Ok(());
     }
+    let (connect_mic, connect_deaf) = ws.pending_mute.unwrap_or((microphone, deafen));
     let mut con = Connection::build(addr)
         .identity(id.clone())
         .name(nickname.clone())
         .password(password.clone())
         .channel(channel.clone())
         .channel_password(channel_password.clone())
+        .input_muted(connect_mic)
+        .output_muted(connect_deaf)
         .connect()
         .map_err(|e| ts_error(&e))?;
     let result = tokio::select! {
@@ -739,6 +748,8 @@ async fn session(
                         .password(password.clone())
                         .channel(channel.clone())
                         .channel_password(channel_password.clone())
+                        .input_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).0)
+                        .output_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).1)
                         .connect()
                         .map_err(|e| ts_error(&e))?;
                 } else if retryable_address(&e) && address_index + 1 < addresses.len() {
@@ -746,7 +757,7 @@ async fn session(
                     addr = addresses[address_index];
                     wait_budget(ws, addr).await?;
                     deadline = Instant::now() + Duration::from_secs(25);
-                    con = Connection::build(addr).identity(id.clone()).name(nickname.clone()).password(password.clone()).channel(channel.clone()).channel_password(channel_password.clone()).connect().map_err(|e| ts_error(&e))?;
+                    con = Connection::build(addr).identity(id.clone()).name(nickname.clone()).password(password.clone()).channel(channel.clone()).channel_password(channel_password.clone()).input_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).0).output_muted(initial_mute.unwrap_or((connect_mic, connect_deaf)).1).connect().map_err(|e| ts_error(&e))?;
                 } else { return Err(ts_error(&e)); }
             }
             None => return Err("Server ukončil spojení.".into()),
@@ -821,7 +832,12 @@ async fn connected(
         .clients
         .get(&book.own_client)
         .map(|own| (own.input_muted, own.output_muted))
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            (
+                con.get_options().get_input_muted(),
+                con.get_options().get_output_muted(),
+            )
+        });
     let (mut microphone, mut deafen) = initial_mute.unwrap_or(server_mute);
     let mut commands = VecDeque::new();
     if (microphone, deafen) != server_mute {
@@ -901,7 +917,7 @@ async fn connected(
                                 // Sloučit čekající změny mikrofonu, neposílat mezistavy bez změny.
                                 commands.retain(|cmd| !cmd.0.content().starts_with(b"clientupdate client_input_muted="));
                                 let book = con.get_state().map_err(|e| ts_error(&e))?;
-                                if book.clients.get(&book.own_client).map(|client| (client.input_muted, client.output_muted)).unwrap_or_default() == (mic, deaf) { continue; }
+                                if book.clients.get(&book.own_client).map(|client| (client.input_muted, client.output_muted)).unwrap_or_else(|| (con.get_options().get_input_muted(), con.get_options().get_output_muted())) == (mic, deaf) { continue; }
                                 Some(command("clientupdate", &[("client_input_muted",u8::from(mic).to_string()),("client_output_muted",u8::from(deaf).to_string())]))
                             },
                             Control::Peer { uid, volume, muted } => {
