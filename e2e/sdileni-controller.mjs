@@ -1,9 +1,16 @@
 // Kontrakt řízení sdílení bez TS: pozdní snapshot/ack a konečný počet pokusů.
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import {
+  readFileSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
+mkdirSync(resolve(root, "tmp-ts3"), { recursive: true });
 const temp = mkdtempSync(resolve(root, "tmp-ts3/controller-test-"));
 let source;
 try {

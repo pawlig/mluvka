@@ -337,6 +337,21 @@ export async function sharingChecks({
   expect((await a.locator(".voice-bar").boundingBox()).height).toBeLessThan(
     110,
   );
+  ok("Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon");
+  // Před uložením dokladu čekáme na překreslení kompozitoru.
+  await a.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await expect(a.locator(".voice-bar")).toBeInViewport();
+  await a.screenshot({
+    path: resolve(root, "docs/screenshots/sdileni-desktop-sdilejici.png"),
+  });
+  await b.screenshot({
+    path: resolve(root, "docs/screenshots/sdileni-desktop-divak.png"),
+  });
   for (const width of [1024, 768]) {
     await a.setViewportSize({ width, height: 900 });
     expect(
@@ -347,13 +362,6 @@ export async function sharingChecks({
     );
   }
   await a.setViewportSize({ width: 1440, height: 900 });
-  ok("Desktop: jediné tlačítko sdílení zůstává ve stejném řádku jako mikrofon");
-  await a.screenshot({
-    path: resolve(root, "docs/screenshots/sdileni-desktop-sdilejici.png"),
-  });
-  await b.screenshot({
-    path: resolve(root, "docs/screenshots/sdileni-desktop-divak.png"),
-  });
 
   const previousOffers = await b.evaluate(
     () =>
