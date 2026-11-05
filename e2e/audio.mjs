@@ -7,7 +7,7 @@ import { expect } from "@playwright/test";
 
 // V repozitáři ponecháváme číselný souhrn; jednotlivá 30s okna jsou v tmp-ts3.
 export function summarizeAudioTiming(windows) {
-  return [...new Set(windows.map((w) => w.stage || "writer"))].map((stage) => {
+  const summaries = [...new Set(windows.map((w) => w.stage || "writer"))].map((stage) => {
     const rows = windows.filter((w) => (w.stage || "writer") === stage);
     const summary = { stage, windows: rows.length };
     for (const key of new Set(rows.flatMap(Object.keys))) {
@@ -23,8 +23,28 @@ export function summarizeAudioTiming(windows) {
       summary.queueMaxMs = Math.max(...rows.map((w) => w.queueMaxMs));
       summary.averageFrameBytesRange = [Math.min(...rows.map((w) => w.averageFrameBytes)), Math.max(...rows.map((w) => w.averageFrameBytes))];
     }
+    if (stage === "mix") summary.modes = [...new Set(rows.map((w) => w.mode || "thread"))];
     return summary;
   });
+  const mix = summaries.find((row) => row.stage === "mix"),
+    source = summaries.find((row) => row.stage === "source");
+  assert.ok(mix?.mixStart?.count > 0 && source?.sessionTick?.count > 0,
+    "Chybí měření mixStart/sessionTick ze stejného běhu");
+  mix.cadenceComparison = {
+    mixP95Ms: mix.mixStart.maxWindowP95Ms,
+    sessionP95Ms: source.sessionTick.maxWindowP95Ms,
+    mixGaps25to50: mix.mixStart.histogram[1],
+    sessionGaps25to50: source.sessionTick.histogram[1],
+    mixTickDelayP95Ms: mix.tickDelay.maxWindowP95Ms,
+    sessionTickDelayP95Ms: source.tickDelay.maxWindowP95Ms,
+  };
+  measured("Backend: kadence mixu není horší než takt relace", mix.cadenceComparison, () => {
+    assert.ok(mix.cadenceComparison.mixP95Ms <= mix.cadenceComparison.sessionP95Ms,
+      "mixStart p95 okna překročilo sessionTick p95 okna");
+    assert.ok(mix.cadenceComparison.mixGaps25to50 <= mix.cadenceComparison.sessionGaps25to50,
+      "Mix má víc mezer 25–50 ms než takt relace");
+  });
+  return summaries;
 }
 
 function measured(name, details, check) {

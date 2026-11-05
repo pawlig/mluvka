@@ -489,27 +489,16 @@ enum MixCommand {
     Enabled(bool),
     Reset,
 }
-// Jedno omezené vlákno na přijatou relaci (MAX_SESSIONS). Dlouhodobý výpočet
-// neběží v blocking poolu ani v pollování TS; Drop zastaví vlákno do jednoho tiku.
-struct Downlink {
-    commands: std::sync::mpsc::SyncSender<MixCommand>,
-    running: Arc<std::sync::atomic::AtomicBool>,
+// Stejný mix pro oba režimy; výchozí inline cesta používá jediný takt relace.
+struct Mixer {
+    audio: AudioHandler<ClientId>,
+    encoder: Encoder,
+    opus: bool,
     enabled: bool,
-    worker: std::thread::JoinHandle<()>,
-    input_drops: u64,
-    input_report: Instant,
+    sequence: u32,
 }
-impl Drop for Downlink {
-    fn drop(&mut self) {
-        self.running
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-impl Downlink {
-    fn new(
-        options: &AudioOptions,
-        output: mpsc::Sender<(Message, Instant)>,
-    ) -> Result<Self, String> {
+impl Mixer {
+    fn new(options: &AudioOptions) -> Result<Self, String> {
         let mut encoder = Encoder::new(SampleRate::Hz48000, Channels::Mono, Application::Audio)
             .map_err(|_| "Opus enkodér nelze spustit.")?;
         encoder
@@ -519,14 +508,180 @@ impl Downlink {
             .and_then(|_| encoder.set_inband_fec(true))
             .and_then(|_| encoder.set_packet_loss_perc(10))
             .map_err(|_| "Chyba nastavení Opus.")?;
-        let opus = options.opus();
+        Ok(Self {
+            audio: AudioHandler::new(),
+            encoder,
+            opus: options.opus(),
+            enabled: true,
+            sequence: 0,
+        })
+    }
+    fn apply(&mut self, command: MixCommand) {
+        match command {
+            MixCommand::Packet(id, packet, volume) => {
+                if self.enabled {
+                    let _ = self.audio.handle_packet(id, packet);
+                    if let Some(queue) = self.audio.get_mut_queues().get_mut(&id) {
+                        queue.volume = volume;
+                    }
+                }
+            }
+            MixCommand::Volume(id, volume) => {
+                if let Some(queue) = self.audio.get_mut_queues().get_mut(&id) {
+                    queue.volume = volume;
+                }
+            }
+            MixCommand::Enabled(value) => {
+                self.enabled = value;
+                if !value {
+                    self.audio.reset();
+                }
+            }
+            MixCommand::Reset => self.audio.reset(),
+        }
+    }
+    fn produce(&mut self, output: &mpsc::Sender<(Message, Instant)>) -> Result<(), String> {
+        let mut stereo = [0.0f32; 1920];
+        if self.enabled {
+            self.audio.fill_buffer(&mut stereo);
+        }
+        let mono: [f32; 960] =
+            std::array::from_fn(|i| soft_limit((stereo[2 * i] + stereo[2 * i + 1]) * 0.5));
+        let mut frame = Vec::with_capacity(if self.opus { 1276 } else { 1921 });
+        if self.opus {
+            frame.push(4);
+            frame.extend_from_slice(&self.sequence.to_le_bytes());
+            self.sequence = self.sequence.wrapping_add(1);
+            let mut encoded = [0u8; 1275];
+            let len = self
+                .encoder
+                .encode_float(&mono, &mut encoded)
+                .map_err(|_| "Chyba kódování mixu.")?;
+            frame.extend_from_slice(&encoded[..len]);
+        } else {
+            frame.push(2);
+            for sample in mono {
+                frame.extend_from_slice(&((sample * 32767.0) as i16).to_le_bytes());
+            }
+        }
+        match output.try_send((Message::Binary(frame.into()), Instant::now())) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::debug!(ws_audio_drop = true, "Plná fronta zvuku")
+            }
+            Err(_) => return Err("Výstupní fronta zvuku skončila.".into()),
+        }
+        Ok(())
+    }
+}
+
+struct InlineDownlink {
+    mixer: Mixer,
+    output: mpsc::Sender<(Message, Instant)>,
+    gaps: TimingSamples,
+    delays: TimingSamples,
+    work: TimingSamples,
+}
+enum Downlink {
+    Inline(Box<InlineDownlink>),
+    Thread(ThreadDownlink),
+}
+impl Downlink {
+    fn new(
+        options: &AudioOptions,
+        output: mpsc::Sender<(Message, Instant)>,
+    ) -> Result<Self, String> {
+        // Experimentální izolace zůstává opt-in; v E2E měla horší kadenci než Tokio.
+        if std::env::var("MLUVKA_AUDIO_PRODUCER").as_deref() == Ok("thread") {
+            return ThreadDownlink::new(options, output).map(Self::Thread);
+        }
+        Ok(Self::Inline(Box::new(InlineDownlink {
+            mixer: Mixer::new(options)?,
+            output,
+            gaps: TimingSamples::default(),
+            delays: TimingSamples::default(),
+            work: TimingSamples::default(),
+        })))
+    }
+    fn control(&mut self, command: MixCommand) -> Result<(), String> {
+        match self {
+            Self::Inline(inline) => {
+                inline.mixer.apply(command);
+                Ok(())
+            }
+            Self::Thread(thread) => thread.control(command),
+        }
+    }
+    fn packet(
+        &mut self,
+        id: ClientId,
+        packet: tsproto_packets::packets::InAudioBuf,
+        volume: f32,
+    ) -> Result<(), String> {
+        match self {
+            Self::Inline(inline) => {
+                inline.mixer.apply(MixCommand::Packet(id, packet, volume));
+                Ok(())
+            }
+            Self::Thread(thread) => thread.packet(id, packet, volume),
+        }
+    }
+    fn tick(&mut self, start: Instant, lateness: Duration, enabled: bool) -> Result<(), String> {
+        match self {
+            Self::Inline(inline) => {
+                // Mix je první práce tiku: sessionTick i mixStart označují stejný
+                // vstup do větve, nikoli dva nezávislé nebo dodatečně opravené takty.
+                inline.gaps.gap(start);
+                inline.delays.duration(lateness);
+                let work = Instant::now();
+                if inline.mixer.enabled != enabled {
+                    inline.mixer.apply(MixCommand::Enabled(enabled));
+                }
+                inline.mixer.produce(&inline.output)?;
+                inline.work.duration(work.elapsed());
+                Ok(())
+            }
+            Self::Thread(thread) => thread.enabled(enabled),
+        }
+    }
+    fn report(&mut self) {
+        if let Self::Inline(inline) = self {
+            let timing = json!({"stage":"mix", "mode":"inline", "mixStart":inline.gaps.take(),
+                "tickDelay":inline.delays.take(), "mixWork":inline.work.take()});
+            tracing::info!(audio_timing = %timing, "Mix v taktu relace za 30 s");
+        }
+    }
+}
+
+// Volitelně jedno omezené vlákno na relaci (MAX_SESSIONS). Dlouhodobý výpočet
+// neběží v blocking poolu ani v pollování TS; Drop zastaví vlákno do jednoho tiku.
+struct ThreadDownlink {
+    commands: std::sync::mpsc::SyncSender<MixCommand>,
+    running: Arc<std::sync::atomic::AtomicBool>,
+    enabled: bool,
+    worker: std::thread::JoinHandle<()>,
+    input_drops: u64,
+    input_report: Instant,
+}
+impl Drop for ThreadDownlink {
+    fn drop(&mut self) {
+        self.running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+impl ThreadDownlink {
+    fn new(
+        options: &AudioOptions,
+        output: mpsc::Sender<(Message, Instant)>,
+    ) -> Result<Self, String> {
+        let mixer = Mixer::new(options)?;
         let (commands, input) = std::sync::mpsc::sync_channel(256);
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let active = running.clone();
         let worker = std::thread::Builder::new()
             .name("mluvka-mix".into())
             .spawn(move || {
-                let result = Self::produce(opus, encoder, input, output, &active);
+                let result = Self::produce(mixer, input, output, &active);
                 active.store(false, std::sync::atomic::Ordering::Relaxed);
                 if result.is_err() {
                     tracing::warn!(audio_worker = "failed", "Zvukový producent skončil");
@@ -593,40 +748,13 @@ impl Downlink {
         }
     }
     fn produce(
-        opus: bool,
-        encoder: Encoder,
+        mut mixer: Mixer,
         input: std::sync::mpsc::Receiver<MixCommand>,
         output: mpsc::Sender<(Message, Instant)>,
         active: &std::sync::atomic::AtomicBool,
     ) -> Result<(), String> {
-        let mut audio = AudioHandler::<ClientId>::new();
-        let mut enabled = true;
-        let apply = |command, audio: &mut AudioHandler<ClientId>, enabled: &mut bool| match command
-        {
-            MixCommand::Packet(id, packet, volume) => {
-                if *enabled {
-                    let _ = audio.handle_packet(id, packet);
-                    if let Some(queue) = audio.get_mut_queues().get_mut(&id) {
-                        queue.volume = volume;
-                    }
-                }
-            }
-            MixCommand::Volume(id, volume) => {
-                if let Some(queue) = audio.get_mut_queues().get_mut(&id) {
-                    queue.volume = volume;
-                }
-            }
-            MixCommand::Enabled(value) => {
-                *enabled = value;
-                if !value {
-                    audio.reset();
-                }
-            }
-            MixCommand::Reset => audio.reset(),
-        };
         let step = Duration::from_millis(20);
         let mut deadline = Instant::now();
-        let mut sequence = 0u32;
         let mut gaps = TimingSamples::default();
         let mut delays = TimingSamples::default();
         let mut work = TimingSamples::default();
@@ -634,7 +762,7 @@ impl Downlink {
         while active.load(std::sync::atomic::Ordering::Relaxed) {
             if let Some(wait) = deadline.checked_duration_since(Instant::now()) {
                 match input.recv_timeout(wait) {
-                    Ok(command) => apply(command, &mut audio, &mut enabled),
+                    Ok(command) => mixer.apply(command),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
@@ -643,47 +771,19 @@ impl Downlink {
             // Doručené pakety před dekódováním; pevná mez brání vyhladovění taktu.
             for _ in 0..256 {
                 match input.try_recv() {
-                    Ok(command) => apply(command, &mut audio, &mut enabled),
+                    Ok(command) => mixer.apply(command),
                     Err(_) => break,
                 }
             }
             let start = Instant::now();
             gaps.gap(start);
             delays.duration(start.saturating_duration_since(deadline));
-            let mut stereo = [0.0f32; 1920];
-            if enabled {
-                audio.fill_buffer(&mut stereo);
-            }
-            let mono: [f32; 960] =
-                std::array::from_fn(|i| soft_limit((stereo[2 * i] + stereo[2 * i + 1]) * 0.5));
-            let mut frame = Vec::with_capacity(if opus { 1276 } else { 1921 });
-            if opus {
-                frame.push(4);
-                frame.extend_from_slice(&sequence.to_le_bytes());
-                sequence = sequence.wrapping_add(1);
-                let mut encoded = [0u8; 1275];
-                let len = encoder
-                    .encode_float(&mono, &mut encoded)
-                    .map_err(|_| "Chyba kódování mixu.")?;
-                frame.extend_from_slice(&encoded[..len]);
-            } else {
-                frame.push(2);
-                for sample in mono {
-                    frame.extend_from_slice(&((sample * 32767.0) as i16).to_le_bytes());
-                }
-            }
-            match output.try_send((Message::Binary(frame.into()), Instant::now())) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    tracing::debug!(ws_audio_drop = true, "Plná fronta zvuku")
-                }
-                Err(_) => break,
-            }
+            mixer.produce(&output)?;
             work.duration(start.elapsed());
             // Deadline posuneme přesně o rámec, nikdy nepřeskočíme časovou osu.
             deadline += step;
             if report.elapsed() >= Duration::from_secs(30) {
-                let timing = json!({"stage":"mix", "mixStart":gaps.take(), "tickDelay":delays.take(), "mixWork":work.take()});
+                let timing = json!({"stage":"mix", "mode":"thread", "mixStart":gaps.take(), "tickDelay":delays.take(), "mixWork":work.take()});
                 tracing::info!(audio_timing = %timing, "Samostatný producent za 30 s");
                 report = Instant::now();
             }
@@ -1115,8 +1215,9 @@ async fn connected(
             },
             scheduled = tick.tick() => {
                 let mix_start = Instant::now();
-                mix_gaps.gap(mix_start);
                 let lateness = scheduled.elapsed();
+                downlink.tick(mix_start, lateness, !deafen && con.can_receive_audio())?;
+                mix_gaps.gap(mix_start);
                 tick_delays.duration(lateness);
                 if lateness > Duration::from_millis(80) {
                     tracing::debug!(tick_delay_ms = lateness.as_millis(), "Zpožděný takt zvuku");
@@ -1128,9 +1229,9 @@ async fn connected(
                 }
                 let stopped: Vec<_> = talking.iter().filter(|(_,t)| t.elapsed() > Duration::from_millis(300)).map(|(id,_)| *id).collect();
                 for id in stopped { talking.remove(&id); json_send(ws,json!({"type":"talking","client":id.0,"active":false})).await?; }
-                downlink.enabled(!deafen && con.can_receive_audio())?;
                 mix_work.duration(mix_start.elapsed());
                 if source_report.elapsed() >= Duration::from_secs(30) {
+                    downlink.report();
                     source_arrivals.retain(|_, at| at.elapsed() < Duration::from_secs(30));
                     let timing = json!({"stage":"source", "tsIncoming":source_gaps.take(), "sessionTick":mix_gaps.take(),
                         "tickDelay":tick_delays.take(), "sessionWork":mix_work.take(), "eventPoll":event_poll.take(),
@@ -1200,6 +1301,53 @@ mod tests {
         }
     }
     #[tokio::test(flavor = "current_thread")]
+    async fn inline_producer_catches_up_without_skipping_frames() {
+        for codec in ["pcm", "opus"] {
+            let options = AudioOptions {
+                codec: codec.into(),
+                version: 1,
+                ..Default::default()
+            };
+            let (output, mut frames) = mpsc::channel(16);
+            let mut producer = Downlink::new(&options, output).unwrap();
+            assert!(matches!(producer, Downlink::Inline(_)));
+            let mut timer = interval(Duration::from_millis(20));
+            timer.set_missed_tick_behavior(MissedTickBehavior::Burst);
+            let first = timer.tick().await;
+            // Záměrná prodleva: po návratu musí přijít všech šest rámců
+            // pro termíny 0, 20, 40, 60, 80 a 100 ms, s nepřerušeným pořadím.
+            std::thread::sleep(Duration::from_millis(110));
+            for i in 0..6u32 {
+                let scheduled = if i == 0 {
+                    first
+                } else {
+                    timeout(Duration::from_millis(10), timer.tick())
+                        .await
+                        .unwrap()
+                };
+                assert_eq!(
+                    scheduled.duration_since(first),
+                    Duration::from_millis(u64::from(i) * 20)
+                );
+                producer
+                    .tick(Instant::now(), scheduled.elapsed(), true)
+                    .unwrap();
+                let (Message::Binary(frame), _) = frames.try_recv().unwrap() else {
+                    panic!("Chybí audio rámec")
+                };
+                if codec == "opus" {
+                    assert_eq!(frame[0], 4);
+                    assert_eq!(u32::from_le_bytes(frame[1..5].try_into().unwrap()), i);
+                    assert!(frame.len() > 5);
+                } else {
+                    assert_eq!(frame[0], 2);
+                    assert_eq!(frame.len(), 1921);
+                }
+            }
+            assert!(frames.try_recv().is_err());
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
     async fn producer_keeps_ticking_while_async_runtime_is_blocked() {
         for codec in ["pcm", "opus"] {
             let options = AudioOptions {
@@ -1208,7 +1356,7 @@ mod tests {
                 ..Default::default()
             };
             let (output, mut frames) = mpsc::channel(16);
-            let producer = Downlink::new(&options, output).unwrap();
+            let producer = ThreadDownlink::new(&options, output).unwrap();
             let (_, first) = timeout(Duration::from_secs(2), frames.recv())
                 .await
                 .unwrap()
