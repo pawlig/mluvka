@@ -124,7 +124,7 @@ tyto dva PLC čítače je nezahrnují.
 | --------------- | ------------------------------------- | ------------------------------- |
 | `bad_password`  | Heslo serveru nebo kanálu             | ne                              |
 | `banned`        | TS `ConnectFailedBanned` (0x0d01)     | ne                              |
-| `flood`         | TS `BanFlooding` / `ClientIsFlooding` | nejdříve za 120 s               |
+| `flood`         | TS handshake `BanFlooding` / `ConnectFloodPrevention` | nejdříve za 120 s               |
 | `not_allowed`   | Nepovolený server / oprávnění         | ne                              |
 | `invalid`       | Neplatné údaje či protokol            | ne                              |
 | `nickname`      | Obsazená či odmítnutá přezdívka       | ano                             |
@@ -194,7 +194,7 @@ s textem před značkou. TS3 a Mluvka zobrazí náhled, chování nativních TS5
 Aplikační TS příkazy čekají ve frontě (nejvýše 128 na relaci). Sdílený token bucket pro cílovou
 IP:port má burst 20 a `TS_CMD_RATE` příkazů/s (výchozí 5). Navázání včetně nového pokusu po
 zvýšení identity respektuje `TS_CONNECT_INTERVAL_MS` (výchozí 3000) a nejvýše 3 handshaky za 45 s. `connect_queue` notice vysvětluje čekání.
-`BanFlooding` / `ClientIsFlooding` a explicitní handshake `flood prevention` spustí 120s pauzu pro celý cíl; existující relace dostanou `flood`,
+Odmítnutí handshake `BanFlooding` a explicitní `flood prevention` spustí 120s pauzu pro celý cíl; existující relace dostanou `flood`,
 přestanou posílat příkazy a po pauze se připojují postupně. V debug logu je `ts_command` a kumulativní
 `count` podle cíle a druhu příkazu; `client` a `session_count` rozlišují jednotlivá připojení. Hodnoty argumentů se nelogují. Interní handshake knihovny není aplikační příkaz.
 Chat/poke obsahuje navíc volitelné `uid` odesílatele; klient ho uchovává u zprávy i po odchodu uživatele.
@@ -204,3 +204,5 @@ U hlasového handshake TS3 používá také kód 0x0d01 s `extra_message` přesn
 enum (žádný cizí text). Backend normalizuje tuto jednoznačnou dočasnou chybu na flood/0x0d03;
 v logu zachová `wire_code=0x0d01`. Ostatní 0x0d01 jsou nadále trvalé bany. Zdroj a rozdíly
 lokální kopie: `vendor/tsclientlib/MLUVKA-PATCH.md`.
+
+Příkazový `ClientIsFlooding` (0x020c) živou relaci neukončí: fronta cíle vyčká 5 s a odmítnutý příkaz opakuje. Klient dostane `command_slow`. Příkazy se potvrzují postupně; lokální bodový rozpočet (burst 60, obnova 5 bodů/s) tlumí delší série zpráv vedle společného limitu počtu příkazů.

@@ -268,6 +268,7 @@ struct AttemptBudget {
     next_connect: Option<Instant>,
     connects: VecDeque<Instant>,
     blocked_until: Option<Instant>,
+    commands_after: Option<Instant>,
     tokens: f64,
     updated: Instant,
     counts: HashMap<String, u64>,
@@ -278,6 +279,7 @@ impl Default for AttemptBudget {
             next_connect: None,
             connects: VecDeque::new(),
             blocked_until: None,
+            commands_after: None,
             tokens: 20.0,
             updated: Instant::now(),
             counts: HashMap::new(),
@@ -315,7 +317,7 @@ impl AttemptBudget {
         None
     }
     fn command(&mut self, now: Instant, rate: f64) -> bool {
-        if self.pause(now).is_some() {
+        if self.pause(now).is_some() || self.commands_after.is_some_and(|until| until > now) {
             return false;
         }
         self.tokens = (self.tokens
@@ -343,14 +345,49 @@ fn block_flood(addr: SocketAddr) {
     budget.updated = budget.blocked_until.expect("flood pause");
     tracing::warn!(server = %addr, pause_seconds = 120, "Sdílená antiflood pauza");
 }
+// Příkazový flood je odmítnutý příkaz, nikoli ztracené TS spojení.
 fn is_flood(error: &tsclientlib::Error) -> bool {
-    ts_variant(error).1.is_some_and(|c| {
-        matches!(
-            c,
-            tsproto_types::errors::Error::BanFlooding
-                | tsproto_types::errors::Error::ClientIsFlooding
-        )
-    })
+    ts_variant(error).0 != "CommandError"
+        && ts_variant(error).1 == Some(tsproto_types::errors::Error::BanFlooding)
+}
+fn slow_commands(addr: SocketAddr) {
+    let mut all = budgets().lock().expect("budgets");
+    let budget = all.entry(addr).or_default();
+    budget.commands_after = Some(Instant::now() + Duration::from_secs(5));
+    budget.tokens = 0.0;
+    budget.updated = budget.commands_after.expect("command pause");
+    tracing::warn!(server = %addr, code = "0x020c", pause_seconds = 5, "Zpomalení fronty příkazů, TS relace pokračuje");
+}
+// TS účtuje body za příkaz, nikoli jen počet paketů. Konzervativní lokální
+// rozpočet ponechá rezervu pod výchozími 150 body a rozpouští dlouhé série chatu.
+struct CommandPoints {
+    available: f64,
+    updated: Instant,
+}
+impl CommandPoints {
+    fn new(now: Instant) -> Self {
+        Self {
+            available: 60.0,
+            updated: now,
+        }
+    }
+    fn cost(name: &str) -> f64 {
+        match name {
+            "channelsubscribeall" | "clientmove" => 25.0,
+            "clientupdate" => 5.0,
+            _ => 10.0,
+        }
+    }
+    fn ready(&mut self, now: Instant, name: &str) -> bool {
+        self.available = (self.available
+            + now.saturating_duration_since(self.updated).as_secs_f64() * 5.0)
+            .min(60.0);
+        self.updated = now;
+        self.available >= Self::cost(name)
+    }
+    fn spend(&mut self, name: &str) {
+        self.available -= Self::cost(name);
+    }
 }
 fn server_paused(addr: SocketAddr) -> bool {
     budgets()
@@ -618,6 +655,7 @@ async fn session(
     }
     tokio::select! {
         result = wait_budget(ws, addr) => result?,
+        _ = superseded.changed() => return Ok(()),
         _ = shutdown.changed() => {
             let _ = json_send(ws, json!({"type":"notice", "code":"server_restart", "message":"Mluvka se aktualizuje — připojuji znovu…"})).await;
             return Ok(());
@@ -687,7 +725,7 @@ async fn session(
                 }
             }
             Some(Err(e)) => {
-                if ts_variant(&e).1.is_some_and(|c| matches!(c, tsproto_types::errors::Error::BanFlooding | tsproto_types::errors::Error::ClientIsFlooding)) { block_flood(addr); }
+                if is_flood(&e) { block_flood(addr); }
                 let _ = ts_error(&e);
                 if !renamed && is_nickname_error(&e) {
                     renamed = true;
@@ -831,7 +869,9 @@ async fn connected(
     let mut restore_nickname = restore_nickname;
     let mut nickname_attempts = 0u32;
     let mut nickname_after = Instant::now() + Duration::from_secs(10);
-    let mut pending = HashMap::new();
+    let mut pending: HashMap<_, (Instant, OutCommand)> = HashMap::new();
+    let mut points = CommandPoints::new(Instant::now());
+    let mut slowing = false;
     let mut command_counts = HashMap::new();
     let mut rate_start = Instant::now();
     let (mut control_count, mut audio_count) = (0, 0);
@@ -924,11 +964,20 @@ async fn connected(
                         if !deafen && !pref.1 { let _ = audio.handle_packet(from,packet); if let Some(q) = audio.get_mut_queues().get_mut(&from) { q.volume = pref.0; } }
                     },
                     Some(Ok(StreamItem::MessageResult(handle, result))) => {
-                        pending.remove(&handle);
+                        let sent = pending.remove(&handle);
                         if let Err(e) = result {
                             let error = tsclientlib::Error::CommandError(e);
-                            if is_flood(&error) { block_flood(addr); return Err(ts_error(&error)); }
-                            json_send(ws,error_message(&ts_error(&error), false)).await?;
+                            if ts_variant(&error).1.is_some_and(|code| matches!(code, tsproto_types::errors::Error::ClientIsFlooding | tsproto_types::errors::Error::BanFlooding)) {
+                                let _ = ts_error(&error);
+                                slow_commands(addr);
+                                points.available = 0.0;
+                                if let Some((_, cmd)) = sent { commands.push_front(cmd); }
+                                slowing = true;
+                                json_send(ws,json!({"type":"notice", "code":"command_slow", "message":"Odesílám pomaleji, server omezuje počet zpráv"})).await?;
+                            } else { json_send(ws,error_message(&ts_error(&error), false)).await?; }
+                        } else if slowing && commands.is_empty() {
+                            slowing = false;
+                            json_send(ws,json!({"type":"notice", "code":"command_ready", "message":"Zprávy byly odeslány."})).await?;
                         }
                     },
                     Some(Ok(StreamItem::DisconnectedTemporarily(reason))) => {
@@ -944,14 +993,16 @@ async fn connected(
                 if server_paused(addr) {
                     return Err(FLOOD_MESSAGE.into());
                 }
-                if let Some(cmd) = commands.front() {
+                if pending.is_empty() && let Some(cmd) = commands.front() {
                     let name = String::from_utf8_lossy(cmd.0.content()).split(' ').next().unwrap_or("unknown").to_owned();
                     let count = command_counts.get(&name).copied().unwrap_or(0) + 1;
-                    if command_slot(addr, &name, own_client, count) {
+                    if points.ready(Instant::now(), &name) && command_slot(addr, &name, own_client, count) {
+                        points.spend(&name);
                         command_counts.insert(name, count);
                         let cmd = commands.pop_front().expect("queued command");
+                        let retry = OutCommand(cmd.0.clone());
                         let handle = cmd.send_with_result(con).map_err(|e| ts_error(&e))?;
-                        pending.insert(handle, Instant::now());
+                        pending.insert(handle, (Instant::now(), retry));
                     }
                 }
                 let lateness = scheduled.elapsed();
@@ -988,7 +1039,7 @@ async fn connected(
                 // Burst musí pustit writer mezi doháněnými rámci. Jinak plní
                 // vlastní lokální frontu rychleji, než může proběhnout její čtenář.
                 if lateness >= Duration::from_millis(20) { tokio::task::yield_now().await; }
-                if pending.values().any(|t| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
+                if pending.values().any(|(t, _)| t.elapsed() > Duration::from_secs(10)) { pending.clear(); json_send(ws,error_message("Server včas nepotvrdil požadavek.", false)).await?; }
             },
             _ = heartbeat.tick() => {
                 if last_pong.elapsed() >= BROWSER_TIMEOUT { return Err("Prohlížeč přestal odpovídat.".into()); }
@@ -1021,6 +1072,22 @@ fn soft_limit(x: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn command_flood_does_not_disconnect_and_points_limit_bursts() {
+        let err = tsclientlib::Error::CommandError(tsclientlib::CommandError {
+            error: tsproto_types::errors::Error::ClientIsFlooding,
+            missing_permission: None,
+        });
+        assert!(!is_flood(&err));
+        let now = Instant::now();
+        let mut points = CommandPoints::new(now);
+        for _ in 0..6 {
+            assert!(points.ready(now, "sendtextmessage"));
+            points.spend("sendtextmessage");
+        }
+        assert!(!points.ready(now, "sendtextmessage"));
+        assert!(points.ready(now + Duration::from_secs(2), "sendtextmessage"));
+    }
     #[test]
     fn backend_budget_and_flood_are_shared_and_bounded() {
         let now = Instant::now();

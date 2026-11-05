@@ -528,6 +528,44 @@ export async function floodRecoveryChecks({
     );
     await Promise.all(pages.slice(0, 2).map((page) => ready(page)));
     await wait(500); // Dokončit úvodní subscribe, testujeme flood dalšího handshake.
+    const original = await pages[0].evaluate(() => window.regSockets.length);
+    const originalClient = await selfId(pages[0]);
+    const commandStart = backendLog().length;
+    await query.cmd(
+      "serveredit virtualserver_antiflood_points_needed_command_block=1 virtualserver_antiflood_points_needed_ip_block=10000",
+    );
+    await control(pages[0], {
+      type: "chat",
+      target: "channel",
+      text: "fronta-po-command-floodu",
+    });
+    await expect
+      .poll(() => backendLog().slice(commandStart), { timeout: 15000 })
+      .toContain('code="0x020c"');
+    await expect(
+      pages[0].getByText("Odesílám pomaleji, server omezuje počet zpráv", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await ready(pages[0]);
+    await query.cmd(
+      "serveredit virtualserver_antiflood_points_needed_command_block=150 virtualserver_antiflood_points_needed_ip_block=250",
+    );
+    await expect(
+      pages[1]
+        .locator(".message")
+        .filter({ hasText: "fronta-po-command-floodu" }),
+    ).toHaveCount(1, { timeout: 20000 });
+    expect(await selfId(pages[0])).toBe(originalClient);
+    expect(await pages[0].evaluate(() => window.regSockets.length)).toBe(
+      original,
+    );
+    expect(backendLog().slice(commandStart)).not.toContain(
+      "Sdílená antiflood pauza",
+    );
+    ok(
+      "Příkazový flood 0x020c: odmítnutá zpráva doručena právě jednou po zpomalení; stejný WS a TS klient",
+    );
     // TS3 vrací na handshake 0x0d01 + explicitní marker flood prevention.
     // Třetí pokus musí pozastavit i dvě už běžící relace (normalizace na 0x0d03).
     await query.cmd(

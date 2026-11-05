@@ -330,7 +330,7 @@ na cíl. Samotné 3 s při měření na TS3 3.13.7 vedly k odmítnutí páté re
 TS3 používá pro handshake flood i `0x0d01` s přesným doplňkem `flood prevention, please try again later`.
 Lokální oprava tsclientlib zachová tento bezpečný příznak (upstream doplněk zahazoval).
 Backend jej zařadí jako flood `0x0d03`, v logu uvede i původní `wire_code=0x0d01`.
-Skutečný ban bez tohoto přesného příznaku zůstává trvalý. Při flood chybě všechny relace k cíli přeruší příkazy a připojení na 120 s; potom
+Skutečný ban bez tohoto přesného příznaku zůstává trvalý. Při odmítnutí handshake všechny relace k cíli přeruší příkazy a připojení na 120 s; potom
 se vracejí postupně. Pro diagnostiku nastavte `RUST_LOG=mluvka=debug`: `ts_command`
 a `count` měří aplikační příkazy podle druhu a cíle, `client` a `session_count` po připojeních.
 Argumenty s osobními údaji se nelogují.
