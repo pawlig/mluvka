@@ -272,7 +272,8 @@ aby stará PWA cache nemíchala nový klient se starým přehrávačem. Neobsahu
 
 Na čistém desktopu začíná cíl bufferu na 70 ms (60 ms + půl rámce); při výpadku vzroste podle naměřené
 mezery nejvýše na 150 ms. Mobil začíná s rezervou 320 ms. Cíl se snižuje o 2 ms/s
-podle p95 za posledních 10 s, takže jej nedrží vysoko jednotlivé špičky. Dekodér zpracovává
+podle p95 za posledních 10 s. Mobil při trvajícím dávkování (p95 >40 ms)
+naučenou rezervu drží; po zklidnění opět pomalu klesá. Dekodér zpracovává
 přijaté pakety ihned ve Workeru a posílá PCM přímo do workletu přes MessagePort.
 PLC se použije pro prokázanou díru v pořadí, nikoli pro pouhé opoždění TCP.
 Aktuální výsledky jsou v [ověření audia](docs/overeni-audia.md).

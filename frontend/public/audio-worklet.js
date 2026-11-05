@@ -61,11 +61,19 @@ class MluvkaAudio extends AudioWorkletProcessor {
     this.outputSamples = 0;
     this.maxJump = 0;
     this.previousOutput = 0;
+    this.tracePlayback = false;
+    this.traceFrames = [];
     const receive = (data) => {
       if (data.codecPort) {
         this.codecPort?.close();
         this.codecPort = data.codecPort;
         this.codecPort.onmessage = ({ data }) => receive(data);
+      }
+      if (typeof data.tracePlayback === "boolean") {
+        if (!data.tracePlayback && this.traceFrames.length)
+          this.port.postMessage({ playbackTrace: this.traceFrames });
+        this.traceFrames = [];
+        this.tracePlayback = data.tracePlayback;
       }
       if (data.pcm) {
         if (this.arrival !== undefined) {
@@ -80,6 +88,10 @@ class MluvkaAudio extends AudioWorkletProcessor {
         this.playResampler.push(new Int16Array(data.pcm), (v) => {
           this.ring[this.write++ % this.ring.length] = v / 32768;
         });
+        if (this.tracePlayback) this.traceFrames.push([
+          this.clock / sampleRate * 1000, (this.write - this.read) / sampleRate * 1000,
+          this.target / sampleRate * 1000, this.correction * 100,
+        ]);
         if (this.write - this.read > Math.max(sampleRate * 0.8, this.target + sampleRate * 0.4)) {
           const skipped = this.write - this.target - this.read;
           this.read = this.write - this.target;
@@ -93,6 +105,16 @@ class MluvkaAudio extends AudioWorkletProcessor {
         if (data.settings.mobile && !this.started) this.target = sampleRate * 0.32;
       }
       if (data.resetMetrics) {
+        this.port.postMessage({
+          metricsResetAtMs: this.clock / sampleRate * 1000,
+          // Jen testovací časová stopa; žádné vzorky ani obsah ring bufferu.
+          playbackState: this.tracePlayback ? {
+            sampleRate, clock: this.clock, read: this.read, write: this.write,
+            target: this.target, filtered: this.filtered, integral: this.integral,
+            correction: this.correction, playing: this.playing, started: this.started,
+            arrival: this.arrival, adaptAt: this.adaptAt, gaps: this.gaps,
+          } : undefined,
+        });
         this.maxJump = 0;
         this.outputEnergy = 0;
         this.outputSamples = 0;
@@ -175,7 +197,10 @@ class MluvkaAudio extends AudioWorkletProcessor {
       this.target = Math.max(this.target, desired);
       // P95 posledních 10 s dovolí pokles i při jednotlivých odlehlých mezerách.
       // Pokles o 2 ms/s nezkracuje ani nezahazuje celé rámce.
-      this.target = Math.max(desired, this.target - sampleRate * 0.002);
+      // Mobilní p95 nad 40 ms znamená trvající dávkování. Naučenou rezervu
+      // v něm nesnižujeme mezi jednotlivými 400ms mezerami.
+      if (!this.mobile || p95 <= sampleRate * 0.04)
+        this.target = Math.max(desired, this.target - sampleRate * 0.002);
     }
     this.filtered +=
       (this.write - this.read - this.filtered) * (1 - Math.exp(-seconds));
@@ -214,7 +239,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
             const gap = this.arrival === undefined ? 0 : this.clock - this.arrival;
           this.target = this.mobile ? this.bufferLimit()
             : Math.min(this.bufferLimit(), Math.max(this.target, gap + sampleRate * 0.04));
-          this.port.postMessage({ underrun: true });
+          this.port.postMessage({ underrun: true, playbackAtMs: this.clock / sampleRate * 1000 });
         }
         sample = this.tail * Math.max(0, 1 - ++this.fade / ramp);
       }
@@ -235,6 +260,7 @@ class MluvkaAudio extends AudioWorkletProcessor {
     // prokázanou díru v pořadí; jinak by pozdější hlas nahradilo umělé ticho.
     if (this.clock % sampleRate < output.length)
       this.port.postMessage({
+        playbackTrace: this.tracePlayback ? this.traceFrames.splice(0) : undefined,
         stats: {
           workletVersion: this.workletVersion,
           renderQuantum: output.length,
