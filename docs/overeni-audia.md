@@ -10,7 +10,7 @@ Build bez `.git` přijme `VITE_BUILD_COMMIT`; jinak zobrazí `unknown`. Hash wor
 
 ## Kde vznikaly mezery
 
-`TCP_NODELAY` byl zapnutý již v 81110d7. Writer používá `SinkExt::send` s flushem po každém rámci a běží mimo pollování TS; mix používá Burst. V prvním 30s okně s Opus tónem měl producent mezeru **120,108 ms**, WS writer **120,071 ms** a klient **120,20 ms**. Dekódování mělo průměr 0,14 ms / maximum 7,10 ms; dlouhé úlohy JS se v tomto okně neobjevily. V tomto konkrétním případě proto prodleva vznikla již před zařazením do WS fronty, nikoli čekáním na flush nebo pomalým dekodérem. Měření nerozlišuje plánování OS od práce uvnitř relace. Přetížený lokální počítač není měření produkčního CPU. [Původní data](audio-prvni-mereni.json).
+`TCP_NODELAY` byl zapnutý již v 81110d7. Writer používá `SinkExt::send` s flushem po každém rámci a běží mimo pollování TS; mix používá Burst. V prvním 30s okně s Opus tónem měl producent mezeru **120,108 ms**, WS writer **120,071 ms** a klient **120,20 ms**. Dekódování mělo průměr 0,14 ms / maximum 7,10 ms; dlouhé úlohy JS se v tomto okně neobjevily. V tomto konkrétním případě proto prodleva vznikla již před zařazením do WS fronty, nikoli čekáním na flush nebo pomalým dekodérem. Měření nerozlišuje plánování OS od práce uvnitř relace. Přetížený lokální počítač není měření produkčního CPU. [Původní data](audio-historie-souhrn.json).
 
 PWA měla navíc samostatné riziko: navigace bere nový index ze sítě, zatímco stávající SW vrací konstantní `/audio-worklet.js` ze staré cache. Nový klient tak mohl použít starý přehrávač. Worklet se nyní načítá z `/audio-worklet.js?v=<hash obsahu>`; SW přednačte i tento klíč a diagnostika uvádí skutečný i očekávaný hash. E2E vloží neplatný starý skript do neversionované cache, ověří jeho přítomnost a přesto spustí nový worklet. U Pavlova fyzického telefonu tato příčina zatím potvrzena není.
 
@@ -62,7 +62,7 @@ Backend každých 30 s loguje pouze číselné histogramy producenta/writeru, č
 | opus | 15 | 159.19 | 161.89 | 2.89 |
 | pcm | 15 | 36.42 | 36.12 | 10.07 |
 
-Předchozí zatížený běh [audio-zatez-600ms.json](audio-zatez-600ms.json) měl 187/188 OK: mobilní Opus při vstupní mezeře 612 ms a výstupní 625 ms podtekl 5× a nouzově srovnal frontu 4×. Není nahrazen ani vydáván za úspěch. Následovala oprava nouzové meze a opakování stejných řízených podmínek. Cíl 320 ms nemůže obecně garantovat nepřerušený hlas při libovolně dlouhé pauze zdroje; skutečné produkční mezery musí doložit diagnostika telefonu a anonymní backend log.
+Předchozí zatížený běh [souhrn zatíženého běhu](audio-historie-souhrn.json) měl 187/188 OK: mobilní Opus při vstupní mezeře 612 ms a výstupní 625 ms podtekl 5× a nouzově srovnal frontu 4×. Není nahrazen ani vydáván za úspěch. Následovala oprava nouzové meze a opakování stejných řízených podmínek. Cíl 320 ms nemůže obecně garantovat nepřerušený hlas při libovolně dlouhé pauze zdroje; skutečné produkční mezery musí doložit diagnostika telefonu a anonymní backend log.
 
 ## Další audio regrese
 
@@ -92,3 +92,5 @@ Všechny zaznamenané důvody odpojení při SIGTERM byly clientdisconnect (8); 
 - `prohlizec kontrola http://localhost:3187 docs/kontrola-diagnostiky`: exit 0, tři varianty, 0 px přesah a žádné JS/konzolové chyby. Nadpis i hodnoty panelu mají ověřených 16 px. [Souhrn](kontrola-diagnostiky/souhrn.json).
 
 Neověřeno: postižený fyzický telefon (iOS/Android, PWA, Bluetooth a skutečný audio výstup), Martinův klient a produkční Easypanel. Zde běžel lokální TS3 3.13.7 a izolovaný Chrome. Docker build podle zadání nebyl spuštěn. Před nasazením mimo gitový strom musí orchestrátor předat hash buildu, pokud má kopie uvádět i přesný commit celé aplikace. Jen lokální commity na vyvoj, bez pushe.
+
+Doklady vzhledu: [desktopový panel](kontrola-diagnostiky/panel-desktop.png), [mobilní panel](kontrola-diagnostiky/panel-mobil.png), živá diagnostika E2E [Opus](screenshots/diagnostika-mobil-opus.png) / [PCM](screenshots/diagnostika-mobil-pcm.png). Surové historické výpisy nahradil číselný souhrn; duplicitní screenshoty byly odstraněny.

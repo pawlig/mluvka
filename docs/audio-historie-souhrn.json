@@ -1,0 +1,84 @@
+[
+  {
+    "date": "2026-11-05T00:46:41.780Z",
+    "note": "První měření diagnostiky před opravou PI regulátoru. Mobilní shaper ještě neopakoval prodlevy při trvalé latenci, jeho mobilní výsledky nejsou přejímka požadovaného jitteru. Čistý tón a histogramy backendu jsou platné.",
+    "results": [
+      {
+        "test": "TS3 tón 440 Hz / opus, 30 s bez podtečení",
+        "result": "FAIL",
+        "underruns": 1,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "binaryGapMs": 120.19999980926514,
+        "path": "native",
+        "maxJump": 0.015198150649666786,
+        "minBufferMs": 70.73559460510054,
+        "maxBufferMs": 194.65768962836592,
+        "dominantHz": 439.453125,
+        "rmsDifferenceDb": -0.03444489630019877,
+        "maxDownKbps": 99.87602481408702,
+        "targetBufferMs": 162.66666666666666,
+        "runCodec": "opus"
+      },
+      {
+        "test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení",
+        "result": "OK",
+        "underruns": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "binaryGapMs": 34.299999713897705,
+        "path": "native",
+        "maxJump": 0.0683616828173399,
+        "minBufferMs": 57.67768504517638,
+        "maxBufferMs": 58.48924903518006,
+        "dominantHz": 439.453125,
+        "rmsDifferenceDb": 0.0006469619913940639,
+        "maxDownKbps": 776.6230679232353,
+        "targetBufferMs": 61.33333333333333,
+        "runCodec": "pcm"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-05T01:08:17.713Z",
+    "note": "Měření c264ec4 se skutečně opakovaným jitterem. Jediný neúspěch: mobilní Opus při více než 600ms mezeře zdroje. Starý droppedFrames v tomto reportu počítá nouzová srovnání fronty, nikoli počet 20ms rámců.",
+    "results": [
+      {
+        "test": "TS3 tón 440 Hz / opus, 30 s bez podtečení",
+        "result": "OK",
+        "underruns": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "binaryGapMs": 246,
+        "path": "native",
+        "maxJump": 0.08761190995573997,
+        "minBufferMs": 226.75648165028542,
+        "maxBufferMs": 352.42398985320085,
+        "dominantHz": 439.453125,
+        "rmsDifferenceDb": -0.0559699618087663,
+        "maxDownKbps": 100.95464446498755,
+        "initialTargetBufferMs": 320,
+        "targetBufferMs": 320,
+        "runCodec": "opus"
+      },
+      {
+        "test": "TS3 tón 440 Hz / pcm, 30 s bez podtečení",
+        "result": "OK",
+        "underruns": 0,
+        "plcFrames": 0,
+        "lostFrames": 0,
+        "binaryGapMs": 40.09999990463257,
+        "path": "native",
+        "maxJump": 0.011178934946656227,
+        "minBufferMs": 296.22580445791635,
+        "maxBufferMs": 317.47954138409114,
+        "dominantHz": 439.453125,
+        "rmsDifferenceDb": 0.0036116417745744936,
+        "maxDownKbps": 776.3153724980539,
+        "initialTargetBufferMs": 320,
+        "targetBufferMs": 310,
+        "runCodec": "pcm"
+      }
+    ]
+  }
+]
