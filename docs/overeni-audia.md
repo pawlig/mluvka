@@ -1,6 +1,12 @@
 # Ověření zvuku a producenta — 5. 11. 2026
 
-`npm run e2e`: **196/196 OK, complete: true**, Opus i PCM, oba procesy exit 0. [Strojový report](e2e-vysledky.json), UTC `2026-11-05T04:43:19.902Z`. Frontend `91f5900`, worklet `ce6969f5d146`. Nativní tóny mají výslovně `strictDesktop: true`; naměřený jitter už nemůže přepnout nativní běh na měkčí limit.
+Předchozí úplný běh před navázáním (5): `npm run e2e` — **196/196 OK, complete: true**, Opus i PCM, oba procesy exit 0. [Strojový report](e2e-vysledky.json), UTC `2026-11-05T04:43:19.902Z`. Frontend `91f5900`, worklet `ce6969f5d146`. Nativní tóny mají výslovně `strictDesktop: true`; naměřený jitter už nemůže přepnout nativní běh na měkčí limit.
+
+## Navázání (5): oprava kadence
+
+Zdroj `1ee3daa` vrací výchozí mix jako první práci tiku relace (`Burst`); WS writer zůstává oddělený. Samostatné vlákno je pouze opt-in `MLUVKA_AUDIO_PRODUCER=thread`. Oba režimy sdílejí AudioHandler, limiter a enkodér. Vstupní ztráty volitelné fronty se logují souhrnně po 10 s. Opraveno i odsazení workletu, jeho chování se nemění.
+
+Clippy všech cílů, 13 Rust testů (nově i dohánění šesti rámců po 110ms prodlevě v obou kodecích), release build, typecheck a frontend build prošly. Celý nový E2E čeká na sdílený TS3 zámek; následující čísla zatím popisují předchozí běhy. Nový guard porovnává mixStart a sessionTick ze stejného běhu, vyžaduje oba limity z přejímky a historický nevyhovující report odmítá.
 
 ## Build bez gitových metadat
 
@@ -20,13 +26,22 @@ Původní 120,108ms producent / 120,071ms writer / 120,20ms klient a pozdější
 
 V nejhorším 30s PCM okně nebyl **žádný příchozí TS audio paket**: mezera začátků mixu **82,896 ms**, zpoždění termínu **63,876 ms**, vlastní práce mixu nejvýše **0,751 ms**, poll TS nejvýše **4,830 ms**. Nezávislý Tokio takt měl maximum **75,795 ms**. Prodlevu tedy nezpůsobilo čekání na TS audio, dekódování Opus ani dávkování WS writeru. Jde o opožděné probouzení/plánování runtime; konkrétní OS spouštěč historické 120–160ms špičky zpětně určit nelze. TS API může vykázat současnou mezeru také proto, že se ve stejném runtime opožděně polluje. To samo nedokazuje zpoždění TS serveru nebo sítě.
 
-Mix, AudioHandler (pořadí paketů, Opus PLC), limiter a downlink enkodér nyní vlastní samostatné vlákno na připojenou relaci, omezené MAX_SESSIONS. Má vlastní monotónní 20ms termíny, při zpoždění vytvoří všechny chybějící rámce. Příchozí pakety a řízení přebírá přes omezenou frontu 256 položek; mix neprobíhá pod aplikačním zámkem. Při plné vstupní frontě se ztráta audio paketu řeší PLC v AudioHandleru, řízení se nezahodí: přetížená relace se čistě odpojí. Výstupní fronta WS zůstává 16 rámců, writer samostatný async úkol. Drop relace zastaví producenta; test ověřuje i jeho ukončení bez dalšího TS paketu. Volba dlouhodobého samostatného vlákna odpovídá [doporučení Tokio](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html#when-to-use-spawn_blocking-vs-dedicated-threads).
+V předchozím režimu mix vlastnilo samostatné vlákno na relaci. Absolutní `deadline += 20 ms` už používalo, ale ve skutečném E2E bylo jitterovější než takt relace. Výchozí režim se proto vrací inline do stejného tiku jako údržba relace. Značky mixStart a sessionTick nyní označují stejný vstup do této větve a reportují stejné 30s okno; výpočet mixu se měří zvlášť. Tento návrat neizoluje od opožděného plánování Tokio. Volitelnou izolaci stále ověřuje test blokace runtime; nelze ho vydávat za lepší kadenci běžného provozu.
 
 `TCP_NODELAY` již byl zapnutý, `SinkExt::send` flushuje každý rámec. Tyto mechanismy se neměnily. `Application::Audio`, bitrate, VBR, FEC a complexity 10 zůstávají stejné; uplink Opus se stále nepřekóduje.
 
 ## Histogramy před / po
 
-Součet 30s oken celého běhu, mezery v ms. Počet rámců se liší délkou relací, tichem a prodloužením mobilní zátěže na 120 s; **max p95 je největší p95 jednotlivého okna**, ne percentil spojené distribuce. Výchozí TS API měřilo mezery událostí; nové měření je po mluvčích a vynechává explicitně ukončené proudy. Různě zatížené E2E běhy nejsou řízené A/B; kauzalitu izolace ověřuje následující jednotkový test.
+Přejímka výchozího stavu `1315ecc`, každý pár ze stejného běhu. P95 je největší p95 jednoho 30s okna; 25–50 ms je součet počtů v této třídě, nikoli percentil.
+
+| Kodek před opravou | mixStart p95 ms | sessionTick p95 ms | mix 25–50 ms | relace 25–50 ms | mix tickDelay p95 ms | relace tickDelay p95 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| opus | 28.60 | 23.90 | 2130 | 230 | 9.75 | 6.36 |
+| pcm | 27.19 | 21.95 | 1756 | 29 | 8.92 | 3.72 |
+
+Vlákno tedy v obou kodecích nesplňuje požadavek kadence vůči souběžnému Tokio taktu. Níže je ještě historické srovnání dvou starších, různě zatížených běhů; jeho maxima nejsou maxima tohoto páru z přejímky. Finální měření opraveného režimu se doplní po získání TS3.
+
+Součet 30s oken celého běhu, mezery v ms. Počet rámců se liší délkou relací, tichem a prodloužením mobilní zátěže na 120 s; **max p95 je největší p95 jednotlivého okna**, ne percentil spojené distribuce. Výchozí TS API měřilo mezery událostí; nové měření je po mluvčích a vynechává explicitně ukončené proudy. Různě zatížené E2E běhy nejsou řízené A/B; následující jednotkový test ověřuje pouze izolaci při umělé blokaci runtime.
 
 | Transport / místo | ≤25 | 25–50 | 50–100 | 100–200 | 200–300 | 300–400 | >400 | max p95 okna | maximum |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -50,7 +65,7 @@ Nový anonymní `audio_timing` rozlišuje TS API, celý poll/obsluhu událostí,
 
 Časy výpočtů jsou skutečný uplynulý čas včetně případného přerušení OS, nikoli thread CPU time. Celý nový běh stále obsahuje Opus mezeru producenta 93,03 ms (oproti 57,76 ms ve výchozím běhu), PCM 37,16 ms (oproti 82,89 ms). Samostatný producent tedy není záruka menších OS špiček; doložené zlepšení je izolace od blokovaného Tokio v řízeném testu. Přesný spouštěč zbývající 93ms špičky bez plánovacího profilu neurčujeme.
 
-### Řízené zablokování runtime
+### Řízené zablokování runtime — pouze volitelná větev
 
 `cargo test producer_keeps_ticking -- --nocapture`: jediný Tokio worker se zablokuje na 140 ms. Původní inline interval Burst čeká, nový skutečný producent pokračuje. Histogram má stejné meze jako tabulka výše. Nejde o simulaci TS serveru nebo produkční měření.
 
